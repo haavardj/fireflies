@@ -104,7 +104,7 @@ if __name__ == "__main__":
 
 
     # Create paths to save private keys, notes, and logs.
-    for path in [options.keydir, options.logdir, options.rundir]:
+    for path in [options.keydir, options.logdir, options.rundir,options.cachedir]:
         if not path: continue        
         if not os.path.exists(path):
             os.mkdir(path)
@@ -115,8 +115,8 @@ if __name__ == "__main__":
             print "%s access error.", path
             sys.exit(0)
 
-    if options.cachedir and (not os.path.exists(path)):
-        os.mkdir(path)
+    #if options.cachedir and (not os.path.exists(options.cachedir)):
+    #    os.mkdir(options.cachedir)
 
     # Become a daemon?
     if options.daemon:
