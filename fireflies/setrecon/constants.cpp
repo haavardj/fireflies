@@ -11,7 +11,7 @@
 // Licence: GPL (see LICENSE file).
 //  
 //                
-// $Id: constants.cpp,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+// $Id: constants.cpp,v 1.1.1.1 2006/01/20 12:41:27 haavardj Exp $
 //                
 //====================================================================
 

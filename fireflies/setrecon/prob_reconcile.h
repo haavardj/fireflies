@@ -11,7 +11,7 @@
 // Licence: GPL (see LICENSE file).
 //  
 //                
-// $Id: prob_reconcile.h,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+// $Id: prob_reconcile.h,v 1.1.1.1 2006/01/20 12:41:27 haavardj Exp $
 //                
 //====================================================================
 
