@@ -1,0 +1,86 @@
+#!/usr/bin/python
+
+"""Script for generating Fireflies CA keys."""
+
+from fireflies import members, cert
+from optparse import OptionParser
+import os.path, sys, pickle, socket
+from Crypto.PublicKey import RSA
+
+defaultConfig = {
+    'RSA_SIZE': 1024,
+    'NUM_GOSSIPRINGS': 9,
+    'T': 6,
+    'PMISTAKE': 0.001,
+    'TMIN': 3,
+    'SMOOTHING': 0.999,
+    'REBUTTAL_TIME': 900,
+    'GOSSIPROUNDTIME': 60,
+    'PINGROUNDTIME': 30  
+    }
+
+parser = OptionParser(usage="%prog [options] <group name>")
+parser.add_option("-o", "--output", dest="path", 
+                  help="Write certificates to PATH. Defaults to working directory.", default="./")
+
+d = defaultConfig['RSA_SIZE']
+parser.add_option("-r", "--rsasize", metavar="SIZE", dest="rsasize", type="int", default=d,
+                  help="RSA key size. Default=%d"%d)
+
+d = defaultConfig['T']
+parser.add_option("-t", metavar="NUMBER", dest="t", type="int", default=d,
+                  help="T is choosen such that any random set of T+1 member contains at least one correct member with high propability. Default=%d"%d)
+
+d = defaultConfig['NUM_GOSSIPRINGS']
+parser.add_option("-g", "--grings", metavar="NUMBER", dest="grings", type="int", default=d,
+                  help="Number of gossip rings. Default=%d"%d)
+
+d = defaultConfig['PMISTAKE']
+parser.add_option("--pmistake", metavar="PROB", dest="pmistake", type="float", default=d,
+                  help="Probability of making a pinging mistake. Default=%f"%d) 
+
+d = defaultConfig['TMIN']
+parser.add_option("--tmin", metavar="PINGS", dest="tmin", type="int", default=d,
+                  help="Minimum number of lost pings before accusing. Default=%d"%d)
+
+d = defaultConfig['SMOOTHING']
+parser.add_option("--smoothing", metavar="FACTOR", dest="smoothing", type="float", default=d, 
+                  help="Smoothing FACTOR. Default=%f"%d)
+
+d = defaultConfig['REBUTTAL_TIME']
+parser.add_option("--rebuttaltime", metavar="SECONDS", dest="rebuttaltime", type="float", default=d, 
+                  help="Accusatin rebuttal time. Default=%d"%d)
+
+d = defaultConfig['GOSSIPROUNDTIME']
+parser.add_option("--grate", metavar="SECONDS", dest="grate", type="float", default=d,
+                  help="Gossip interval. Default=%f"%d)
+
+d = defaultConfig['PINGROUNDTIME']
+parser.add_option("--prate", metavar="SECONDS", dest="prate", type="float", default=d,
+                  help="Ping interval. Default=%d"%d)
+
+(options, args) = parser.parse_args()
+
+defaultConfig = {
+    'RSA_SIZE': options.rsasize,
+    'NUM_GOSSIPRINGS': options.grings,
+    'T': options.t,
+    'PMISTAKE': options.pmistake,
+    'TMIN': options.tmin,
+    'SMOOTHING': options.smoothing,
+    'REBUTTAL_TIME': options.rebuttaltime,
+    'GOSSIPROUNDTIME': options.grate,
+    'PINGROUNDTIME': options.prate  
+    }
+
+
+if len(args) != 1:
+    print parser.print_help()
+    sys.exit()
+    
+
+cakey = None
+cakey = cert.CAKey(args[0], defaultConfig, options.rsasize)
+cacert = cakey.getCertificate()
+pickle.dump(cakey, file(os.path.join(options.path, args[0]+"CA.key" ), "w"))
+pickle.dump(cacert, file(os.path.join(options.path, args[0]+"CA.crt"), "w"))

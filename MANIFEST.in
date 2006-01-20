@@ -1,0 +1,1 @@
+recursive-include fireflies/web *.html *.css
