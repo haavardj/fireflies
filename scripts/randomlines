@@ -1,0 +1,20 @@
+#!/usr/bin/python
+
+"""Picks out and prints the given number of random lines from the input file.
+"""
+import sys, random
+
+if len(sys.argv) != 3:
+	print "Usage:  <num lines> <infile>" %(sys.argv[0])
+	sys.exit(0)
+	
+num = int(sys.argv[1])
+l1 = file(sys.argv[2]).readlines()
+l1 = map(lambda x: x.strip(), l1)
+rl = []
+while len(rl) < num:
+    c = random.choice(l1)
+    if c not in rl: rl.append(c)
+    
+for h in rl:
+    print h

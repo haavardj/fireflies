@@ -1,0 +1,136 @@
+body {
+	background-color: #E9E9FF;
+	color: black;
+	font-size: 11pt;
+	font-family: arial,verdana;
+}
+
+#menu {
+	font-size: 120%;
+	margin: 10px;
+}
+
+a {  
+	text-decoration: none;
+}
+a:hover {
+	color: red;
+}
+
+h1 {
+  background-color: #B4ACBF;
+	border-top: 1px solid black;
+	border-bottom: 1px solid black;
+}
+
+.ring {
+	display: inline-table;
+	border-right: 2px solid black;
+	border-left: 2px solid black;
+	margin: 0px 10px 10px 15px;
+}
+
+.peerlist {
+ background-color: #F0E6FF;
+ display: inline-table;
+ width: 100%;
+ white-space: nowrap;
+}
+
+.peerlist caption{
+  background-color: #F0E6FF;
+	text-align: left;
+}
+
+
+.box {
+	color: black;
+	border: 1px solid #787380;
+	margin: 1px;
+}
+
+.graph {
+	color: black;
+	text-align: center;
+	background-color: #F0E6FF;
+	border: 1px solid #787380;
+	margin: 1px;
+}
+.graph h3 {
+text-align: left;
+background-color: #B4ACBF;
+margin: 0;
+padding: 2px;
+}
+
+
+.box h3 {
+text-align: center;
+background-color: #B4ACBF;
+margin: 0;
+padding: 2px;
+}
+
+
+.nabox {
+	width: 1em;
+}
+
+span.livebox, span.accusedbox, span.failedbox, 
+span.correctbox, span.activebox, span.passivebox {
+	padding-left: 10px;
+}
+
+.livebox {
+	color: green;
+	background-color: green;
+	width: 1em;
+}
+.accusedbox{
+	color: yellow;
+	background-color: yellow;
+	width: 1em;
+}
+.failedbox{
+	color: red;
+	background-color: red;
+	width: 1em;
+}
+.correctbox{
+	color: green;
+	background-color: green;
+  width: 1em;
+}
+.passivebox{
+	color: yellow;
+	background-color: yellow;
+	width: 1em;
+}
+.activebox{
+	color: red;
+	background-color: red;
+  width: 1em;
+}
+
+
+
+
+
+.address{
+	white-space: nowrap;
+}
+
+a:link.address  {  
+	color: black;
+	text-decoration: none;
+	background: transparent;
+}
+ 
+a:visited.address {
+	color: black;
+	text-decoration: none;
+}
+
+a:hover.address {       
+	text-decoration: underline;
+}

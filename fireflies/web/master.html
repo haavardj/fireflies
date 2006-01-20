@@ -1,0 +1,45 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en" xmlns:nevow="http://nevow.com/ns/nevow/0.1">
+      <head>
+		      <link href="/css/ff.css" type="text/css" rel="stylesheet" />
+					<title>Fireflies</title>
+      </head>
+  <body>
+    
+    <h1>Browsing Fireflies at <span nevow:data="peer" nevow:render="address">127.0.0.1:123</span></h1>
+    <div id="menu">
+	   	<a href="/">
+    	  [Home]
+    	</a>
+    	<a href="/rings/">
+    	  [Rings]
+    	</a>
+      <a href="/partners/">
+    	  [Partners]
+    	</a>
+      <a href="/stats/">
+    	  [Stats]
+    	</a>
+    </div>    
+   
+	<div id="content" nevow:render="body">
+		Body here.
+	</div>
+
+	
+	<div id="footer">
+		<hr></hr>
+		<ul>
+		   <li><b>S = Status:</b> <span class="livebox">.</span> = live,   
+		   		<span class="accusedbox">.</span> = accused,
+		   		<span class="failedbox">.</span> = failed.
+		   </li>
+		   <li><b>B = Badness:</b> <span class="correctbox">.</span> = correct,   
+		   		<span class="passivebox">.</span> = passive,
+		   		<span class="activebox">.</span> = active.
+		   </li>
+
+		</ul>
+	</div>
+  </body>
+</html>
