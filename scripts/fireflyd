@@ -77,6 +77,10 @@ if __name__ == "__main__":
         else:
             print ca
             raise TypeError
+
+        if not cacert.verify(cacert):
+            raise RuntimeError("CA certificate not valid")
+
     except Exception, why:
         print "Unable to load CA key/cert.", why
         sys.exit()
@@ -185,9 +189,6 @@ if __name__ == "__main__":
     pubfiles = []
     if options.cachedir:
         pubfiles = glob.glob(os.path.join(options.cachedir, "*.pub"))
-
-    if options.rundir:
-        pubfiles = pubfiles + glob.glob(os.path.join(options.rundir, "*.pub"))
         
     random.shuffle(pubfiles)
     m = min(len(pubfiles), options.max)
@@ -210,6 +211,19 @@ if __name__ == "__main__":
 
     mgroup = group.BaseGroup(cacert, mkey, mcert, mnote)
     mgroup.badness = options.byzantine
+
+    if options.rundir:
+        statefile = os.path.join(options.rundir, "%s.dat" % mcert.address)
+        if os.path.exists(statefile):
+            try:
+                cstate, nstate, astate = pickle.load(file(statefile))
+                
+                mgroup.view.addCerts(cstate)
+                mgroup.view.addNotes(nstate)
+                mgroup.view.addAccusations(astate)
+            except IOError:
+                pass
+    
     mgroup.join(bootnodes)
     
 
@@ -270,21 +284,21 @@ if __name__ == "__main__":
     def doWriteState():
         assert options.rundir
         logging.info("writing state.")
-        pubfiles = glob.glob(os.path.join(options.rundir, "*.pub"))
+        statefile = os.path.join(options.rundir, "%s.dat" % mgroup.mcert.address)
 
-        for path in pubfiles:
-            try:
-                os.remove(path)
-            except OSError, why:
-                logging.error("error state file %s. %w", path, why)
-                
+        cstate = []
+        nstate = []
+        astate = []
         for member in mgroup.view.pRing:            
-            try:
-                path = os.path.join(options.rundir, "%s.pub" % member.cert.address)
-                if not member.note: continue
-                pickle.dump( (member.cert, member.note), file(path, "w"))
-            except Exception, why:
-                logging.error("Failed saving %s", path)
+            cstate.append(member.cert)
+            if member.note:
+                nstate.append(member.note)
+            astate.extend(member.pAccusations.values())
+
+        try:
+            pickle.dump((cstate, nstate, astate), file(statefile, "w"))
+        except Exception, why:
+            logging.error("Failed saving %s", path)
 
 
         
