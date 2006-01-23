@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip3.py,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+## $Id: gossip3.py,v 1.2 2006/01/23 08:07:17 haavardj Exp $
 ##                
 ######################################################################
 
@@ -21,6 +21,7 @@ from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFa
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.internet import reactor, task, defer
 from Crypto.Hash import MD5
+import sha
 import fireflies, members, time, cert, setrecon
 from cert import TimestampMixin
 import copy, sys
@@ -61,7 +62,8 @@ cmd2code = {
     'reconcile_add_children': 0x2B,
     'reconcile_next_v2': 0x2C,
     'reconcile_next_v2_req': 0x2D,
-    'reconcile_data_diff_done': 0x2E
+    'reconcile_data_diff_done': 0x2E,
+    'digest_match': 0x2F
 
     }
 
@@ -149,7 +151,6 @@ class GossipBase(Int32StringReceiver):
                 p.pack_cert(crt)
                 p.pack_note(note)
 
-
             elif cmd == "version":
                 major, minor, patchl = args
                 p.pack_short(major)
@@ -157,8 +158,13 @@ class GossipBase(Int32StringReceiver):
                 p.pack_short(patchl)
 
             elif cmd == "reconcile":
-                name, = args
+                name, digest = args
                 p.pack_string(name)
+                p.pack_string(digest)
+
+            elif cmd == "digest_match":
+                match, = args
+                p.pack_bool(match)
 
             elif cmd == "reconcile_next":
                 node_type, = args
@@ -233,14 +239,17 @@ class GossipBase(Int32StringReceiver):
             elif cmd == "redirect":
                 args = (p.unpack_cert(), p.unpack_note())
 
-
             elif cmd == "version":
                 args = (p.unpack_short(),
                         p.unpack_short(),
                         p.unpack_short())
 
             elif cmd == "reconcile":
-                args = (p.unpack_string(),)
+                args = (p.unpack_string(),
+                        p.unpack_string()
+                        )
+            elif cmd == "digest_match":
+                args = (p.unpack_bool(),)
 
             elif cmd == "reconcile_next":
                 args = (p.unpack_uint(),)
@@ -250,7 +259,6 @@ class GossipBase(Int32StringReceiver):
                         p.unpack_vec_ZZ_p(),
                         p.unpack_vec_ZZ_p(),
                         p.unpack_uint())
-
 
             elif cmd == "reconcile_extra":
                 args = (p.unpack_vec_ZZ_p(), p.unpack_uint())
@@ -418,7 +426,7 @@ class ServerProtocol(GossipBase):
     # Main protocol steps
     #
 
-    def handle_reconcile(self, name):
+    def handle_reconcile(self, name, digest):
         """
         Protocol start. Name specifies the set to be reconciled.
         """
@@ -428,11 +436,24 @@ class ServerProtocol(GossipBase):
 
         self.databuff = []
         self.set, self.appendfunc = self.factory.getSet(name)
-        n = self.set.getRootPartition()
-        n.ref()
-        self.nodes = [n]
+
         if self.curNode: self.curNode.unref()
         self.curNode = None
+        self.nodes = []
+        
+        n = self.set.getRootPartition()
+        hsh = sha.new()
+        for x in n.hash_vector:
+            hsh.update(str(x))
+
+        if digest == hsh.digest():
+            self.logger.debug("digest_match->%s True", self)
+            self.sendCommand("digest_match", True)
+        else:
+            n.ref()
+            self.nodes = [n]
+            self.logger.debug("digest_match->%s False", self)
+            self.sendCommand("digest_match", False)
         
     
     def handle_reconcile_next_req(self):
@@ -484,13 +505,8 @@ class ServerProtocol(GossipBase):
             ev = self.curNode.extra_hashes
             ss = self.curNode.setsize
 
-        #print "next_vt_req", nt
-        #print "hv= ", hv
-        #print "ev= ", ev
-        #print "ss= ", ss
         self.logger.debug("reconcile_next_v2->%s type=%d", self, nt)
         self.sendCommand("reconcile_next_v2", nt, hv, ev, ss)
-        #print "3"
 
 
     def handle_reconcile_hash_vector_req(self):
@@ -720,11 +736,26 @@ class ClientProtocol(GossipBase):
         self.nodes = [n]
         if self.curNode: self.curNode.unref()
         self.curNode = None
-        self.logger.debug("reconcile->%s %s", self, name)                
-        self.sendCommand("reconcile", name)
-        self.reconcile_next()
+
+        hsh = sha.new()
+
+        for x in n.hash_vector:
+            hsh.update(str(x))
+        
+        self.logger.debug("reconcile->%s %s %s", self, name, hsh.hexdigest())                
+        self.sendCommand("reconcile", name, hsh.digest())        
         self.setTimeout()
         return self._d
+
+    def handle_digest_match(self, match):
+
+        self.logger.debug("digest_match<-%s %s", self, match)
+        if match:
+            while self.nodes:
+                p = self.nodes.pop()
+                p.unref()
+
+        self.reconcile_next()
 
     def reconcile_next(self):
         """Moves to the next partition available partition, or marks
