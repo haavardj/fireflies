@@ -3,13 +3,13 @@
 ## Filename:      cert.py
 ## Description:   Fireflies crypto functions.
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Mon Jan 16 18:33:19 2006
+## Modified at:   Fri Jan 20 16:27:37 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: cert.py,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+## $Id: cert.py,v 1.2 2006/01/23 08:08:49 haavardj Exp $
 ##                
 ######################################################################
 
@@ -91,10 +91,10 @@ class RSASignable:
 
         # Since computing hashes are expensive, we only do it once.
         try:
-            return self._shash
+            return self.__shash
         except AttributeError:
-            self._shash = SHA.new(self.uidstr()).digest()
-        return self._shash
+            self.__shash = SHA.new(self.uidstr()).digest()
+        return self.__shash
 
 
 class RSAVerifyingKey:
@@ -186,7 +186,7 @@ class CACertificate(object, RSASignable, RSAVerifyingKey):
     def __init__(self, key, name, config, signature=0):
         self.name, self.key, self.config, self.signature = name, key, config, signature
         self.serial = keyToSerial(self.key)
-        
+
     def uidstr(self):        
         return "CACertificate-%s-%s%s" %(str(self.serial),
                                          str(self.name),
