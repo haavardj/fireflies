@@ -3,13 +3,13 @@
 ## Filename:      gossip3.py
 ## Description:   Fireflies set-recon based gossip protocol 
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Thu Jan 19 19:53:00 2006
+## Modified at:   Mon Jan 23 16:12:37 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip3.py,v 1.2 2006/01/23 08:07:17 haavardj Exp $
+## $Id: gossip3.py,v 1.3 2006/01/31 13:53:41 haavardj Exp $
 ##                
 ######################################################################
 
@@ -398,7 +398,7 @@ class ServerProtocol(GossipBase):
     def redirect(self, peer):
         self.factory.peer.view.stats.redirect += 1
         pprint = self.factory.peer.view.pprint
-        self.logger.warning("redirect-> %s to %s", self, pprint(peer.cert))
+        self.logger.debug("redirect-> %s to %s", self, pprint(peer.cert))
         self.setTimeout()
         self.sendCommand("redirect", peer.cert, peer.note)
 
@@ -447,12 +447,12 @@ class ServerProtocol(GossipBase):
             hsh.update(str(x))
 
         if digest == hsh.digest():
-            self.logger.debug("digest_match->%s True", self)
+            self.logger.debug("digest_match->%s True hash=%s", self, n.hash_vector)
             self.sendCommand("digest_match", True)
         else:
             n.ref()
             self.nodes = [n]
-            self.logger.debug("digest_match->%s False", self)
+            self.logger.debug("digest_match->%s False hash=%s", self, n.hash_vector)
             self.sendCommand("digest_match", False)
         
     
@@ -639,8 +639,6 @@ class ClientProtocol(GossipBase):
         self._d = None
         self.curNode = None
 
-
-    
     def connectionMade(self):
         self.factory.peer.view.stats.tcpOpen += 1
         self.sendCommand("version", *fireflies.protocol_version)
@@ -742,13 +740,14 @@ class ClientProtocol(GossipBase):
         for x in n.hash_vector:
             hsh.update(str(x))
         
-        self.logger.debug("reconcile->%s %s %s", self, name, hsh.hexdigest())                
+        self.logger.debug("reconcile->%s %s hash=%s", self, name, n.hash_vector)                
         self.sendCommand("reconcile", name, hsh.digest())        
         self.setTimeout()
         return self._d
 
     def handle_digest_match(self, match):
 
+        self.cancelTimeout()
         self.logger.debug("digest_match<-%s %s", self, match)
         if match:
             while self.nodes:
@@ -768,9 +767,11 @@ class ClientProtocol(GossipBase):
         assert self.state == self.STATE_GOSSIPING, "state is %s should be %s" %(self.state, self.STATE_GOSSIPING)
 
         if self.nodes == []:
+            self.setTimeout()
             self.logger.debug("reconcile_done->%s", self)
             self.sendCommand("reconcile_done")
         else:
+            self.setTimeout()
             if self.curNode: self.curNode.unref()
             self.curNode = self.nodes.pop(0)
             self.logger.debug("reconcile_next_v2_req->%s", self)
@@ -824,6 +825,9 @@ class ClientProtocol(GossipBase):
         """Start reconciling of the current partition.
     
         """
+
+        self.cancelTimeout()
+        
         self.logger.debug("reconcile_next_v2<-%s nt=%s  hv=%s  eh=%s ss=%s",
                           self,
                           nodeType,
@@ -892,9 +896,7 @@ class ClientProtocol(GossipBase):
                 self.sendCommand("reconcile_data_diff_req", myNode.hash_vector)
             else:
 
-
-                status, mymissing, hismissing = self.set.reconcile(myNode, hash_vector, extra_hashes, size)
-                
+                status, mymissing, hismissing = self.set.reconcile(myNode, hash_vector, extra_hashes, size)                
                 if not status == 0:
                     self.logger.debug("reconcile_add_children->%s", self)
                     self.sendCommand("reconcile_add_children")
@@ -933,7 +935,6 @@ class ClientProtocol(GossipBase):
                     self.logger.warning("reconcile_data_req<-%s elm %s removed", self, x)
                 else:
                     self.sendCommand("reconcile_data", self.set.getByInternal(x))
-
         
 
     def handle_reconcile_hash_vector(self, hashes):
@@ -1035,13 +1036,14 @@ class ClientProtocol(GossipBase):
         """Done reply from server. This extra message is needed to
         flush any data that might be on the wire.
         """
+        self.cancelTimeout()
         self.logger.debug("reconcile_done<-%s %s", self, self.databuff)
         assert self.state == self.STATE_GOSSIPING
         self.state = self.STATE_IDLE
         assert self.nodes == []
         self.appendfunc(self.databuff)
         self.databuff = []
-        self.cancelTimeout()
+        
         self._d.callback(None)
 
     def handle_reconcile_data(self, data):
