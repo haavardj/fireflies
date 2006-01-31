@@ -2128,6 +2128,45 @@ static PyObject *_wrap_node_extra_hashes_get(PyObject *, PyObject *args) {
 }
 
 
+static PyObject *_wrap_node_valids_set(PyObject *, PyObject *args) {
+    PyObject *resultobj = NULL;
+    node *arg1 = (node *) 0 ;
+    vec_ZZ_p *arg2 = (vec_ZZ_p *) 0 ;
+    PyObject * obj0 = 0 ;
+    PyObject * obj1 = 0 ;
+    
+    if(!PyArg_ParseTuple(args,(char *)"OO:node_valids_set",&obj0,&obj1)) goto fail;
+    SWIG_Python_ConvertPtr(obj0, (void **)&arg1, SWIGTYPE_p_node, SWIG_POINTER_EXCEPTION | 0);
+    if (SWIG_arg_fail(1)) SWIG_fail;
+    SWIG_Python_ConvertPtr(obj1, (void **)&arg2, SWIGTYPE_p_vec_ZZ_p, SWIG_POINTER_EXCEPTION | 0);
+    if (SWIG_arg_fail(2)) SWIG_fail;
+    if (arg1) (arg1)->valids = *arg2;
+    
+    Py_INCREF(Py_None); resultobj = Py_None;
+    return resultobj;
+    fail:
+    return NULL;
+}
+
+
+static PyObject *_wrap_node_valids_get(PyObject *, PyObject *args) {
+    PyObject *resultobj = NULL;
+    node *arg1 = (node *) 0 ;
+    vec_ZZ_p *result;
+    PyObject * obj0 = 0 ;
+    
+    if(!PyArg_ParseTuple(args,(char *)"O:node_valids_get",&obj0)) goto fail;
+    SWIG_Python_ConvertPtr(obj0, (void **)&arg1, SWIGTYPE_p_node, SWIG_POINTER_EXCEPTION | 0);
+    if (SWIG_arg_fail(1)) SWIG_fail;
+    result = (vec_ZZ_p *)& ((arg1)->valids);
+    
+    resultobj = SWIG_NewPointerObj((void*)(result), SWIGTYPE_p_vec_ZZ_p, 0);
+    return resultobj;
+    fail:
+    return NULL;
+}
+
+
 static PyObject *_wrap_node_start_set(PyObject *, PyObject *args) {
     PyObject *resultobj = NULL;
     node *arg1 = (node *) 0 ;
@@ -2882,32 +2921,46 @@ static PyObject *_wrap_reconciled_set_init(PyObject *, PyObject *args) {
 static PyObject *_wrap_reconciled_set_reconcile(PyObject *, PyObject *args) {
     PyObject *resultobj = NULL;
     reconciled_set *arg1 = (reconciled_set *) 0 ;
-    node *arg2 = (node *) 0 ;
+    vec_ZZ_p arg2 ;
     vec_ZZ_p arg3 ;
-    vec_ZZ_p arg4 ;
-    long arg5 ;
-    vec_ZZ_p *arg6 = 0 ;
-    vec_ZZ_p *arg7 = 0 ;
+    long arg4 ;
+    vec_ZZ_p arg5 ;
+    vec_ZZ_p arg6 ;
+    long arg7 ;
+    vec_ZZ_p arg8 ;
+    vec_ZZ_p *arg9 = 0 ;
+    vec_ZZ_p *arg10 = 0 ;
     int result;
-    vec_ZZ_p temp6 ;
-    vec_ZZ_p temp7 ;
+    vec_ZZ_p temp9 ;
+    vec_ZZ_p temp10 ;
     PyObject * obj0 = 0 ;
     PyObject * obj1 = 0 ;
     PyObject * obj2 = 0 ;
     PyObject * obj3 = 0 ;
     PyObject * obj4 = 0 ;
+    PyObject * obj5 = 0 ;
+    PyObject * obj6 = 0 ;
+    PyObject * obj7 = 0 ;
     
     {
-        arg6 = &temp6;
+        arg9 = &temp9;
     }
     {
-        arg7 = &temp7;
+        arg10 = &temp10;
     }
-    if(!PyArg_ParseTuple(args,(char *)"OOOOO:reconciled_set_reconcile",&obj0,&obj1,&obj2,&obj3,&obj4)) goto fail;
+    if(!PyArg_ParseTuple(args,(char *)"OOOOOOOO:reconciled_set_reconcile",&obj0,&obj1,&obj2,&obj3,&obj4,&obj5,&obj6,&obj7)) goto fail;
     SWIG_Python_ConvertPtr(obj0, (void **)&arg1, SWIGTYPE_p_reconciled_set, SWIG_POINTER_EXCEPTION | 0);
     if (SWIG_arg_fail(1)) SWIG_fail;
-    SWIG_Python_ConvertPtr(obj1, (void **)&arg2, SWIGTYPE_p_node, SWIG_POINTER_EXCEPTION | 0);
-    if (SWIG_arg_fail(2)) SWIG_fail;
+    {
+        vec_ZZ_p * argp;
+        SWIG_Python_ConvertPtr(obj1, (void **)&argp, SWIGTYPE_p_vec_ZZ_p, SWIG_POINTER_EXCEPTION);
+        if (SWIG_arg_fail(2)) SWIG_fail;
+        if (argp == NULL) {
+            SWIG_null_ref("vec_ZZ_p");
+        }
+        if (SWIG_arg_fail(2)) SWIG_fail;
+        arg2 = *argp;
+    }
     {
         vec_ZZ_p * argp;
         SWIG_Python_ConvertPtr(obj2, (void **)&argp, SWIGTYPE_p_vec_ZZ_p, SWIG_POINTER_EXCEPTION);
@@ -2919,20 +2972,44 @@ static PyObject *_wrap_reconciled_set_reconcile(PyObject *, PyObject *args) {
         arg3 = *argp;
     }
     {
-        vec_ZZ_p * argp;
-        SWIG_Python_ConvertPtr(obj3, (void **)&argp, SWIGTYPE_p_vec_ZZ_p, SWIG_POINTER_EXCEPTION);
+        arg4 = static_cast<long >(SWIG_As_long(obj3)); 
         if (SWIG_arg_fail(4)) SWIG_fail;
+    }
+    {
+        vec_ZZ_p * argp;
+        SWIG_Python_ConvertPtr(obj4, (void **)&argp, SWIGTYPE_p_vec_ZZ_p, SWIG_POINTER_EXCEPTION);
+        if (SWIG_arg_fail(5)) SWIG_fail;
         if (argp == NULL) {
             SWIG_null_ref("vec_ZZ_p");
         }
-        if (SWIG_arg_fail(4)) SWIG_fail;
-        arg4 = *argp;
+        if (SWIG_arg_fail(5)) SWIG_fail;
+        arg5 = *argp;
     }
     {
-        arg5 = static_cast<long >(SWIG_As_long(obj4)); 
-        if (SWIG_arg_fail(5)) SWIG_fail;
+        vec_ZZ_p * argp;
+        SWIG_Python_ConvertPtr(obj5, (void **)&argp, SWIGTYPE_p_vec_ZZ_p, SWIG_POINTER_EXCEPTION);
+        if (SWIG_arg_fail(6)) SWIG_fail;
+        if (argp == NULL) {
+            SWIG_null_ref("vec_ZZ_p");
+        }
+        if (SWIG_arg_fail(6)) SWIG_fail;
+        arg6 = *argp;
     }
-    result = (int)(arg1)->reconcile(arg2,arg3,arg4,arg5,*arg6,*arg7);
+    {
+        arg7 = static_cast<long >(SWIG_As_long(obj6)); 
+        if (SWIG_arg_fail(7)) SWIG_fail;
+    }
+    {
+        vec_ZZ_p * argp;
+        SWIG_Python_ConvertPtr(obj7, (void **)&argp, SWIGTYPE_p_vec_ZZ_p, SWIG_POINTER_EXCEPTION);
+        if (SWIG_arg_fail(8)) SWIG_fail;
+        if (argp == NULL) {
+            SWIG_null_ref("vec_ZZ_p");
+        }
+        if (SWIG_arg_fail(8)) SWIG_fail;
+        arg8 = *argp;
+    }
+    result = (int)(arg1)->reconcile(arg2,arg3,arg4,arg5,arg6,arg7,arg8,*arg9,*arg10);
     
     {
         resultobj = SWIG_From_int(static_cast<int >(result)); 
@@ -2941,7 +3018,7 @@ static PyObject *_wrap_reconciled_set_reconcile(PyObject *, PyObject *args) {
         PyObject *o, *o2, *o3;
         
         vec_ZZ_p * resultptr;
-        resultptr = new vec_ZZ_p(static_cast<vec_ZZ_p & >(*arg6));
+        resultptr = new vec_ZZ_p(static_cast<vec_ZZ_p & >(*arg9));
         o = SWIG_NewPointerObj((void *)(resultptr), SWIGTYPE_p_vec_ZZ_p, 1);
         
         if ((!resultobj) || (resultobj == Py_None)) {
@@ -2949,25 +3026,24 @@ static PyObject *_wrap_reconciled_set_reconcile(PyObject *, PyObject *args) {
         } 
         else {
             if (!PyTuple_Check(resultobj)) {
-                PyObject *o2 = resultobj;
-                o2 = resultobj;
+                PyObject *tmp = resultobj;
                 resultobj = PyTuple_New(1);
-                PyTuple_SetItem(resultobj,0,o2);
+                PyTuple_SetItem(resultobj, 0, tmp);
             }
             
             o3 = PyTuple_New(1);
             PyTuple_SetItem(o3,0,o);
             o2 = resultobj;
             resultobj = PySequence_Concat(o2,o3);
-            //Py_DECREF(o2);
-            //Py_DECREF(o3);
+            Py_DECREF(o2);
+            Py_DECREF(o3);
         }
     }
     {
         PyObject *o, *o2, *o3;
         
         vec_ZZ_p * resultptr;
-        resultptr = new vec_ZZ_p(static_cast<vec_ZZ_p & >(*arg7));
+        resultptr = new vec_ZZ_p(static_cast<vec_ZZ_p & >(*arg10));
         o = SWIG_NewPointerObj((void *)(resultptr), SWIGTYPE_p_vec_ZZ_p, 1);
         
         if ((!resultobj) || (resultobj == Py_None)) {
@@ -2975,18 +3051,17 @@ static PyObject *_wrap_reconciled_set_reconcile(PyObject *, PyObject *args) {
         } 
         else {
             if (!PyTuple_Check(resultobj)) {
-                PyObject *o2 = resultobj;
-                o2 = resultobj;
+                PyObject *tmp = resultobj;
                 resultobj = PyTuple_New(1);
-                PyTuple_SetItem(resultobj,0,o2);
+                PyTuple_SetItem(resultobj, 0, tmp);
             }
             
             o3 = PyTuple_New(1);
             PyTuple_SetItem(o3,0,o);
             o2 = resultobj;
             resultobj = PySequence_Concat(o2,o3);
-            //Py_DECREF(o2);
-            //Py_DECREF(o3);
+            Py_DECREF(o2);
+            Py_DECREF(o3);
         }
     }
     return resultobj;
@@ -4996,7 +5071,31 @@ static PyObject *_wrap_vec_ZZ_p_SetLength(PyObject *, PyObject *args) {
 }
 
 
-static PyObject *_wrap_new_vec_ZZ_p(PyObject *, PyObject *args) {
+static PyObject *_wrap_new_vec_ZZ_p__SWIG_0(PyObject *, PyObject *args) {
+    PyObject *resultobj = NULL;
+    vec_ZZ_p *arg1 = 0 ;
+    vec_ZZ_p *result;
+    PyObject * obj0 = 0 ;
+    
+    if(!PyArg_ParseTuple(args,(char *)"O:new_vec_ZZ_p",&obj0)) goto fail;
+    {
+        SWIG_Python_ConvertPtr(obj0, (void **)&arg1, SWIGTYPE_p_vec_ZZ_p, SWIG_POINTER_EXCEPTION | 0);
+        if (SWIG_arg_fail(1)) SWIG_fail;
+        if (arg1 == NULL) {
+            SWIG_null_ref("vec_ZZ_p");
+        }
+        if (SWIG_arg_fail(1)) SWIG_fail;
+    }
+    result = (vec_ZZ_p *)new vec_ZZ_p((vec_ZZ_p const &)*arg1);
+    
+    resultobj = SWIG_NewPointerObj((void*)(result), SWIGTYPE_p_vec_ZZ_p, 1);
+    return resultobj;
+    fail:
+    return NULL;
+}
+
+
+static PyObject *_wrap_new_vec_ZZ_p__SWIG_1(PyObject *, PyObject *args) {
     PyObject *resultobj = NULL;
     vec_ZZ_p *result;
     
@@ -5006,6 +5105,39 @@ static PyObject *_wrap_new_vec_ZZ_p(PyObject *, PyObject *args) {
     resultobj = SWIG_NewPointerObj((void*)(result), SWIGTYPE_p_vec_ZZ_p, 1);
     return resultobj;
     fail:
+    return NULL;
+}
+
+
+static PyObject *_wrap_new_vec_ZZ_p(PyObject *self, PyObject *args) {
+    int argc;
+    PyObject *argv[2];
+    int ii;
+    
+    argc = PyObject_Length(args);
+    for (ii = 0; (ii < argc) && (ii < 1); ii++) {
+        argv[ii] = PyTuple_GetItem(args,ii);
+    }
+    if (argc == 0) {
+        return _wrap_new_vec_ZZ_p__SWIG_1(self,args);
+    }
+    if (argc == 1) {
+        int _v;
+        {
+            void *ptr = 0;
+            if (SWIG_ConvertPtr(argv[0], &ptr, SWIGTYPE_p_vec_ZZ_p, 0) == -1) {
+                _v = 0;
+                PyErr_Clear();
+            } else {
+                _v = (ptr != 0);
+            }
+        }
+        if (_v) {
+            return _wrap_new_vec_ZZ_p__SWIG_0(self,args);
+        }
+    }
+    
+    PyErr_SetString(PyExc_NotImplementedError,"No matching function for overloaded 'new_vec_ZZ_p'");
     return NULL;
 }
 
@@ -5181,6 +5313,8 @@ static PyMethodDef SwigMethods[] = {
 	 { (char *)"node_hash_vector_get", _wrap_node_hash_vector_get, METH_VARARGS, NULL},
 	 { (char *)"node_extra_hashes_set", _wrap_node_extra_hashes_set, METH_VARARGS, NULL},
 	 { (char *)"node_extra_hashes_get", _wrap_node_extra_hashes_get, METH_VARARGS, NULL},
+	 { (char *)"node_valids_set", _wrap_node_valids_set, METH_VARARGS, NULL},
+	 { (char *)"node_valids_get", _wrap_node_valids_get, METH_VARARGS, NULL},
 	 { (char *)"node_start_set", _wrap_node_start_set, METH_VARARGS, NULL},
 	 { (char *)"node_start_get", _wrap_node_start_get, METH_VARARGS, NULL},
 	 { (char *)"node_stop_set", _wrap_node_stop_set, METH_VARARGS, NULL},

@@ -57,6 +57,9 @@ class node(_object):
     __swig_setmethods__["extra_hashes"] = _setreconbase.node_extra_hashes_set
     __swig_getmethods__["extra_hashes"] = _setreconbase.node_extra_hashes_get
     if _newclass:extra_hashes = property(_setreconbase.node_extra_hashes_get, _setreconbase.node_extra_hashes_set)
+    __swig_setmethods__["valids"] = _setreconbase.node_valids_set
+    __swig_getmethods__["valids"] = _setreconbase.node_valids_get
+    if _newclass:valids = property(_setreconbase.node_valids_get, _setreconbase.node_valids_set)
     __swig_setmethods__["start"] = _setreconbase.node_start_set
     __swig_getmethods__["start"] = _setreconbase.node_start_get
     if _newclass:start = property(_setreconbase.node_start_get, _setreconbase.node_start_set)

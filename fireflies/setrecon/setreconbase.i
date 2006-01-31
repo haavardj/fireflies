@@ -2,14 +2,14 @@
 // Filename:      setreconbase.i
 // Description:   SWIG wrapper for set-recon.
 // Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-// Modified at:   Mon Jan 16 18:48:04 2006
+// Modified at:   Wed Jan 25 13:59:34 2006
 // Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 //
 // Licence: GPL (see LICENSE file).
 //
 //         Copyright© 2006, University of Tromsø (Norway)
 //                
-// $Id: setreconbase.i,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+// $Id: setreconbase.i,v 1.2 2006/01/31 14:00:34 haavardj Exp $
 //                
 //====================================================================
 
@@ -53,6 +53,7 @@ public:
   ~node();
   vec_ZZ_p hash_vector;
   vec_ZZ_p extra_hashes;
+  vec_ZZ_p valids;
   ZZ start, stop;
   short int node_type;
   long setsize;
@@ -93,18 +94,17 @@ vec_ZZ_p difference_set(vec_ZZ_p set1, vec_ZZ_p set2);
      } 
      else {
        if (!PyTuple_Check($result)) {
-	 PyObject *o2 = resultobj;
-	 o2 = $result;
+	 PyObject *tmp = $result;
 	 $result = PyTuple_New(1);
-	 PyTuple_SetItem($result,0,o2);
+	 PyTuple_SetItem($result, 0, tmp);
        }
-
+       
        o3 = PyTuple_New(1);
        PyTuple_SetItem(o3,0,o);
        o2 = $result;
        $result = PySequence_Concat(o2,o3);
-       //Py_DECREF(o2);
-       //Py_DECREF(o3);
+       Py_DECREF(o2);
+       Py_DECREF(o3);
      }
    }
    
@@ -133,16 +133,22 @@ public:
 
   static void init(int bz, int mbar);
 
-  int reconcile(node* rootA, vec_ZZ_p HBSamplevalues, vec_ZZ_p B_EVALS, long bsize, vec_ZZ_p& retValue, vec_ZZ_p& retValue);
+  int reconcile(
+		vec_ZZ_p HASamplevalues,
+		vec_ZZ_p A_EVALS,
+		long asize,
+		vec_ZZ_p HBSamplevalues, 
+		vec_ZZ_p B_EVALS, 
+		long bsize, 
+		vec_ZZ_p validationpoints,
+		vec_ZZ_p& retValue, 
+		vec_ZZ_p& retValue
+		);
 
-  //int reconcile(node* rootA, node* rootB, vec_ZZ_p& retValue, vec_ZZ_p& retValue);
-  //%newobject internal2external;
-  //%newobject external2internal;
   vec_ZZ_p internal2external(vec_ZZ_p v);
   ZZ_p internal2external(ZZ_p n);
   ZZ_p external2internal(ZZ_p n);
   vec_ZZ_p external2internal(vec_ZZ_p v);
-
   int p;  
   int k;  
 
@@ -452,6 +458,7 @@ public:
   long length();
   void SetLength(long n);
 
+  vec_ZZ_p(const vec_ZZ_p &a);
   vec_ZZ_p();
   ~vec_ZZ_p(); 
 

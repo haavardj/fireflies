@@ -11,7 +11,7 @@
 // Licence: GPL (see LICENSE file).
 //  
 //                
-// $Id: reconciled_set.h,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+// $Id: reconciled_set.h,v 1.2 2006/01/31 13:57:01 haavardj Exp $
 //                
 //====================================================================
 
@@ -60,8 +60,20 @@ public:
   void del_element(ZZ_p el);  
   //node *create_node();
 
-  int reconcile(node* rootA, vec_ZZ_p HBSamplevalues, vec_ZZ_p B_EVALS, long bsize, vec_ZZ_p& dnom, vec_ZZ_p& numer);
-  //int reconcile(node* rootA, node* rootB, vec_ZZ_p& dnom, vec_ZZ_p& numer);
+  int reconcile(
+		vec_ZZ_p HASamplevalues,
+		vec_ZZ_p A_EVALS,
+		long asize,
+		vec_ZZ_p HBSamplevalues, 
+		vec_ZZ_p B_EVALS, 
+		long bsize, 
+		vec_ZZ_p validationpoints,
+		vec_ZZ_p& dnom, 
+		vec_ZZ_p& numer
+		);
+    
+    //int reconcile(node* rootA, vec_ZZ_p HBSamplevalues, vec_ZZ_p B_EVALS, long bsize, vec_ZZ_p& dnom, vec_ZZ_p& numer);
+    //int reconcile(node* rootA, node* rootB, vec_ZZ_p& dnom, vec_ZZ_p& numer);
 
 
   // i gets mapped to dataStart+i to avoid colisions with the sample
