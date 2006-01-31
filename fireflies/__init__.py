@@ -3,14 +3,14 @@
 ## Filename:      __init__.py
 ## Description:   Fireflies: a scalabe and intrusion tolerant membership
 ##                protocol. 
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Fri Jan 20 13:28:54 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Hï¿½ard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified at:   Wed Jan 25 14:09:57 2006
+## Modified by:   Hï¿½ard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright© 2006, University of Tromsø (Norway)
+##         Copyright 2006, University of Troms (Norway)
 ##                
-## $Id: __init__.py,v 1.1 2006/01/20 12:41:26 haavardj Exp $
+## $Id: __init__.py,v 1.2 2006/01/31 13:54:42 haavardj Exp $
 ##                
 ######################################################################
 
@@ -21,10 +21,10 @@ service.
 
 """
 
-__version__ = "0.27.1"
+__version__ = "0.27.7"
 version = __version__
 
-protocol_version = (0,27,1)
+protocol_version = (0,27,7)
 
 import time as t
 time = t
@@ -36,7 +36,7 @@ del t
 
 defaultConfig = {
 
-    'MBAR': 12,
+    'MBAR': 10,
     'BITSIZE': 160,
 
     # Length of encryption keys.

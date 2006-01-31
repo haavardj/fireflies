@@ -3,13 +3,13 @@
 ## Filename:      cert.py
 ## Description:   Fireflies crypto functions.
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Fri Jan 20 16:27:37 2006
+## Modified at:   Mon Jan 23 20:29:49 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: cert.py,v 1.2 2006/01/23 08:08:49 haavardj Exp $
+## $Id: cert.py,v 1.3 2006/01/31 13:53:09 haavardj Exp $
 ##                
 ######################################################################
 
@@ -72,6 +72,14 @@ def generateKey(size=RSASIZE):
     return RSA.generate(size, __randomGen)
 
 
+class ImmutableMixin:
+    """Mixin for immutable classes."""
+    def __setattr_im__(self, k, v):
+        raise RuntimeError("immutable error")
+
+    def makeImmutable(self):
+        self.__setattr__ = self.__setattr_im__
+        
 class RSASignable:
     """Mixin for classes that are signable
 
@@ -146,7 +154,7 @@ class TimestampMixin:
     
                 
 
-class MemberCertificate(object, TimestampMixin, RSASignable, RSAVerifyingKey):
+class MemberCertificate(object, ImmutableMixin, TimestampMixin, RSASignable, RSAVerifyingKey):
     """A Fireflies member's certificate."""
     
     def __init__(self, key, address, signature=0):
