@@ -2,13 +2,13 @@
 
 
 
-\title{Fireflies: Intrusion Tolerant and Scalable Membership Protocol }
+\title{Fireflies: Intrusion Tolerant and Scalable Membership}
 
-\release{0.25.1}
+\release{0.27.2}
 
 \newcommand{\Fireflies}{\emph{Fireflies}}
-\newcommand{\firefliesdist}{\emph{fireflies-0.25.1}}
-\newcommand{\firefliestar}{\emph{fireflies-0.25.1.tar.gz}}
+\newcommand{\firefliesdist}{\emph{fireflies-0.27.1}}
+\newcommand{\firefliestar}{\emph{fireflies-0.27.1.tar.gz}}
 
 
 \author{H\aa vard Johansen}
@@ -30,20 +30,13 @@
 %======================================================================
 \section{Introduction}
 
+Fireflies is a framework for building intrusion tolerant overlay
+networks. Currently the framework consist of a membership protocol
+that provides satisfactory scalability for most applications. 
 
+Fireflies is implemented in Python, and uses Twisted as a
+communication layer.
 
-Fireflies is an intrusion tolerant group membership protocol that
-provides satisfactory scalability for most applications. With a high
-probability, our protocol provides the following guarantees:
-
-\begin{itemize}
-
-   \item A correct member will eventually always appear correct to all
-   correct members.
-
-   \item A failed member will eventually always appear failed to all
-   correct members.
-\end{itemize}
 
 
 
@@ -51,10 +44,9 @@ probability, our protocol provides the following guarantees:
 
 Fireflies is being developed on an Intel based Debian-Linux
 system. Compatibility with other system has not yet received
-priority. Even so, you should be able to use it on any Python enabled
-system.
+priority. 
 
-The software required by Fireflies is listed below. The given version
+The software required by Fireflies are listed below. The given version
 numbers are for those Fireflies is known to work. Other versions may
 or may not work.
 
@@ -63,6 +55,8 @@ Required software:
 \item[Python 2.3.5] (\url{http://www.python.org/2.3.5/})
 \item[Twisted Core 2.0.1] (\url{http://twistedmatrix.com/projects/core}) 
 \item[Python Cryptography Toolkit 2.0.1] (\url{http://www.amk.ca/python/code/crypto})
+\item[NTL: A Library for doing Number Theory 5.4] (\url{http://www.shoup.net/ntl/ntl-5.4.tar.gz})
+\item[GMP: GNU Multiple Precision Arithmetic Library 4.1.4] (\url{http://ftp.sunet.se/pub/gnu/gmp/gmp-4.1.4.tar.bz2})
 \end{description}
 
 Optional software for the \refmodule{fireflies.web} module:
@@ -72,8 +66,6 @@ Optional software for the \refmodule{fireflies.web} module:
 \item[Gnuplot 4.0] (\url{http://www.gnuplot.info/}) with build-in support for new-type PNG output. 
 \item[Gnuplot.py 1.7] (\url{http://gnuplot-py.sourceforge.net/})
 \end{description}
-
-
 
 
 
@@ -94,10 +86,7 @@ path. You can specify a \programopt{--prefix=PATH} options to the
 
 
 
-
 \section{Usage}
-
-
 
 
 

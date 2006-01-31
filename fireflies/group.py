@@ -3,20 +3,20 @@
 ## Filename:      group.py
 ## Description:   Fireflies group abstraction. 
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Mon Jan 16 18:36:59 2006
+## Modified at:   Tue Jan 24 13:51:45 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: group.py,v 1.1 2006/01/20 12:41:26 haavardj Exp $
+## $Id: group.py,v 1.2 2006/01/31 14:01:03 haavardj Exp $
 ##                
 ######################################################################
 
 
 
 import logging
-import gossip, gossip3, fd, members
+import gossip4, fd, members
 import fireflies.stats
 from twisted.internet import reactor    
 
@@ -57,8 +57,7 @@ class BaseGroup(object):
 
         self.stats = fireflies.stats.Stats()
 
-
-        self.__setattr__ = self.__setattr_im__
+        #self.__setattr__ = self.__setattr_im__
     
     def __setattr_im__(self, k, v):
         raise RuntimeError("immutable error")
@@ -124,7 +123,7 @@ class BaseGroup(object):
             return failure
 
         self.pinger = fd.FailureDetector(peer, self.mkey)
-        self.gossiper = gossip3.Gossip(peer)
+        self.gossiper = gossip4.Gossip(peer)
         self.gossiper.start()
         self.pinger.start()
         self.joined = True

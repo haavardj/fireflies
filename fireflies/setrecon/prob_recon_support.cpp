@@ -7,11 +7,11 @@
 //                   Version: 0.998 Beta
 //                      Date: 06/23/2004
 // Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-// Modified at:   Mon Jan 16 18:46:06 2006
+// Modified at:   Mon Jan 23 20:15:02 2006
 // Licence: GPL (see LICENSE file).
 //  
 //                
-// $Id: prob_recon_support.cpp,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+// $Id: prob_recon_support.cpp,v 1.2 2006/01/31 14:01:03 haavardj Exp $
 //                
 //====================================================================
 
@@ -189,7 +189,8 @@ vec_ZZ_p backsubstitutesolve(mat_ZZ_p& mat, vec_ZZ_p& bvec, long rank,long total
   for(ii=rank-1;ii>=0;ii--)
     {
       if (mat[ii][ii] == 0){
-	//std::cout << "mat[ii][ii]==0, substituting with 1.\n";
+	std::cout << "mat[ii][ii]==0, substituting with 1.\n";
+	//assert(0);
 	rtntemp[ii] = 1;
 	mat[ii][ii] = 1;
       }else{
@@ -209,50 +210,33 @@ vec_ZZ_p backsubstitutesolve(mat_ZZ_p& mat, vec_ZZ_p& bvec, long rank,long total
 
 
 int match_value(ZZ_pX& PX,ZZ_pX& QX,vec_ZZ_p& PCEVALS,vec_ZZ_p& EXTRASPS,vec_ZZ_p& EXTRAEVALS)
-/* This function returns 0 if more Sample Points are needed, else returns a 1 if no more sample points are needed */
-
+/* This function returns 0 if more Sample Points are needed, else
+   returns a 1 if no more sample points are needed */
 {
-  long ii;
-  //std::cout << "match_value\n"; 
-  //std::cout << "EXTRAEVALSE= " << EXTRAEVALS <<"\n"; 
   long num_of_points = EXTRASPS.length();
-  //std::cout << "extrapoints.length= " << num_of_points << "\n";
   int returnvalue=1;
   ZZ_p p,q;
-  for(ii=0;ii<num_of_points;ii++)
+  for(int ii=0;ii<num_of_points;ii++)
     {
-      //std::cout << "ii= " << ii << "\n"; 
       p = eval(PX, EXTRASPS[ii]);
       q = eval(QX, EXTRASPS[ii]);
-      //std::cout <<q;
-      //std::cout << "p= " << p << "\n";
-      //std::cout << "q= " << q << "\n"; 
       if (q !=0)
 	{
-	  //std::cout << "1.1\n"; 
-	  //std::cout << "EXTRAEVALSE= " << EXTRAEVALS <<"\n"; 
 	  if(EXTRAEVALS[ii]==0)
 	    {
-	      //std::cout << "1.1.1\n"; 
 	      returnvalue=0;
 	      break;
 	    }
-	  //std::cout << "1.2\n"; 
 	  if (p/q != PCEVALS[ii]/EXTRAEVALS[ii])
 	    {
-	      //std::cout << "1.2.1\n"; 
 	      returnvalue=0;
-	      //      std::cout << "\nBreak1";
 	      break;
 	    }
-	  // std::cout << "\nNo break";
 	}
         else
 	  {
-	    //std::cout << "2.1\n"; 
 	    if (EXTRAEVALS[ii]!=0)
 	      {
-		//std::cout << "2.1.1\n"; 
 		returnvalue=0;
 		break;
 	      }
