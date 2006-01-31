@@ -1,14 +1,15 @@
+# -*- coding: iso-8859-1 -*-
 ######################################################################
 ## Filename:      setrecon.py
 ## Description:   High-Level set-recon library.
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Mon Jan 16 18:55:26 2006
+## Modified at:   Thu Jan 26 00:04:56 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ##  
 ## Licence: GPL (see LICENCE file).
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: setrecon.py,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+## $Id: setrecon.py,v 1.2 2006/01/31 13:59:55 haavardj Exp $
 ##                
 ######################################################################
 
@@ -45,7 +46,10 @@ class ReconSet:
 
     def __contains__(self, elm):
 
-        zz_p = self.elmToZZp(elm)
+        if isinstance(elm, ZZ_p):
+            zz_p = elm
+        else:
+            zz_p = self.elmToZZp(elm)
         
         if zz_p in self._data:
             assert zz_p in self._recon
@@ -74,6 +78,11 @@ class ReconSet:
 
         
     def remove(self, elm):
+        if isinstance(elm, ZZ_p):
+            zz_p = elm
+        else:
+            zz_p = self.elmToZZp(elm)
+        
         zz_p = self.elmToZZp(elm)
         if zz_p not in self._data:
             assert not zz_p in self._recon, "%s in set" %elm
@@ -89,12 +98,18 @@ class ReconSet:
     def getRootPartition(self):
         return self._recon.get_tree()
 
-    def reconcile(self, rootA, samplevalues, extra, size):
+    def reconcile(self, aHashes, aExtra, aSize, bHashes,  bExtra, bSetsize, valids):
 
-        if rootA.isTerminal():
-            raise RuntimeError("Root is terminal")
+        #if rootA.isTerminal():
+        #    raise RuntimeError("Root is terminal")
         
-        return self._recon.reconcile(rootA, samplevalues, extra, size)
+        return self._recon.reconcile(aHashes,
+                                     aExtra,
+                                     aSize,
+                                     bHashes, 
+                                     bExtra,
+                                     bSetsize,
+                                     valids)
         
 
     def printTree(self):
@@ -107,8 +122,13 @@ class ReconSet:
                 if child: _(lvl+1, child)
         _(0, self.getRootPartition())
             
-    
-    
+
+    def internal2external(self, hash_vec):
+        return self._recon.internal2external(hash_vec)
+
+    def external2internal(self, hash_vec):
+        return self._recon.external2internal(hash_vec)
+
 
 def iterChildren(node):
     for x in range(p):
@@ -122,25 +142,134 @@ def iterZZ(zz):
 
 if __name__ == "__main__":
 
-    init(160, 3, 2, 3)
+    bitsize = 160
+    init(bitsize, 3)
 
-    elms1 = [1, 2, 3, 4, 5, 6, 8]
-    elms2 = [1, 2, 3, 4, 5, 6, 7]
+    import random
+    #random.seed(1)
+
+    common = []
+    diffA = []
+    diffB = []
+    for x in range(1000):
+        i = random.randint(30, 2**bitsize)
+        if i not in common: 
+            common.append(i)
+            
+    for x in range(30):
+        i = random.randint(30, 2**bitsize)
+        if i not in common: 
+            diffA.append(i)
+    setA = common + diffA            
+
+    for x in range(20):
+        i = random.randint(30, 2**bitsize)
+        if i not in setA: 
+            diffB.append(i)
+
+    setB = common + diffB
     
-    s1 = ReconSet()
-    for x in elms1: s1.append(x)
+    s1 = ReconSet(3, 5)
+    for x in setA: s1.append(x)
 
-    s2 = ReconSet()
-    for x in elms2: s2.append(x)
+    s2 = ReconSet(3, 5)
+    for x in setB: s2.append(x)
 
-    r, m, h = s1.reconcile(s1.getRootPartition(), s2.getRootPartition())
+    n1s = [s1.getRootPartition()]
+    n2s = [s2.getRootPartition()]
 
-    print r, m, h
+    aDiff = vec_ZZ_p()
+    bDiff = vec_ZZ_p()
+    while n1s:
+
+        n1 = n1s.pop()
+        n2 = n2s.pop()
+
+        if n1 == None or n2 == None or n1.setsize == 0 or n2.setsize == 0:
+            print "Node is empty. Continue"
+            continue
+
+        if n2.isTerminal() or n1.isTerminal():
+            print "Terminal nodes. Continue"
+            continue
+        
+        r1, d1, u1 = s1.reconcile(n1.hash_vector,
+                                  n1.extra_hashes,
+                                  n1.setsize,
+                                  n2.hash_vector,
+                                  n2.extra_hashes,
+                                  n2.setsize,
+                                  n1.valids
+                                  )
+        print "r1=", r1, d1, u1        
+        r2, d2, u2 = s1.reconcile(n1.hash_vector,
+                                  n1.extra_hashes,
+                                  n1.setsize,
+                                  n2.hash_vector,
+                                  n2.extra_hashes,
+                                  n2.setsize,
+                                  n2.valids
+                                  )
+        print "r2=", r2, d2, u2
+          
+        for x in d1:
+            assert long("%s"%x) in s2, "%s in s1" %x 
+            assert long("%s"%x) not in s1, "%s not in s2" %x
+            assert x not in aDiff
+            #aDiff.append(x)
+
+        for x in d2:
+            assert long("%s"%x) in s2, "%s in s1" %x 
+            assert long("%s"%x) not in s1, "%s not in s2" %x
+            assert x not in aDiff
+            aDiff.append(x)
+
+            
+        for x in u2:
+            assert long("%s"%x) in s1, "%s in s1" %x 
+            assert long("%s"%x) not in s2, "%s not in s2" %x
+            assert x not in bDiff
+            #bDiff.append(x)
+
+        for x in u1:
+            assert long("%s"%x) in s1, "%s in s1" %x 
+            assert long("%s"%x) not in s2, "%s not in s2" %x
+            assert x not in bDiff
+            bDiff.append(x)
+
+
+        if r2 != r1:
+
+            #print "n1.terminal", n1.terminal_data()
+            #print "n2.terminal", n2.terminal_data()
+            
+            #n1.printNode(0)
+            print "--------------"
+            print "--------------"
+            #n2.printNode(0)
+
+        assert r2 == r1
+        
+        if r1 == 0:
+            print "Recon failed. Do children."
+            assert r2 == 0
+
+            for x in range(s1._recon.p):
+                n1s = [n1.getChild(x)] + n1s
+                n2s = [n2.getChild(x)] + n2s
+        else:
+            print "Recon success"
+                
+            
+    print "Recon done"
+    print "aDiff", aDiff
+    print "bDiff", bDiff
     import sys
     
     sys.exit(1)
-    elms = []
     import random
+    
+    elms = []
     for x in range(500):
         elms.append(random.randint(0, 2**160))
                     
@@ -148,7 +277,6 @@ if __name__ == "__main__":
     for x in elms:
         s1.append(x)
         assert x in s1
-
 
     random.shuffle(elms)
     while elms:
@@ -158,20 +286,5 @@ if __name__ == "__main__":
           
 
 
-##if not rootB:
-
-##    if rootA and not rootA.isTerminal():
-##        sendB(rootA)
-
-##elif rootB.isTerminal():
-
-##    if rootA==None or rootA.isTerminal():
-##        return diff( rootA.terminal_data(), rootB.terminal_data() )
-
-##    else:
-##        sendB( rootA.terminal_data())
-##        return diff(rootA.terminal_data(),  rootB.terminal_data())
-
-##else not rootB.isTerminal():
 
     
