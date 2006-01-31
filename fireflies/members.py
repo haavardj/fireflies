@@ -3,13 +3,13 @@
 ## Filename:      members.py
 ## Description:   Fireflies member structures.
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Thu Jan 19 20:03:32 2006
+## Modified at:   Tue Jan 24 10:39:41 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: members.py,v 1.1 2006/01/20 12:41:26 haavardj Exp $
+## $Id: members.py,v 1.2 2006/01/31 13:51:23 haavardj Exp $
 ##                
 ######################################################################
 
@@ -28,7 +28,7 @@ HISTORYSIZE = 100
 INITIAL_LRATE = 0.10
 
 PARTITION_FACTOR = 3
-RECON_EXTRA = 2
+RECON_EXTRA = 5
 
 class Accusation(object, cert.TimestampMixin, cert.RSASignable):
     """A Fireflies accusation. Except for the signature, this class
@@ -143,20 +143,19 @@ class Member(object):
     view - The view the member is in.
     """
 
-    def __init__(self, mcert, view, note=None, initLRate=INITIAL_LRATE):
+    def __init__(self, mcert, view, note = None, initLRate=INITIAL_LRATE):
 
-        if note:
-            self.setNote(note)
-        else:
-            self.note = None
         self.cert = mcert
         self.mcert = mcert
         self.id = mcert.serial
         self.serial = self.mcert.serial
         self.view = view
-        self.logger = logging.getLogger(mcert.address)
+        self.note = None
 
-        self.view.cSet.append(self.cert)
+        if note:
+            self.setNote(note)
+        
+        self.logger = logging.getLogger(mcert.address)
         
         # Valid accusations. 
         self.vAccusations = {} 
@@ -275,6 +274,7 @@ class Member(object):
         if self.note:
             self.view.nSet.remove(self.note)
         self.note = note
+        
 
     def setAccusation(self, accusation):
         """Keep the given accusation. This will invalidate and
@@ -619,7 +619,7 @@ class View:
                 accuser.stats.accusePossible += 1
                 accused.stats.accusedPossible += 1
                 
-                self.logger.warning("add %s New Possible", self.pprint(accusation))
+                self.logger.debug("add %s New Possible", self.pprint(accusation))
                 accused.allAccusations.insert(0, accusation)
                 if len(accused.allAccusations) > HISTORYSIZE: accused.allAccusations.pop(-1)
             else:
@@ -627,7 +627,7 @@ class View:
                 if pa.accuser == accusation.accuser:
                     # We have this accusation
                     self.stats.accusationsRedundant += 1
-                    self.logger.warning("discard %s dublicate", self.pprint(accusation))
+                    self.logger.debug("discard %s dublicate", self.pprint(accusation))
                     continue
 
                 ca = self.sn2peer[pa.accuser] #Current accuser
@@ -640,7 +640,7 @@ class View:
                     ca.stats.accuseReplaced += 1
                     accuser.stats.accuseCloser +=1                    
 
-                    self.logger.warning("add %s replacing %s",
+                    self.logger.debug("add %s replacing %s",
                                       self.pprint(accusation),
                                       self.pprint(pa))
                     accused.setAccusation(accusation)
@@ -652,7 +652,7 @@ class View:
                     # We have a closer accusation than this, so toss it.
                     self.stats.accusationsRedundant += 1
                     
-                    self.logger.warning("discard %s have closer", self.pprint(accusation))
+                    self.logger.debug("discard %s have closer", self.pprint(accusation))
 
         if (not delayCheck) and (self._dirty): self.checkAccusations()
 
@@ -773,6 +773,7 @@ class View:
             member = Member(c, self)
             assert not member in self.pRing
             self.sn2peer[member.id] = member
+            self.cSet.append(c)
 
             # Add peer to all necessary rings.
             for ring in self.mRings + self.gRings + [self.fRing, self.pRing]:
@@ -780,7 +781,7 @@ class View:
                 ring.insert(member)
             #self.fRing.insert(member)
             #self.pRing.insert(member)
-            c.setTimestamp()
+            #c.setTimestamp()
             self.logger.info("new %s s=%d t=%d", member, len(self.aRing), len(self.pRing))        
                    
     def addNotes(self, notes, delayCheck=False):
@@ -814,7 +815,7 @@ class View:
                 peer.fdTimer = None
                 
                 self._dirty = True
-                note.setTimestamp()
+                #note.setTimestamp()
                 if peer in self.fRing:
                     self.logger.info("revive %s", self.pprint(note))
                     self.revive(peer)
