@@ -3,13 +3,13 @@
 ## Filename:      stats.py
 ## Description:   Fireflies runtime statistic.
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Thu Jan 19 21:46:01 2006
+## Modified at:   Tue Jan 31 11:01:46 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: stats.py,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+## $Id: stats.py,v 1.2 2006/01/31 13:52:19 haavardj Exp $
 ##                
 ######################################################################
 
@@ -170,7 +170,9 @@ class Stats:
         'join',
         'leave',
         'redirect',
-        'cputime'
+        'cputime',
+        'members',
+        'fmembers'
         ]
         
     def __init__(self):
@@ -227,8 +229,12 @@ def resetAll(group):
 
 def collect(group):
     s = Stats()
+
     s += group.stats
     s += group.view.stats
     for peer in group.view.pRing:
         s = s + peer.stats
+
+    s.members = len(group.view.aRing)
+    s.fmembers = len(group.view.fRing)
     return s
