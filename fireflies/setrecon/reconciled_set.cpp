@@ -7,11 +7,11 @@
 //                   Version: 0.998 Beta
 //                      Date: 06/23/2004
 // Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-// Modified at:   Mon Jan 16 18:46:32 2006
+// Modified at:   Wed Jan 25 14:20:08 2006
 // Licence: GPL (see LICENSE file).
 //  
 //                
-// $Id: reconciled_set.cpp,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+// $Id: reconciled_set.cpp,v 1.2 2006/01/31 13:56:28 haavardj Exp $
 //                
 //====================================================================
 
@@ -93,10 +93,10 @@ void reconciled_set::deletetree(node*& root)
       //long ii;
       //root->hash_vector.kill();
       //root->extra_hashes.kill();
-      //for(ii=0;ii<p;ii++)
-      //{
-      //deletetree(root->child[ii]);
-      //}
+      for(int ii=0;ii<p;ii++)
+	{
+	  deletetree(root->child[ii]);
+	}
       //delete [] root->child;
       //delete root;
       //root->intree = false;
@@ -157,7 +157,7 @@ node* reconciled_set::recurse_make(vec_ZZ_p set, ZZ start,ZZ stop)
       index = position_of_child(set[jj], start, stop, d);
       append(subsets[index],set[jj]);
       clear(set[jj]); // save memory
-    }    
+    }
     set.kill();
       
     ZZ temp = start;
@@ -299,7 +299,7 @@ void reconciled_set::delete_from_tree(node*& root, ZZ_p element_to_delete)
       assert(alllength == (newset.length() + 1));		  
       ZZ start = root->start;
       ZZ stop = root->stop;
-      //deletetree(root);
+      deletetree(root);
       root->intree = false;
       root->unref();
 
@@ -317,7 +317,7 @@ void reconciled_set::delete_from_tree(node*& root, ZZ_p element_to_delete)
 
       /* The node needs to be deleted since this one element is
 	 the element to be deleted. */
-      //deletetree(root);
+      deletetree(root);
       root->intree = false;
       root->unref();
 
@@ -444,7 +444,15 @@ node * reconciled_set::get_tree()
 
 
 
-int reconciled_set::reconcile(node* rootA, vec_ZZ_p HBSamplevalues, vec_ZZ_p B_EVALS, long bsize, vec_ZZ_p& dnom, vec_ZZ_p& numer)
+int reconciled_set::reconcile(
+			      vec_ZZ_p HASamplevalues,
+			      vec_ZZ_p A_EVALS,
+			      long asize,
+			      vec_ZZ_p HBSamplevalues, 
+			      vec_ZZ_p B_EVALS, 
+			      long bsize, 
+			      vec_ZZ_p validationpoints,
+			      vec_ZZ_p& dnom, vec_ZZ_p& numer)
 /*
   Function to run the basic reconciliation algorithm.
   M: returnvalue - returns 0 if reconciliation is unsuccessful
@@ -455,16 +463,15 @@ int reconciled_set::reconcile(node* rootA, vec_ZZ_p HBSamplevalues, vec_ZZ_p B_E
   long ii,jj;
   
 
-  assert(rootA->intree == true);
-
-  assert(rootA->node_type == NODE_TYPE_NON_TERMINAL);
+  //assert(rootA->intree == true);
+  //  assert(rootA->node_type == NODE_TYPE_NON_TERMINAL);
 
   // initialize local variables
-  vec_ZZ_p& HASamplevalues=rootA->hash_vector;
-  vec_ZZ_p& A_EVALS=rootA->extra_hashes;
-  vec_ZZ_p& validationpoints=rootA->valids;
+  //vec_ZZ_p& HASamplevalues=rootA->hash_vector;
+  //vec_ZZ_p& A_EVALS=rootA->extra_hashes;
+  //vec_ZZ_p& validationpoints=rootA->valids;
 
-  long asize=rootA->setsize;
+  //long asize=rootA->setsize;
   vec_ZZ_p RF; //Rational function at sample points fits
   vec_ZZ_p bvector; //RHS of Vandemonde equation
   vec_ZZ_p bredvector; //The reduced RHS of the Vandermonde matrix size = rank
@@ -511,23 +518,7 @@ int reconciled_set::reconcile(node* rootA, vec_ZZ_p HBSamplevalues, vec_ZZ_p B_E
   //    vredmatrix[i][j] = vmatrix[i][j];
 
   vredmatrix = makeA(vmatrix, rank, mbar); //Make the VanderMonde Matrix with size Rank*Rank
-  /*
-  std::cout << "\n" << vredmatrix << "\n";
-  
-  for(ii=0; ii<rank;ii++){
-    if (vredmatrix[ii][ii] == 0){
 
-      std::cout << "mat=" << vredmatrix << "\n"
-		<< "NumRows= "   << vredmatrix.NumRows()
-		<< "\nNumCols= " << vredmatrix.NumCols() << "\n"
-		<< "rank= " << rank << "\n"
-		<< "mabar= " << mabar << "\n"
-		<< "mbbar= " << mbbar << "\n"
-		<< "mbar= " << mbar << "\n";
-    }
-    assert(vredmatrix[ii][ii] != 0);
-  } 
-  */
   bredvector.SetLength(rank);
   bredvector = makeB(vmatrix, rank, mbar, d);
   vmatrix.kill();
@@ -583,7 +574,10 @@ int reconciled_set::reconcile(node* rootA, vec_ZZ_p HBSamplevalues, vec_ZZ_p B_E
   vec_ZZ_p denominator;
 
   int rtnbool=0;
-  if (match_value(P,Q,A_EVALS,validationpoints,B_EVALS)==0) ;
+  if (match_value(P, Q, A_EVALS, validationpoints, B_EVALS)==0)
+    {
+      ;
+    }
   else
     {
       rtnbool=1;
