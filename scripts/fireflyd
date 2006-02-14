@@ -54,8 +54,10 @@ if __name__ == "__main__":
                       action="store_true", dest="verbose", default=False,
                       help="Verbose output.")
     parser.add_option("-b", "--byzantine",
-                      type="int", dest="byzantine", default=0,
-                      help="Set byzantine behavior 0=off, 1=passive, 2=active.")
+                      dest="byzantine", default=None,
+                      help="Checks in this file if the member is supposed to be Byzantine.")
+
+    
     (options, args) = parser.parse_args()
 
     if len(args) < 1:
@@ -137,7 +139,7 @@ if __name__ == "__main__":
         log_hdlr = logging.handlers.RotatingFileHandler(os.path.join(options.logdir,
                                                                      "%s:%d.log" % (options.address,
                                                                                     options.port)),
-                                                        "a", 10000000, 10)
+                                                        "a", 100000000, 10)
     else:
         log_hdlr = logging.StreamHandler(sys.stdout)
         
@@ -145,7 +147,17 @@ if __name__ == "__main__":
     log_hdlr.setFormatter(formatter)
     logging.getLogger().addHandler(log_hdlr)
 
-
+    #Check byzantine setting.
+    byzantine = 0
+    if options.byzantine:
+        for line in file(options.byzantine).readlines():
+            line = line.strip()
+            if line == "": continue
+            name, behaviour = line.split()
+            if name == "%s:%d" %(options.address, options.port):
+                byzantine = int(behaviour)
+            
+    
     #
     # Load own keys and notes.
     #
@@ -161,6 +173,7 @@ if __name__ == "__main__":
         mcert = mkey.getCertificate()
         cakey.sign(mcert)
         mnote = members.createInitialNote(mcert.serial, cacert.config['T'])
+        mnote.badness = byzantine
         mkey.sign(mnote)
     else:
         try:
@@ -168,16 +181,34 @@ if __name__ == "__main__":
             mkey, mcert, mnote = pickle.load(file(path))
             if not mnote:
                 mnote = members.createInitialNote(mcert.serial, cacert.config['T'])
+                mnote.badness = byzantine
                 mkey.sign(mnote)
+            else:
+                t = cacert.config['T']
+                rings = 2*t+1
+                if (len(filter(lambda x: x==True, mnote.mask)) != rings-t or
+                    len(filter(lambda x: x==False, mnote.mask)) != t):
+                    logging.warning("loaded note has invalid mask")
+                    n = members.createInitialNote(mcert.serial, t)
+                    n.badness = byzantine
+                    n.lifeline = mnote.lifeline
+                    mnote = n 
+                    mkey.sign(mnote)                    
+                elif mnote.badness != byzantine:
+                    mnote.badness = byzantine
+                    mnote.lifeline += 1
+                    mkey.sign(mnote)
+                
         except (pickle.UnpicklingError, IOError):
             if not cakey: raise IOError("Unable to load or create private data.")
             mkey = cert.MemberKey("%s:%d" %(options.address, options.port))
             mcert = mkey.getCertificate()
             cakey.sign(mcert)
             mnote = members.createInitialNote(mcert.serial, cacert.config['T'])
+            mnote.badness = byzantine
             mkey.sign(mnote)
 
-    logging.info("Me = %s on %s (badness=%d)", bytes_to_long(mcert.serial), mcert.address, options.byzantine)
+    logging.info("Me = %s on %s (badness=%d)", bytes_to_long(mcert.serial), mcert.address, mnote.badness)
     # Load boot nodes from the cache.
     
     bootnodes = []
@@ -198,6 +229,12 @@ if __name__ == "__main__":
         except (EOFError, pickle.UnpicklingError, IOError):
             logging.warning("Member cache: Error loading cert/note from %s.", path)
             continue
+
+        if not (isinstance(ocert, cert.MemberCertificate) and isinstance(onote, members.Note)):
+            continue
+        
+        if not members.isValidMask(onote.mask, cacert.config['T']):
+            continue        
         if ocert.serial == mcert.serial:
             logging.info("Member cache: Member in %s is me. Skipping", path)
             continue                
@@ -210,7 +247,8 @@ if __name__ == "__main__":
         bootnodes.append((ocert, onote))
 
     mgroup = group.BaseGroup(cacert, mkey, mcert, mnote)
-    mgroup.badness = options.byzantine
+    mgroup.badness = mnote.badness
+    mgroup.join(bootnodes)
 
     if options.rundir:
         statefile = os.path.join(options.rundir, "%s.dat" % mcert.address)
@@ -224,7 +262,6 @@ if __name__ == "__main__":
             except IOError:
                 pass
     
-    mgroup.join(bootnodes)
     
 
     
@@ -277,7 +314,7 @@ if __name__ == "__main__":
         global sold, snew
         snew = stats.collect(mgroup)
         snew.cputime = os.times()[0] * bogomips
-        logging.info("checkpoint %s" % str( (snew - sold)))
+        logging.info("checkpoint %s %d %d" % (str( (snew - sold)), snew.members, snew.fmembers) )
         sold = snew
 
 
