@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: group.py,v 1.2 2006/01/31 14:01:03 haavardj Exp $
+## $Id: group.py,v 1.3 2006/02/14 08:17:54 haavardj Exp $
 ##                
 ######################################################################
 
@@ -40,11 +40,12 @@ class BaseGroup(object):
     """
     
     def __init__(self, cacert, mkey, mcert, mnote=None):
+        
         self.logger = logging.getLogger(mcert.address)
         self.cacert, self.mkey, self.mcert = cacert, mkey, mcert
 
         self.view = members.View(self.cacert)
-
+    
         if not mnote:
             self.mnote = members.createInitialNote(mcert.serial,
                                                    cacert.config["T"])
@@ -113,6 +114,7 @@ class BaseGroup(object):
         peer = self.view.sn2peer[mcert.serial]
         self.view.addNotes(self.mnote)
         self.peer = peer
+        isinstance(self.peer, members.Member)
         
         for c, n in bootnodes:
             self.view.addCerts(c)
@@ -149,7 +151,9 @@ class BaseGroup(object):
         The default implementation rebuts accusation for itself."""
 
         # Rebut accusation for this member.
-        if member == self.peer:
+        isinstance(member, members.Member)
+        
+        if member.serial == self.peer.serial:
             mask = self.peer.getMask()
             newNote = members.Note(self.mcert.serial,
                                    self.peer.note.lifeline + 1,
