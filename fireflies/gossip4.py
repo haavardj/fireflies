@@ -3,13 +3,13 @@
 ## Filename:      gossip4.py
 ## Description:   Fireflies set-recon based gossip protocol 
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Thu Jan 26 00:38:44 2006
+## Modified at:   Wed Feb  1 18:12:09 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip4.py,v 1.1 2006/01/31 13:50:00 haavardj Exp $
+## $Id: gossip4.py,v 1.2 2006/02/14 08:15:40 haavardj Exp $
 ##                
 ######################################################################
 
@@ -510,14 +510,25 @@ class GossipBase(Int32StringReceiver):
         for x in hashes:
             assert not x in self.outBuff
             self.outBuff.append(x)
-            
+
+        badness = self.factory.peer.note.badness
         while self.outBuff:
             x = self.outBuff.pop()
+            
+            if self.setName == "aSet" and badness == 1:
+                #Passive attack, do not forward accusations.
+                break
+                
             try:
                 d = self.set[x]
             except KeyError, e:
                 self.logger.warning("reconcile_data->%s %s removed", self, x)
             else:
+
+                if badness == 2 and self.setName == "nSet":
+                    # If active attack, forward only our own notes.
+                    if d.serial != self.factory.peer.serial:
+                        continue                
                 self.sendCommand("reconcile_data", d)
 
         if self.master:
@@ -623,11 +634,12 @@ class ServerProtocol(GossipBase):
         assert self.state == self.STATE_IDLE
         self.state = self.STATE_GOSSIPING
 
-        assert self.dataBuff == [], "%s" %self.dataBuff
+        assert self.dataBuff == []
         assert self.reqBuff == []
         assert self.outBuff == []
         self.set, self.appendfunc = self.factory.getSet(name)
-
+        self.setName = name
+        
         if self.curNode: self.curNode.unref()
         self.curNode = None
         self.nodes = []
@@ -775,7 +787,7 @@ class ClientProtocol(GossipBase):
         assert self.reqBuff == []
         assert self.outBuff == []
         assert self.dataBuff == []
-        
+        self.setName = name
         self.set = set
         self.appendfunc = appendfunc
 
