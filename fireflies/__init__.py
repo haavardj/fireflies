@@ -4,13 +4,13 @@
 ## Description:   Fireflies: a scalabe and intrusion tolerant membership
 ##                protocol. 
 ## Author:        Hï¿½ard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Wed Jan 25 14:09:57 2006
-## Modified by:   Hï¿½ard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified at:   Wed Feb  1 18:53:46 2006
+## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright 2006, University of Troms (Norway)
 ##                
-## $Id: __init__.py,v 1.2 2006/01/31 13:54:42 haavardj Exp $
+## $Id: __init__.py,v 1.3 2006/02/14 08:19:21 haavardj Exp $
 ##                
 ######################################################################
 
@@ -21,10 +21,10 @@ service.
 
 """
 
-__version__ = "0.27.7"
+__version__ = "0.27.10"
 version = __version__
 
-protocol_version = (0,27,7)
+protocol_version = (0,27,10)
 
 import time as t
 time = t
