@@ -2,10 +2,10 @@
 # -*- coding: iso-8859-1 -*-
 ######################################################################
 ## Filename:      setup.py
-## Description:   Fireflies setup file
-## Author:        H�ard Dagenborg Johansen <haavardj@cs.uit.no>
+## Description:   Fireflies setup file.
+## Author:        Håard Dagenborg Johansen <haavardj@cs.uit.no>
 ##                
-## $Id: setup.py,v 1.1 2006/01/20 12:41:26 haavardj Exp $
+## $Id: setup.py,v 1.2 2006/02/14 08:04:37 haavardj Exp $
 ##                
 ######################################################################
 
@@ -36,13 +36,13 @@ module1 = Extension('fireflies.setrecon._setreconbase',
 setup(name="fireflies",
       version=fireflies.version,
       description="Fireflies.",
-      author="H�ard D Johansen",
+      author="Håvard D Johansen",
       author_email="haavardj@cs.uit.no",
-      url="N/A",
+      url="http://sourceforge.net/projects/fireflies",
       scripts=['scripts/ffcakey', 'scripts/fireflyd',
                'scripts/ffrunmany'],
       packages=['fireflies', 'fireflies.web', 'fireflies.setrecon'],
-      license="N/A",
+      license="GPL",
       ext_modules = [module1],
       data_files=[ ("lib/python2.3/site-packages/fireflies/web", wf),
                    ("lib/python2.3/site-packages/fireflies/web/css", cf)
