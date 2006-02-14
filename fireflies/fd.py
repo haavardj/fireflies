@@ -3,13 +3,13 @@
 ## Filename:      fd.py
 ## Description:   Fireflies failure detection protocol.
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Mon Jan 16 18:36:26 2006
+## Modified at:   Tue Feb  7 14:18:25 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+## $Id: fd.py,v 1.2 2006/02/14 08:14:24 haavardj Exp $
 ##                
 ######################################################################
 
@@ -214,7 +214,7 @@ class FailureDetector:
             return
         
         if myBadness == 2:
-            a = mon.pAccusations[x]
+            a = mon.pAccusations.get(x, None)
             if a and a.accuser == mpeer.id:
                 return
             
@@ -224,6 +224,8 @@ class FailureDetector:
                                             mpeer.id
                                             )
             mkey.sign(accusation)
+            view.stats.accusationsCreated += 1
+            view.stats.accusationsCreatedByzantine += 1
             view.addAccusations(accusation)
             self.logger.warning("created %s aggressive attack", self.peer.view.pprint(accusation))
         elif myBadness == 0:
