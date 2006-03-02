@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.2 2006/02/14 08:14:24 haavardj Exp $
+## $Id: fd.py,v 1.3 2006/03/02 08:16:59 haavardj Exp $
 ##                
 ######################################################################
 
@@ -181,7 +181,7 @@ class FailureDetector:
         mkey = self.mkey
         view = self.view
         mpeer = view.sn2peer[mkey.serial]
-        
+        isinstance(mpeer, members.Member)
         myBadness = mpeer.note.badness
 
         x = self.last = (self.last + 1) % nrRings
@@ -191,9 +191,10 @@ class FailureDetector:
             return
 
         mon = view.mRings[x].succ(mpeer)
-        while mon.isFailed():
-            mon = view.mRings[x].succ(mon)
+        isinstance(mon, members.Member)
+        while mon.isFailed() or mon.isAccused():
             if mon.id == mpeer.id: break
+            mon = view.mRings[x].succ(mon)            
             
         # It's me!
         if mon.id == mpeer.id:
@@ -205,10 +206,9 @@ class FailureDetector:
         self._pinglist[x] = mon.id
         #if mon.id in self._pinglist[0:x]: return
 
-
         # If the monitoree has disabled the ring, we do not need to
         # ping that host.
-        if not mon.note.mask[x]:            
+        if mon.note.mask[x] == False:            
             # Prevents this from blocking other rings
             self._pinglist[x] = 0 
             return

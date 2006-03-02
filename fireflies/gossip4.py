@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip4.py,v 1.2 2006/02/14 08:15:40 haavardj Exp $
+## $Id: gossip4.py,v 1.3 2006/03/02 08:16:59 haavardj Exp $
 ##                
 ######################################################################
 
@@ -517,7 +517,7 @@ class GossipBase(Int32StringReceiver):
             
             if self.setName == "aSet" and badness == 1:
                 #Passive attack, do not forward accusations.
-                break
+                continue
                 
             try:
                 d = self.set[x]

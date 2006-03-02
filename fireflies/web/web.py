@@ -1,13 +1,14 @@
+
 ######################################################################
 ## Filename:      web.py
 ## Description:   
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Hï¿½rd Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Fri Jan 20 12:29:37 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Hï¿½rd Dagenborg Johansen <haavardj@cs.uit.no>
 ##  
-##         Copyright© 2006, University of Tromsø (Norway)
+##         Copyrightï¿½ 2006, University of Tromsï¿½rway)
 ##                
-## $Id: web.py,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+## $Id: web.py,v 1.2 2006/03/02 08:16:59 haavardj Exp $
 ##                
 ######################################################################
 
@@ -241,8 +242,8 @@ class NodeViewer:
 
     def start(self):
 
-        interval = 5 * 60 * 1 
-        historySize = 48 * 12   # 5 * 60*1)
+        interval = 5 * 60 * 1 # 30 * 1 
+        historySize = 48   # 5 * 60*1)
 
         reactor.listenTCP(self.port, appserver.NevowSite(self.root), interface=self.interface)
         p = os.path.join("/tmp", self.group.mcert.address)
@@ -322,6 +323,12 @@ class MasterPage(rend.Page):
 
     def render_lifeline(self, context, peer):        
         return context.tag.clear()[peer.note.lifeline]
+
+    def render_mask(self, context, peer):
+        assert isinstance(peer, fireflies.members.Member)
+        t = context.tag.clear()
+        if not peer.note: return t["NA"]
+        else: return t[str(peer.note.mask)]     
     
     def render_accused(self, context, peer):
         if peer.isAccused():
@@ -365,12 +372,17 @@ class MasterPage(rend.Page):
             bt = T.span["."](_class="passive")
         elif peer.note.badness == 2:
             bt = T.span["."](_class="active")
-    
+
+        if peer.note:
+            ll = T.span[str(peer.note.lifeline)]
+        else:
+            ll = T,span["-"]
         s[T.span[st, bt](style="background-color: #E9E9FF;"),
           T.a["l"](style="white-space: nowrap; padding-left: 4px;",
                    data=peer,
                    render=self.render_address,
-                   href="/%x" % bytes_to_long(peer.id))
+                   href="/%x" % bytes_to_long(peer.id)),
+          ll
           ]
         return s
         
@@ -387,8 +399,14 @@ class MasterPage(rend.Page):
         l = list(members)
         #l.sort(lambda x,y: cmp(x.note.cert.address, y.note.cert.address))
         rows = [ T.caption["Total=%s" % len(l)],
-                 T.tr[ T.th["S"], T.th["B"], T.th["Address"] ] ]
+                 T.tr[ T.th["S"], T.th["B"], T.th["Address"], T.th["ll"] ] ]
         for peer in l:
+
+            if peer.note:
+                ll = T.td[str(peer.note.lifeline)]
+            else:
+                ll = T.td["-"]
+            
             
             if peer in self.peer.view.fRing:
                 st = T.td[""](_class="failedbox")
@@ -406,7 +424,7 @@ class MasterPage(rend.Page):
                 bt = T.td[""](_class="activebox")
 
             a = T.td[T.a[""](href="/%x" % bytes_to_long(peer.id), _class="address", data=peer, render=self.render_address)]
-            rows.append( T.tr[  st, bt, a])
+            rows.append( T.tr[  st, bt, a, ll])
         return t[T.table[rows](_class="peerlist")]
 
 
@@ -440,9 +458,11 @@ class PeerPage(MasterPage):
 
         t = context.tag.clear()
         l = peer.vAccusations
+        nrRings = 2 * peer.view.getT() + 1
+        
         rows = [
                  T.tr[ T.th["#"], T.th["S"], T.th["B"], T.th["Address"], T.th["LL"]]]
-        for x in range(len(l)):
+        for x in range(nrRings):
             accus = l.get(x, None)
             if peer.note.mask[x]: enabled = "Y"
             else: enabled = "N"
@@ -474,10 +494,11 @@ class PeerPage(MasterPage):
 
         t = context.tag.clear()
         l = peer.pAccusations
-        rows = [
-                 T.tr[ T.th["#"], T.th["S"], T.th["B"], T.th["Address"], T.th["LL"]]]
-        for x, a in l.items():
-            accus = a
+        nrRings = 2 * peer.view.getT() + 1
+        
+        rows = [T.tr[ T.th["#"], T.th["S"], T.th["B"], T.th["Address"], T.th["LL"]]]
+        for x in range(nrRings):
+            accus = l.get(x, None)
             if peer.note.mask[x]: enabled = "Y"
             else: enabled = "N"
 
@@ -649,7 +670,15 @@ class PartnersPage(MasterPage):
                   T.th["avgL"],
                   T.th["State"]]]
 
-        mons = map( lambda x: x.succ(self.peer), self.peer.view.mRings)
+        mons = []
+        for x in range(len(self.peer.view.mRings)):
+            mon = self.peer.view.mRings[x].succ(self.peer)
+            while mon.isAccused():
+                if mon.id == self.peer.id: break
+                mon = self.peer.view.mRings[x].succ(mon)
+            mons.append(mon)
+            
+        #mons = map( lambda x: x.succ(self.peer), self.peer.view.mRings)
         for x in range(len(mons)):
             y = mons[x]
                 

@@ -5,12 +5,12 @@
 ##                protocol. 
 ## Author:        Hï¿½ard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Wed Feb  1 18:53:46 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Hï¿½ard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright 2006, University of Troms (Norway)
 ##                
-## $Id: __init__.py,v 1.3 2006/02/14 08:19:21 haavardj Exp $
+## $Id: __init__.py,v 1.4 2006/03/02 08:16:59 haavardj Exp $
 ##                
 ######################################################################
 
@@ -21,10 +21,10 @@ service.
 
 """
 
-__version__ = "0.27.10"
+__version__ = "0.27.15"
 version = __version__
 
-protocol_version = (0,27,10)
+protocol_version = (0,27,15)
 
 import time as t
 time = t
@@ -42,7 +42,7 @@ defaultConfig = {
     # Length of encryption keys.
     'RSA_SIZE': 1024,
 
-    'MAX_GROUP_SIZE': 200, 
+    'MAX_GROUP_SIZE': 400, 
 
     # NOMGOSSIPRINGS and T reflects how many Byzantine members the
     # protocol can handle. Their values depend on the probability that
@@ -55,14 +55,14 @@ defaultConfig = {
     # Byzantine. There gossip mesh is connected with a probability of
     # 0.999.
     
-    'NUM_GOSSIPRINGS': 9,
+    'NUM_GOSSIPRINGS': 8,
     #'NUMMONRINGS': 13,
-    'T': 6,
+    'T': 12,
 
     # The probability of accusing a live member due to packet
     # loss. Lower number is better but increases the time it takes to
     # detect a failed member.
-    'PMISTAKE': 0.001,
+    'PMISTAKE': 0.00001,
 
     # Do not accuse a member unless it has been pinged this many times.    
     'TMIN': 3,
@@ -73,7 +73,7 @@ defaultConfig = {
 
     # Time to wait between receiving an accusation and failing the
     # accused member. 
-    'REBUTTAL_TIME': 900,
+    'REBUTTAL_TIME': 600,
 
     # How often gossip partner should exchange state (seconds).
     'GOSSIP_ROUNDTIME': 60,

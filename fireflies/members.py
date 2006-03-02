@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: members.py,v 1.2 2006/01/31 13:51:23 haavardj Exp $
+## $Id: members.py,v 1.3 2006/03/02 08:16:59 haavardj Exp $
 ##                
 ######################################################################
 
@@ -29,6 +29,13 @@ INITIAL_LRATE = 0.10
 
 PARTITION_FACTOR = 3
 RECON_EXTRA = 5
+
+def isValidMask(mask, t):
+    """Returns True if mask is valid given a Byzantine tolerance t."""
+    if len(filter(lambda x: x == True, mask)) != t + 1: return False 
+    if len(filter(lambda x: x == False, mask)) != t: return False 
+    return True 
+
 
 class Accusation(object, cert.TimestampMixin, cert.RSASignable):
     """A Fireflies accusation. Except for the signature, this class
@@ -90,7 +97,7 @@ class Note(object, cert.TimestampMixin, cert.RSASignable):
       - data --- A string.
     """
 
-    def __init__(self, serial, lifeline, mask, data=""):
+    def __init__(self, serial, lifeline, mask, data=""):        
         self.serial = serial
         self.lifeline = lifeline
         self.mask = mask
@@ -137,7 +144,7 @@ class Member(object):
 
     The following attributes are of interest:
 
-    note - the member's latest note.
+    note - the member's latest note. Update only with setNote.
     cert - the member's certificate. Does not change.
     id/serial - the serial number of the member's certificate.
     view - The view the member is in.
@@ -145,16 +152,20 @@ class Member(object):
 
     def __init__(self, mcert, view, note = None, initLRate=INITIAL_LRATE):
 
+        assert isinstance(mcert, cert.MemberCertificate)
+        assert isinstance(view, View)
+        if note: assert isinstance(note, Note)
+        
         self.cert = mcert
         self.mcert = mcert
         self.id = mcert.serial
         self.serial = self.mcert.serial
         self.view = view
-        self.note = None
-
+        
+        self.note = None    
         if note:
             self.setNote(note)
-        
+            assert isinstance(self.note, Note)
         self.logger = logging.getLogger(mcert.address)
         
         # Valid accusations. 
@@ -194,16 +205,13 @@ class Member(object):
             self._gIDCache, self._mIDCache = hashCache[self.id]
 
         self.fdTimer = None
-
         self.stats = fireflies.stats.Stats()
-        
 
     def getMask(self):
         """Returns a mask that is based on t, nr rings, accusation history, and the old mask."""
 
         t = self.view.getT()
-        nrr = self.view.getNrMonitorRings()
-
+        nrr = 2*t + 1
 
         # We need to disable t rings. If the member has not been
         # accused on at least t rings, we pick disabled rings from the
@@ -213,28 +221,38 @@ class Member(object):
 
         # p1 is a list of the ring numbers we are to disable. p1 is
         # sorted according to which rings are to be disabled first.         
+
         p1 = map(lambda x: (self.hAccusations[x], x), self.hAccusations.keys())
         p1.sort()
         p1.reverse()
         p1 = map(lambda x: x[1], p1)
 
-        if self.note:
+        if self.note and isValidMask(self.note.mask, t):
             p2 = list(self.note.mask)
         else:
-            p2 = [False] * t + ([False] * (nrr - t))
+            p2 = ([False] * t) + ([True] * (t+ 1))
             random.shuffle(p2)
             
-        p2 = map(lambda x: (x, p2[x]), range(nrr))
-        p2 = filter(lambda x: not (x[1] or  (x[0] in p1)), p2)
-        p2 = map(lambda x: x[0], p2)
-        random.shuffle(p2)
-        p1.extend(p2)
+        for n, v in enumerate(p2):
+            if v == True: continue
+            if len(p1) >= t: break
+            if n not in p1: p1.append(n)
+        
+        if not len(p1) >= t:
+            self.logger.error("mask computation error. len(p1) = %d, not %d", len(p1), t)
+            return p2
 
-        mask = [True] * nrr
-        for x in p1:
-            mask[x] = False
-        return mask
-            
+        p1 = p1[0:t]
+        
+        mask = [True] * (2*t + 1)
+        for n in p1:
+            mask[n] = False
+        
+        if not isValidMask(mask, t):
+            self.logger.error("computed invalid mask %s. Assigning random mask", mask)
+            return p2
+        
+        return mask            
 
     def isFailed(self):
         """Returns True if the member is failed."""
@@ -259,7 +277,8 @@ class Member(object):
         the note is older than the current note, or the note is not
         signed correctly by the member.
         """
-
+        assert  isinstance(note, Note)
+        
         if self.serial != note.serial:
             raise ValueError("Note do not match certificate.")
 
@@ -428,7 +447,8 @@ class View:
         return self.cacert.config['REBUTTAL_TIME']
 
     def getT(self):
-        return self.cacert.config['TMIN']
+        """Returns the Byzantine tolerance factor t."""
+        return self.cacert.config['T']
 
     def getNrMonitorRings(self):
         return len(self.mRings)
@@ -571,17 +591,17 @@ class View:
             # Check that accusation is recent.
             if not accused.note:
                 self.stats.accusationsInvalid += 1
-                self.logger.debug("discard %s byzantine behaviour", self.pprint(accusation))
+                self.logger.warning("discard %s byzantine behaviour", self.pprint(accusation))
                 continue
             
             if accusation.lifeline < accused.note.lifeline:
                 self.stats.accusationsRedundant += 1
-                self.logger.debug("discard %s newer note", self.pprint(accusation))
+                self.logger.warning("discard %s newer note", self.pprint(accusation))
                 continue
 
             if accusation.lifeline > accused.note.lifeline:
                 self.stats.accusationsInvalid += 1
-                self.logger.debug("discard %s accusing newer note.", self.pprint(accusation))
+                self.logger.warning("discard %s accusing newer note.", self.pprint(accusation))
                 continue
 
             # Check that the accuser is not specifying an invalid ring.
@@ -619,7 +639,7 @@ class View:
                 accuser.stats.accusePossible += 1
                 accused.stats.accusedPossible += 1
                 
-                self.logger.debug("add %s New Possible", self.pprint(accusation))
+                self.logger.debug("add %s new", self.pprint(accusation))
                 accused.allAccusations.insert(0, accusation)
                 if len(accused.allAccusations) > HISTORYSIZE: accused.allAccusations.pop(-1)
             else:
@@ -640,9 +660,9 @@ class View:
                     ca.stats.accuseReplaced += 1
                     accuser.stats.accuseCloser +=1                    
 
-                    self.logger.debug("add %s replacing %s",
-                                      self.pprint(accusation),
-                                      self.pprint(pa))
+                    self.logger.warning("add %s replacing %s",
+                                        self.pprint(accusation),
+                                        self.pprint(pa))
                     accused.setAccusation(accusation)
                     self._dirty = True
                     # Keep this in our history
@@ -676,6 +696,7 @@ class View:
 
         nrrings = self.getNrMonitorRings()
         changed = True
+        
         while changed:
             changed = False
             for accused, oldVas in hasAccus:
@@ -699,11 +720,17 @@ class View:
 
                     ring = self.mRings[x]                                        
                     accuser = self.sn2peer[pa.accuser]
-
+                    isinstance(accuser, Member)
+                    isinstance(accused, Member)
+                    
                     # In my view, cm is the current valid monitor to
                     # the accused.
                     cm = ring.pred(accused)
-
+                    isinstance(cm, Member)
+                    while cm.isAccused():
+                        if cm.serial == accused.serial: break
+                        cm = ring.pred(cm)
+                    
                     # The accusation is valid if the accuser is the
                     # predecessor of the accused, the accuser is the
                     # accused, or the accuser is closer on the ring
@@ -728,10 +755,12 @@ class View:
             if not isAccused:
                 if isFailed:
                     assert not peer.fdTimer
-                    self.logger.debug("revive %s accusations invalidated", self.pprint(peer))
+                    self.logger.warning("%s invalidated accusations reviving", self.pprint(peer))
                     self.revive(peer)
                     continue
-
+                else:
+                    pass
+                    #self.logger.warning("%s invalidated accusations", self.pprint(peer))
                 # If a member is not accused, any fail-timer should be
                 # removed.
                 try:
@@ -744,6 +773,7 @@ class View:
                 if isFailed: continue
                 if peer.fdTimer: continue
                 peer.stats.accusedFirst += 1
+                self.logger.warning("%s validated accusations first.", self.pprint(peer))
                 peer.fdTimer = reactor.callLater(self.cacert.config['REBUTTAL_TIME'], self.fail, peer)
                 for l in self._listeners:
                     l.handle_accused(peer)
@@ -789,8 +819,9 @@ class View:
             notes = [notes, ]
             
         for note in notes:
-            assert note
+            assert isinstance(note, Note)            
             self.stats.notesTotal +=1 
+            
             if not note.serial in self.sn2peer:
                 self.stats.notesInvalid += 1
                 self.logger.warning("discard %s unknown peer", self.pprint(note))
@@ -800,6 +831,9 @@ class View:
             if not peer.cert.verify(note):
                 self.stats.notesInvalid += 1
                 self.logger.warning("discard %s invalid signature", self.pprint(note))
+                continue
+            if not isValidMask(note.mask, self.getT()): 
+                self.logger.warning("discard %s invalid mask", self.pprint(note))
                 continue
         
             if (not peer.note) or (note.lifeline > peer.note.lifeline):
