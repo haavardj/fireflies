@@ -3,13 +3,13 @@
 ## Filename:      stats.py
 ## Description:   Fireflies runtime statistic.
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Tue Jan 31 11:01:46 2006
+## Modified at:   Tue Feb  7 14:18:02 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: stats.py,v 1.2 2006/01/31 13:52:19 haavardj Exp $
+## $Id: stats.py,v 1.3 2006/03/02 08:08:14 haavardj Exp $
 ##                
 ######################################################################
 
@@ -172,7 +172,8 @@ class Stats:
         'redirect',
         'cputime',
         'members',
-        'fmembers'
+        'fmembers',
+        'accusationsCreatedByzantine'
         ]
         
     def __init__(self):
@@ -214,7 +215,6 @@ class Stats:
                 setattr(s, k, float(getattr(self, k)) / float(other))
         else: raise AttributeError
         return s
-
 
     def __str__(self):
         d = map(lambda x: self._data[x], Stats.items)
