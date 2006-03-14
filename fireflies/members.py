@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: members.py,v 1.3 2006/03/02 08:16:59 haavardj Exp $
+## $Id: members.py,v 1.4 2006/03/14 13:26:55 haavardj Exp $
 ##                
 ######################################################################
 
@@ -23,6 +23,8 @@ import bisect, fireflies, cert, logging, setrecon
 import random
 import fireflies.stats
 
+from fireflies.interfaces import IMember
+from zope.interface import implements
 
 HISTORYSIZE = 100
 INITIAL_LRATE = 0.10
@@ -84,6 +86,7 @@ def createInitialNote(serial, t, data=""):
     random.shuffle(mask)
     return Note(serial, 1, mask, data)
 
+
 class Note(object, cert.TimestampMixin, cert.RSASignable):
     """A Fireflies note. Except for the signature, this class
     should be considered immutable.
@@ -138,7 +141,6 @@ class Note(object, cert.TimestampMixin, cert.RSASignable):
 # members.
 hashCache = {}
 
-
 class Member(object):
     """A Fireflies member.
 
@@ -149,6 +151,8 @@ class Member(object):
     id/serial - the serial number of the member's certificate.
     view - The view the member is in.
     """
+    
+    implements(IMember)
 
     def __init__(self, mcert, view, note = None, initLRate=INITIAL_LRATE):
 
@@ -207,6 +211,32 @@ class Member(object):
         self.fdTimer = None
         self.stats = fireflies.stats.Stats()
 
+
+    #
+    # IMember interface
+    #
+    def getAddress(self):
+        return self.cert.address
+
+    def getCertificate(self):
+        return self.cert
+    
+    def getId(self):
+        return self.serial
+        
+    def isFailed(self):
+        """Returns True if the member is failed."""
+        
+        return self in self.view.fRing
+
+    def isAccused(self):
+        """Return True if the member is accused."""
+        return bool(self.vAccusations)
+
+    #
+    # Other funcs
+    # 
+
     def getMask(self):
         """Returns a mask that is based on t, nr rings, accusation history, and the old mask."""
 
@@ -254,15 +284,6 @@ class Member(object):
         
         return mask            
 
-    def isFailed(self):
-        """Returns True if the member is failed."""
-        
-        return self in self.view.fRing
-
-    def isAccused(self):
-        """Return True if the member is accused."""
-
-        return bool(self.vAccusations)
 
     def isAccusedOn(self, ring):
         """Returns True if the member is accused on ring."""

@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: group.py,v 1.3 2006/02/14 08:17:54 haavardj Exp $
+## $Id: group.py,v 1.4 2006/03/14 13:26:55 haavardj Exp $
 ##                
 ######################################################################
 
@@ -19,9 +19,13 @@ import logging
 import gossip4, fd, members
 import fireflies.stats
 from twisted.internet import reactor    
+from zope.interface import Interface, implements
+from fireflies.interfaces import *
+
 
 # To speed up the simulator, copying is done here.
 from copy import copy
+
 
 class BaseGroup(object):
     """A basic Fireflies group object.
@@ -39,7 +43,11 @@ class BaseGroup(object):
     issued will be learned from the group.        
     """
     
+    implements(IGroup)
+    
     def __init__(self, cacert, mkey, mcert, mnote=None):
+        
+        self.__listeners = []
         
         self.logger = logging.getLogger(mcert.address)
         self.cacert, self.mkey, self.mcert = cacert, mkey, mcert
@@ -62,39 +70,11 @@ class BaseGroup(object):
     
     def __setattr_im__(self, k, v):
         raise RuntimeError("immutable error")
-                
-    def leave(self):
-        """Leave the group."""
-        self.logger.warning("leave %s", self.cacert.name)
-        assert self.joined
-        self.stats.leave += 1
-        self.pinger.stop()
-        self.gossiper.stop()
-        self.view.unregisterListener(self)
-        self.joined = False
 
-    def __len__(self):
-        return len(self.view.aRing)
 
-    def __contains__(self, serial):
-        return serial in self.view.aRing
-    
-    def size(self):
-        """Return the number of live members."""
-        return len(self)
-
-    def getMembers(self):
-        """Returns a list of members serials and addresses."""
-        return map(lambda: (x.serial, x.cert.address), self.view.aRing)
-
-    def getGroupID(self):
-        """Returns the unique identifier if the group."""        
-        return self.cacert.serial
-
-    def getGroupName(self):
-        """Returns the group name."""
-        return self.cacert.name
-        
+    #
+    # IGroup interface
+    #
     def join(self, bootnodes=[]):
         """Join the group.
 
@@ -129,7 +109,60 @@ class BaseGroup(object):
         self.gossiper.start()
         self.pinger.start()
         self.joined = True
+            
+    def leave(self):
+        self.logger.warning("leave %s", self.cacert.name)
+        assert self.joined
+        self.stats.leave += 1
+        self.pinger.stop()
+        self.gossiper.stop()
+        self.view.unregisterListener(self)
+        self.joined = False
+
+    def __len__(self):
+        return len(self.view.aRing)
+    
+    def members(self):
+        return self.view.aRing
+
+    def failed(self):
+        return self.view.fRing
+
+    def accused(self):
+        raise NotImplementedError
+
+    def __contains__(self, serial):
+        return serial in self.view.aRing
+
+    def getMemberByAddress(self, address):
+        raise NotImplementedError
+    
+    def getMemberById(self, id):
+        return self.view.sn2peer[sn]
+    
+    def addListener(self, listener):
+        if not IGroupListnener.providedBy(listener): raise TypeError
+        if listener in self.__listeners: raise ValueError
+        self.__listeners.append(listener)
+
+    def removeListener(self, listener):
+        if not IGroupListnener.providedBy(listener): raise TypeError
+        if listener not in self.__listeners: raise ValueError
+        self.__listeners.remove(listener)
+
         
+    #
+    # Other stuff below
+    #
+
+    def getGroupID(self):
+        """Returns the unique identifier if the group."""        
+        return self.cacert.serial
+
+    def getGroupName(self):
+        """Returns the group name."""
+        return self.cacert.name
+                
     def handle_join(self, member):
         """Upcall when a member joins."""
 
@@ -164,10 +197,15 @@ class BaseGroup(object):
             reactor.callLater(0, self.view.addNotes, newNote)
             self.view.stats.notesCreated += 1
 
-
     def _failback(self, reason):
         self.logger.exception(reason)
 
+
+
+
+#
+# Stuff below does not work.
+#
 
 class FlyCast(BaseGroup):
     """Intrusion tolerant multicast group."""

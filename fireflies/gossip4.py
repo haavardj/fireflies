@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip4.py,v 1.3 2006/03/02 08:16:59 haavardj Exp $
+## $Id: gossip4.py,v 1.4 2006/03/14 13:26:55 haavardj Exp $
 ##                
 ######################################################################
 
@@ -38,8 +38,6 @@ DATA_ACCUSATION_ID = 0x3
 
 DUBLICATEPARTNERS = False
 
-
-
 cmd2code = {
     'partner': 0x1,
     'accepted': 0x4,
@@ -65,6 +63,23 @@ code2cmd = {}
 for k, v in cmd2code.items():
     code2cmd[v] = k
 
+
+
+class IGossipMesh(Interface):
+    
+    def add_set(self, set, priority):
+        pass
+        
+    def remove_set(self, set):
+        pass
+    
+    def allowInbound(self, member): pass
+    
+    def disallowInbound(self, member): pass
+    
+    def addOutbound(self, member): pass
+    
+    def removeOutbound(self, member): pass
 
 
 
@@ -686,6 +701,7 @@ class ClientProtocol(GossipBase):
     def __init__(self, peer, ringNr):
 
         self.other = peer
+        assert isinstance(peer, members.Member)
         self.ringNr = ringNr
         self.state = self.STATE_CONNECTING
         self._timer = None
@@ -887,10 +903,18 @@ class GossipServerFactory(ServerFactory):
         """Client connected."""
 
         me = self.peer
+        isinstance(me, members.Member)        
         him = protocol.other
+        isinstance(him, members.Member)
+        
         hisPartner = self.view.gRings[rnr].succ(him)
-        while hisPartner.isFailed():
-            hisPartner = self.view.gRings[rnr].succ(hisPartner)
+        isinstance(hisPartner, members.Member)
+
+        ring = self.view.gRings[rnr]
+        
+        while hisPartner.isAccused() or hisPartner.isFailed():
+            hisPartner = ring.succ(hisPartner)
+            if hisPartner == him: break
 
         cp = self.cons[rnr]
         if hisPartner.id != me.id:
@@ -1039,10 +1063,11 @@ class GossipClientFactory(ClientFactory):
                 del self._initializing[k]
 
         cg = self.connections[x]
-
+        
         ring = self.view.gRings[x]
         partnerOnX = ring.succ(self.peer)
-        while partnerOnX.isFailed():
+        assert isinstance(partnerOnX, members.Member)
+        while partnerOnX.isFailed() or partnerOnX.isAccused():
             partnerOnX = ring.succ(partnerOnX)
             if partnerOnX.id == self.peer.id:
                 break
@@ -1064,8 +1089,9 @@ class GossipClientFactory(ClientFactory):
                 # We have an active connection on the current ring. We
                 # can either close the current one and connect to a
                 # new member, or keep the current connection.
-
-                if partnerOnX != cg.other:
+                isinstance(cg, ClientProtocol)
+                
+                if cg.other.isFailed():                    
                     cg.hangup()
                     if not partnerOnX.cert.address in self._initializing:
                         self.connect(partnerOnX, x)

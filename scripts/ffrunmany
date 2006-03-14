@@ -42,6 +42,7 @@ for x in range(num):
                    "-a", options.address,
                    "--verbose",
                    "-s",
+                   "-b", "hosts",
                    "-p", str(port),
 		   "-m", "100",
                    "-d",
