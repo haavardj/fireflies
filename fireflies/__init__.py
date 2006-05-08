@@ -10,7 +10,7 @@
 ##  
 ##         Copyright 2006, University of Troms (Norway)
 ##                
-## $Id: __init__.py,v 1.5 2006/03/14 13:26:55 haavardj Exp $
+## $Id: __init__.py,v 1.6 2006/05/08 09:47:55 haavardj Exp $
 ##                
 ######################################################################
 
@@ -21,10 +21,11 @@ service.
 
 """
 
-__version__ = "0.27.16"
+protocol_version = (0,28,0)
+
+__version__ = "%d.%d.%d" % protocol_version
 version = __version__
 
-protocol_version = (0,27,16)
 
 import time as t
 time = t

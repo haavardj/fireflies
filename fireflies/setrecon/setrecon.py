@@ -9,7 +9,7 @@
 ## Licence: GPL (see LICENCE file).
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: setrecon.py,v 1.2 2006/01/31 13:59:55 haavardj Exp $
+## $Id: setrecon.py,v 1.3 2006/05/08 09:47:55 haavardj Exp $
 ##                
 ######################################################################
 
@@ -32,11 +32,43 @@ def init(bz, mm):
     reconciled_set_init(bitsize, mbar)
     initialized = True
 
+from zope.interface import Interface
+
+class IGossipSet(Interface):
+
+    def add(self, itm): 
+        """Add itm to set."""
+        pass     
     
+    def remove(self, itm):
+        """Remove itm to set."""
+        pass
+    
+    def items(self): 
+        """Return a iterable object of items to gossip."""
+        pass
 
-class ReconSet:
+    
+class ITimestampGossipSet(Interface):
 
-    def __init__(self, p, k):
+    def add(self, itm): 
+        """Add itm to set."""
+        pass     
+    
+    def remove(self, itm):
+        """Remove itm to set."""
+        pass
+    
+    def items(self): 
+        """Return a iterable object of items to gossip."""
+        pass
+
+
+
+class ReconSet(object):
+
+    def __init__(self, name, p, k):
+        self.name = name
         if not initialized: raise RuntimeError("Not initialized.")
         self._recon = reconciled_set(p, k)
         self._data = {}
@@ -99,9 +131,6 @@ class ReconSet:
         return self._recon.get_tree()
 
     def reconcile(self, aHashes, aExtra, aSize, bHashes,  bExtra, bSetsize, valids):
-
-        #if rootA.isTerminal():
-        #    raise RuntimeError("Root is terminal")
         
         return self._recon.reconcile(aHashes,
                                      aExtra,

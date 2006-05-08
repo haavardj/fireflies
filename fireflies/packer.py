@@ -9,14 +9,14 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: packer.py,v 1.1 2006/01/20 12:41:26 haavardj Exp $
+## $Id: packer.py,v 1.2 2006/05/08 09:47:55 haavardj Exp $
 ##                
 ######################################################################
 
 
 
 from fireflies.members import Note, Accusation
-from fireflies.cert import CACertificate, MemberCertificate, serialSize
+from fireflies.crypto import CACertificate, MemberCertificate, serialSize
 
 import xdrlib, new, socket
 from Crypto.PublicKey import RSA
@@ -27,6 +27,9 @@ SERIAL_LENGTH = serialSize()
 HASH_LENGTH = serialSize()
 
 class FirefliesPacker(xdrlib.Packer):
+
+    def __init__(self):
+        xdrlib.Packer.__init__(self)
 
     def pack_ZZ(self, zz):
         assert isinstance(zz, setrecon.ZZ)
@@ -112,31 +115,29 @@ class FirefliesPacker(xdrlib.Packer):
         """
         Format of packed notes:
           - serial (size, string)
-          - lifeline (uint)
+          - epoch (uint)
           - mask (size, string)
           - signature (size, string)
           - badness
-          - data (size, string)
           """
         
         self.pack_serial(note.serial)    
-        self.pack_uint(note.lifeline)
+        self.pack_uint(note.epoch)
         self.pack_mask(note.mask)
         self.pack_signature(note.signature)
         self.pack_uint(note.badness)
-        self.pack_string(note.data)
 
     def pack_accusation(self, accusation):
         """Format:
         accused   (size, string)
-        lifeline  (uint)
+        epoch  (uint)
         nr        (uint)
         accuser   (size, string)
         signature (size, string)
         """
         
         self.pack_serial(accusation.accused)    
-        self.pack_uint(accusation.lifeline)
+        self.pack_uint(accusation.epoch)
         self.pack_uint(accusation.nr)    
         self.pack_serial(accusation.accuser)
         self.pack_signature(accusation.signature)
@@ -144,6 +145,10 @@ class FirefliesPacker(xdrlib.Packer):
 
 
 class FirefliesUnpacker(xdrlib.Unpacker):
+
+    def __ini__(self, data):
+        xdrlib.Unpacker.__init__(self, data)
+
 
     def unpack_ZZ(self):
         #l = self.unpack_fstring(1)
@@ -223,19 +228,17 @@ class FirefliesUnpacker(xdrlib.Unpacker):
 
     def unpack_note(self):
         serial = self.unpack_serial()
-        lifeline = self.unpack_uint()
+        epoch = self.unpack_uint()
         mask = self.unpack_mask()
         signature = self.unpack_signature()
         badness = self.unpack_uint()
-        data = self.unpack_string()
         
         d = {
             'serial': serial,
-            'lifeline': lifeline,
+            'epoch': epoch,
             'mask': mask,
             'signature': signature,
             'badness': badness,
-            'data': data
             }
 
         c = object.__new__(Note)
@@ -245,47 +248,19 @@ class FirefliesUnpacker(xdrlib.Unpacker):
 
     def unpack_accusation(self):
         accused = self.unpack_serial()
-        lifeline = self.unpack_uint()
+        epoch = self.unpack_uint()
         nr = self.unpack_uint()
         accuser = self.unpack_serial()
         signature = self.unpack_signature()
 
         state = {
             'accused': accused,
-            'lifeline': lifeline,
+            'epoch': epoch,
             'nr': nr,
             'accuser': accuser,
             'signature': signature}
         
         c = object.__new__(Accusation)
-        c.__setstate__(state)
-        
+        c.__setstate__(state)        
         return c
-
-
-
-if __name__ == "__main__":
-
-    import random,sys
-    a = b = None
-    for x in range(1, 256):
-        sys.stdout.write(".")
-        sys.stdout.flush()
-        for y in range(1000):
-
-            try:
-                n = random.randint(0, x)
-                a =  [True] * n + [False] * (x-n)
-                random.shuffle(a)
-
-                p = FirefliesPacker()
-                p.pack_mask(a)
-                u = FirefliesUnpacker( p.get_buffer() )
-                b = u.unpack_mask()
-                u.done()
-                assert a == b
-            except:
-                print "\norg=", a, len(a)
-                print "pck=", b, len(b)
-                raise
 
