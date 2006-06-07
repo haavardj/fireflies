@@ -9,14 +9,14 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: packer.py,v 1.2 2006/05/08 09:47:55 haavardj Exp $
+## $Id: packer.py,v 1.3 2006/06/07 06:42:30 haavardj Exp $
 ##                
 ######################################################################
 
 
 
 from fireflies.members import Note, Accusation
-from fireflies.crypto import CACertificate, MemberCertificate, serialSize
+from fireflies.cert import CACertificate, MemberCertificate, serialSize
 
 import xdrlib, new, socket
 from Crypto.PublicKey import RSA
@@ -122,7 +122,7 @@ class FirefliesPacker(xdrlib.Packer):
           """
         
         self.pack_serial(note.serial)    
-        self.pack_uint(note.epoch)
+        self.pack_uint(note.lifeline)
         self.pack_mask(note.mask)
         self.pack_signature(note.signature)
         self.pack_uint(note.badness)
@@ -137,7 +137,7 @@ class FirefliesPacker(xdrlib.Packer):
         """
         
         self.pack_serial(accusation.accused)    
-        self.pack_uint(accusation.epoch)
+        self.pack_uint(accusation.lifeline)
         self.pack_uint(accusation.nr)    
         self.pack_serial(accusation.accuser)
         self.pack_signature(accusation.signature)
@@ -235,7 +235,7 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         
         d = {
             'serial': serial,
-            'epoch': epoch,
+            'lifeline': epoch,
             'mask': mask,
             'signature': signature,
             'badness': badness,
@@ -255,7 +255,7 @@ class FirefliesUnpacker(xdrlib.Unpacker):
 
         state = {
             'accused': accused,
-            'epoch': epoch,
+            'lifeline': epoch,
             'nr': nr,
             'accuser': accuser,
             'signature': signature}
