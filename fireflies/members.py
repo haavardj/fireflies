@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: members.py,v 1.6 2006/06/06 20:56:26 haavardj Exp $
+## $Id: members.py,v 1.7 2006/06/07 06:42:43 haavardj Exp $
 ##                
 ######################################################################
 
@@ -102,7 +102,6 @@ class Note(object, cert.TimestampMixin, cert.RSASignable):
         self.lifeline = lifeline
         self.mask = mask
         self.signature = 0
-        self.data = data        
         self.badness = 0
 
     def __repr__(self):        
@@ -117,7 +116,6 @@ class Note(object, cert.TimestampMixin, cert.RSASignable):
                 "mask": self.mask,
                 "signature": self.signature,
                 "badness": self.badness,
-                "data": self.data
                 }
     
     def __setstate__(self, data):
@@ -129,8 +127,8 @@ class Note(object, cert.TimestampMixin, cert.RSASignable):
         except AttributeError: return -1
 
     def uidstr(self):
-        return "Note:%d-%d-%s-%s" % (bytes_to_long(self.serial), self.lifeline,
-                                     str(self.mask), str(self.data))
+        return "Note:%d-%d-%s" % (bytes_to_long(self.serial), self.lifeline,
+                                     str(self.mask))
 
 
 # hashCache is used to speed up simulations. This data structure
@@ -152,7 +150,7 @@ class Member(object):
 
     def __init__(self, mcert, view, note = None, initLRate=INITIAL_LRATE):
 
-        assert isinstance(mcert, cert.MemberCertificate)
+        assert isinstance(mcert, cert.MemberCertificate), type(mcert)
         assert isinstance(view, View)
         if note: assert isinstance(note, Note)
         
