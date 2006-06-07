@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.1 2006/05/08 09:47:55 haavardj Exp $
+## $Id: crypto.py,v 1.2 2006/06/07 06:16:49 haavardj Exp $
 ##                
 ######################################################################
 
@@ -32,7 +32,6 @@ from Crypto.Util.number import long_to_bytes, bytes_to_long
 import random
 
 
-
 # Encrypts this with public key to make a host id.
 IDMAGIC = "idmagic" 
 
@@ -50,25 +49,18 @@ def sHashDict(d):
         h.update("%s=%s," %(str(k), str(d[k])))
     return h.digest()
 
-
 def serialSize():
     """Returns the size (in bytes) of serial numbers."""    
-
     return SHA.digest_size
 
-
-
 def keyToSerial(key):
-    """Maps a Crypto.RSA key onto a member serial number."""
-    
+    """Maps a Crypto.RSA key onto a member serial number."""    
     return SHA.new(key.encrypt(IDMAGIC, None)[0]).digest()
-
 
 __randomGen = RandomPool().get_bytes
 
 def generateKey(size=RSASIZE):
     """Returns a new RSA key."""
-
     return RSA.generate(size, __randomGen)
 
 
@@ -79,15 +71,19 @@ class ImmutableMixin:
 
     def makeImmutable(self):
         self.__setattr__ = self.__setattr_im__
+  
         
 class RSASignable:
-    """Mixin for classes that are signable
+    """Mixin for classes that are signable. Use in compination with
+    RSAVerifyingKey and RSASigningKey.
 
     Subclasses needs to implement the uidstr method.
     
     Warning: The computed hash will be cached. If the object changes and the
     hash must reflect these changes, the shashClear method will force the hash
     to be recomputed."""
+
+    signature = ""
 
     def uidstr(self):
         """Return a unique string identifier for this object.
@@ -113,6 +109,8 @@ class RSASignable:
 
 
 class RSAVerifyingKey:
+    
+    key = None
 
     def verify(self, object):
         """Returns True if the object has been correctly signed."""
@@ -125,6 +123,8 @@ class RSASigningKey:
     Subclasses ned to provide a key attribute. The signature will be
     stored in the signature attribute.
     """
+    
+    key = None
 
     def sign(self, object):
         """Sign the object."""
@@ -193,7 +193,6 @@ class CACertificate(object, RSASignable, RSAVerifyingKey):
         return "CACertificate:%s" % (self.name)
 
 
-
 class MemberKey(object, RSASigningKey, RSAVerifyingKey):
     """The private key of a Fireflies members."""
 
@@ -237,3 +236,15 @@ class CAKey(object, RSASigningKey, RSAVerifyingKey):
         c = CACertificate(self.key.publickey(), self.name, self.config)
         self.sign(c)
         return c
+
+
+class SignableString(RSASignable):
+    """A signable string."""
+    
+    signature = ""
+    
+    def __init__(self, string):
+        self.string = string
+        
+    def uidstr(self):
+        return self.string
