@@ -9,14 +9,14 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: group.py,v 1.6 2006/06/06 20:45:28 haavardj Exp $
+## $Id: group.py,v 1.7 2006/06/07 06:26:17 haavardj Exp $
 ##                
 ######################################################################
 
 
 
 import logging
-import gossip4, fd, members
+import gossip, fd, members
 import fireflies.stats
 from twisted.internet import reactor    
 
@@ -125,7 +125,7 @@ class BaseGroup(object):
             return failure
 
         self.pinger = fd.FailureDetector(peer, self.mkey)
-        self.gossiper = gossip4.Gossip(peer)
+        self.gossiper = gossip.Gossip(peer)
         self.gossiper.start()
         self.pinger.start()
         self.joined = True

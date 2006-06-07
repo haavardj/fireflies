@@ -1,43 +1,64 @@
 # -*- coding: iso-8859-1 -*-
 ######################################################################
-## Filename:      gossip.py
-## Description:   Fireflies timestamp based gossip protocol 
+## Filename:      gossip4.py
+## Description:   Fireflies set-recon based gossip protocol 
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Mon Jan 16 18:32:42 2006
+## Modified at:   Wed Feb  1 18:12:09 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip.py,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+## $Id: gossip.py,v 1.2 2006/06/07 06:26:17 haavardj Exp $
 ##                
 ######################################################################
 
 
 import logging
-#from fireflies.packer import loads, dumps
 from packer import FirefliesPacker, FirefliesUnpacker
 
 from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFactory
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.internet import reactor, task, defer
 from Crypto.Hash import MD5
-import fireflies, members, time, cert
+import sha
+import fireflies, members, time, cert, setrecon
 from cert import TimestampMixin
-import copy
+import copy, sys
+
+setrecon.init(fireflies.defaultConfig['BITSIZE'], fireflies.defaultConfig['MBAR'])
+
+NODE_STATUS_EMPTY = 0
+NODE_STATUS_TERMINAL = 1
+NODE_STATUS_NONTERMINAL = 2
+
+DATA_CERTIFICATE_ID = 0x1
+DATA_NOTE_ID = 0x2
+DATA_ACCUSATION_ID = 0x3
+
+DUBLICATEPARTNERS = False
+
 
 
 cmd2code = {
     'partner': 0x1,
-    'hashes': 0x2,
-    'match': 0x3,
     'accepted': 0x4,
     'gossip': 0x5,
     'authenticate': 0x6,
     'redirect': 0x7,
     'note': 0x8,
     'accusation': 0x9,
-    'certificate': 0x10
+    'certificate': 0x10,
+    'version': 0x11,
+
+    'reconcile': 0x20,
+    'reconcile_next': 0x21,
+    'reconcile_next_req': 0x22,
+    'reconcile_done': 0x27,
+    'reconcile_data': 0x28,
+    'reconcile_data_req': 0x29,
+    'digest_match': 0x2F
+
     }
 
 code2cmd = {}
@@ -45,7 +66,7 @@ for k, v in cmd2code.items():
     code2cmd[v] = k
 
 
-DUBLICATEPARTNERS = True
+
 
 class Gossip:
     def __init__(self, peer, rate=60.0, TCPTimeout=360.0):
@@ -87,61 +108,18 @@ class GossipBase(Int32StringReceiver):
     STATE_TERMINATED = "term"
     MAX_LENGTH = 100000000
 
-    def updateBuckets(self):
-        view = self.factory.peer.view
-        self.bucketTS = self.timestamp
-        self.certBucket = []
-        self.noteBucket = []
-        self.accBucket = []
-
-        ch = MD5.new("certhashes")
-        nh = MD5.new("notehashes")
-        ah = MD5.new("accushashes")
-
-        # Add all new certificates, notes and accusations to the
-        # buckets, and compute hashes. The ordering of the pRing makes
-        # shure that all members compute the hashes in the same way.        
-        for peer in view.pRing:
-            if not peer.note: continue
-            ts = peer.note.getTimestamp()
-            if ts > self.timestamp:
-                self.noteBucket.append(peer.note)
-                nh.update(str(peer.note.shash()))
-                self.bucketTS = max(self.bucketTS, ts)
-            ts = peer.cert.getTimestamp()
-            if ts > self.timestamp:
-                self.certBucket.append(peer.cert)
-                ch.update(str(peer.cert.shash()))
-                self.bucketTS = max(self.bucketTS, ts)
-            if peer.hasAccusations():
-                r = peer.pAccusations.keys()
-                r.sort()
-                for nr in r:
-                    accus = peer.pAccusations[nr]
-                    ts = accus.getTimestamp()
-                    if ts > self.timestamp:
-                        self.accBucket.append(accus)
-                        ah.update(str(accus.shash()))
-                        self.bucketTS = max(self.bucketTS, ts)
-
-        # Save hashes
-        self.certHash = ch.digest()
-        self.noteHash = nh.digest()
-        self.accHash = ah.digest()
 
     def dataReceived(self, recd):
         if self.state == self.STATE_TERMINATED:
             self.logger.warning("traffic after hangup.")
             return
-
         self.factory.peer.view.stats.tcpR += len(recd)
         return Int32StringReceiver.dataReceived(self, recd)
 
     def sendString(self, data):
         if self.state == self.STATE_TERMINATED:
             self.logger.warning("traffic after hangup.")
-            return
-        
+            return        
         self.factory.peer.view.stats.tcpW += (len(data) + 4)
         return Int32StringReceiver.sendString(self, data)
 
@@ -154,36 +132,6 @@ class GossipBase(Int32StringReceiver):
             if cmd == "partner":
                 nr, = args
                 p.pack_uint(nr)
-            elif cmd == "hashes":
-                ch, nh, ah = args
-                p.pack_serial(ch)
-                p.pack_serial(nh)
-                p.pack_serial(ah)
-            elif cmd == "match":
-                pass
-            elif cmd == "accepted":
-                pass
-            elif cmd == "gossip":
-                ch, nh, ah, crts, notes, accs = args
-                
-                p.pack_serial(ch)
-                p.pack_serial(nh)
-                p.pack_serial(ah)
-
-                assert type(crts) == list
-                p.pack_uint(len(crts))
-                for x in crts:
-                    p.pack_cert(x)
-
-                assert type(notes) == list
-                p.pack_uint(len(notes))
-                for x in notes:
-                    p.pack_note(x)
-
-                assert type(accs) == list
-                p.pack_uint(len(accs))
-                for x in accs:
-                    p.pack_accusation(x)
 
             elif cmd == "authenticate":
                 crt, note = args
@@ -194,6 +142,64 @@ class GossipBase(Int32StringReceiver):
                 crt, note = args
                 p.pack_cert(crt)
                 p.pack_note(note)
+
+            elif cmd == "version":
+                major, minor, patchl = args
+                p.pack_short(major)
+                p.pack_short(minor)
+                p.pack_short(patchl)
+
+            elif cmd == "reconcile":
+                name, digest = args
+                p.pack_string(name)
+                p.pack_string(digest)
+
+            elif cmd == "digest_match":
+                match, = args
+                p.pack_bool(match)
+
+            elif cmd == "reconcile_next":
+                node_type, hash_vector, extra_hashes, setsize = args
+                p.pack_uint(node_type)
+
+                if node_type > 0:
+                    p.pack_vec_ZZ_p(hash_vector)
+                if node_type > 1:
+                    p.pack_vec_ZZ_p(extra_hashes)
+                    p.pack_uint(setsize)
+
+            elif cmd == "reconcile_extra":
+                vec, size = args
+                p.pack_vec_ZZ_p(vec)
+                p.pack_uint(size)
+
+            elif cmd == "reconcile_data":
+                data, = args
+                if isinstance(data, members.Accusation):
+                    p.pack_uint(DATA_ACCUSATION_ID)
+                    p.pack_accusation(data)
+                elif isinstance(data, members.Note):
+                    p.pack_uint(DATA_NOTE_ID)
+                    p.pack_note(data)
+                elif isinstance(data, cert.MemberCertificate):
+                    p.pack_uint(DATA_CERTIFICATE_ID)
+                    p.pack_cert(data)
+                else:
+                    raise ValueError("Unknown data type")
+                # note, accus, or cert
+
+            elif cmd in ["reconcile_data_req",]:
+                vec, = args
+                l = len(vec)
+                p.pack_uint(l)
+                for x in range(l):                    
+                    p.pack_ZZ(vec[x].rep())
+                    
+            elif cmd in ["reconcile_next_req",
+                         "reconcile_done",
+                         "accepted"]:
+                # No arguments.
+                pass                
             else:
                 raise Exception, "Unknown command"
 
@@ -212,42 +218,66 @@ class GossipBase(Int32StringReceiver):
             args = ()
             if cmd == "partner":
                 args = (p.unpack_uint(),)
-            elif cmd == "hashes":
-                args = (
-                    p.unpack_serial(),
-                    p.unpack_serial(),
-                    p.unpack_serial())
-            elif cmd == "match":
-                args = ()
-            elif cmd == "gossip":
-                ch = p.unpack_serial()
-                nh = p.unpack_serial()
-                ah = p.unpack_serial()
-
-                crts = []
-                num = p.unpack_uint()
-                for x in range(num):
-                    crts.append(p.unpack_cert())
-
-                notes = []
-                num = p.unpack_uint()
-                for x in range(num):
-                    notes.append(p.unpack_note())
-
-                accs = []
-                num = p.unpack_uint()
-                for x in range(num):
-                    accs.append(p.unpack_accusation())
-                args = (ch, nh, ah, crts, notes, accs)
 
             elif cmd == "authenticate":
                 args = (p.unpack_cert(), p.unpack_note())
 
             elif cmd == "redirect":
                 args = (p.unpack_cert(), p.unpack_note())
-                
-            elif cmd == "accepted":
-                args = ()                
+
+            elif cmd == "version":
+                args = (p.unpack_short(),
+                        p.unpack_short(),
+                        p.unpack_short())
+
+            elif cmd == "reconcile":
+                args = (p.unpack_string(),
+                        p.unpack_string()
+                        )
+            elif cmd == "digest_match":
+                args = (bool(p.unpack_bool()),)
+
+            elif cmd == "reconcile_next":
+                node_type = p.unpack_uint()
+                hash_vector = None
+                extra_hashes = None
+                setsize = -1
+                if node_type > 0:
+                    hash_vector = p.unpack_vec_ZZ_p()
+                if node_type > 1:
+                    extra_hashes = p.unpack_vec_ZZ_p()
+                    setsize = p.unpack_uint()
+                args = (node_type,
+                        hash_vector,
+                        extra_hashes,
+                        setsize)
+
+            elif cmd == "reconcile_data":
+                t = p.unpack_uint()
+                if t == DATA_ACCUSATION_ID:
+                    args = (p.unpack_accusation(),)
+                elif t == DATA_NOTE_ID:
+                    args = (p.unpack_note(),)
+                elif t == DATA_CERTIFICATE_ID:
+                    args = (p.unpack_cert(),)
+                else:
+                    raise ValueError("Unknown data.")
+
+            elif cmd in ["reconcile_data_req"]:
+                l = p.unpack_uint()
+                r = []
+                for x in range(l):
+                    r.append(setrecon.to_ZZ_p(p.unpack_ZZ()))
+                    
+                args = (r,)
+
+                    
+            elif cmd in ["reconcile_done",
+                         "accepted"]:
+
+                # No arguments.
+                args = ()
+                    
             else:
                 raise Exception, "unknown command."
 
@@ -258,6 +288,7 @@ class GossipBase(Int32StringReceiver):
             raise
         except Exception, why:
             self.logger.exception("Unable to run command %s: %s", cmd, why)
+
                     
     def hangup(self, hard=True):
         if hard or (self.state != self.STATE_GOSSIPING):
@@ -270,12 +301,12 @@ class GossipBase(Int32StringReceiver):
 
     def timeout(self):
         self._timer = None
-        self.logger.error("timeout %s", self)
+        self.logger.warning("timeout %s", self)
         self.hangup()
 
     def __repr__(self):
-        if self.peer:
-            return "%s,%s" % (self.peer.view.pprint(self.peer.note), self.state) 
+        if self.other:
+            return "%s,%s" % (self.factory.peer.view.pprint(self.other.note), self.state) 
         elif self.transport:
             addr = self.transport.getPeer()
             return "%s:%d,%s" % (addr.host, addr.port, self.state)
@@ -293,97 +324,233 @@ class GossipBase(Int32StringReceiver):
         self._timer = None
 
 
+    def reconcile_next(self):
+        """Moves to the next partition available partition, or marks
+        the reconciliation as done if no more partitions are available.
 
+        Sends
+        -- reconciliation_done ()
+        -- reconciliation_next_req ()
+        """
+        assert self.state == self.STATE_GOSSIPING, "state is %s should be %s" % (self.state, self.STATE_GOSSIPING)
+        self.logger.debug("reconcile_next %s nodes=%d", self, len(self.nodes))
 
-class ServerFloodingProtocol(GossipBase):
-
-    def __init__(self):
-        self.peer = None
-        self.ringNr = None
-        self.state = self.STATE_CONNECTING
-        self._stop = False
-        self._timer = None
-        self.timestamp = 0
-
-        self.nq = []
-        self.cq = []
-        self.aq = []
-
-    def sendCrt(self, crt):
-        self.cq.append(crt)
-    def sendNote(self, note):
-        self.nq.append(note)
-    def sendAccusation(self, accus):
-        self.aq.append(accus)
-    
-    def connectionMade(self):
-        pass
-
-    def connectionLost(self, reason):
-        self.logger.warning("connetion lost %s, %s", self, reason)
-        try:
-            self.cancelTimeout()
-        except KeyboardInterrupt:
-            raise
-        except:
-            pass
-        self.state = self.STATE_TERMINATED
-
-    def handle_authenticate(self, crt, note):
-        view = self.factory.peer.view
-        pprint = view.pprint
-
-        if note.serial != crt.serial:
-            self.logger.warning("authenticate<- %s Error. Note and crt serial do not match.", self)
-            self.hangup()
-        else:
-            self.logger.debug("authenticate<- %s %s", self, pprint(crt))
-            view.addCerts(crt)
-            view.addNotes(note)
-            self.peer = view.sn2peer[note.serial]
+        if self.nodes == []:
             self.setTimeout()
-            self.sendCommand("authenticate", copy.copy(self.factory.peer.cert), copy.copy(self.factory.peer.note))
+            self.reqBuff = filter(lambda x:  x not in self.set, self.reqBuff)
+            self.logger.debug("reconcile_data_req->%s %d ", self, len(self.reqBuff))
+            self.sendCommand("reconcile_data_req", self.reqBuff)
+            self.reqBuff = []
+        else:
+            assert self.state == self.STATE_GOSSIPING, "state is %s should be %s" %(self.state, self.STATE_GOSSIPING)
+            if self.curNode: self.curNode.unref()
+            self.curNode = self.nodes.pop(0)
 
-    def redirect(self, peer):
-        self.factory.peer.view.stats.redirect += 1
-        self.logger.debug("redirect-> %s to %s", self, pprint(peer.cert))
+            if isEmptyNode(self.curNode):
+                nt = NODE_STATUS_EMPTY
+                hv = None
+                ev = None
+                ss = 0
+            elif self.curNode.isTerminal():
+                nt = NODE_STATUS_TERMINAL
+                hv = setrecon.vec_ZZ_p(self.curNode.hash_vector)
+                ev = None
+                ss = self.curNode.setsize
+            else:
+                nt = NODE_STATUS_NONTERMINAL
+                hv = setrecon.vec_ZZ_p(self.curNode.hash_vector)
+                ev = setrecon.vec_ZZ_p(self.curNode.extra_hashes)
+                ss = self.curNode.setsize
+
+            self.nt, self.hv, self.ev, self.ss = nt, hv, ev, ss
+            
+            self.logger.debug("reconcile_next->%s type=%d", self, nt)
+            self.sendCommand("reconcile_next", nt, hv, ev, ss)      
+            self.setTimeout()
+
+
+    def handle_reconcile_next(self, nodeType, hash_vector, extra_hashes, size):
+        """Start reconciling of the current partition.    
+        """
+
+        self.cancelTimeout()        
+        #self.logger.debug("reconcile_next<-%s nt=%s  hv=%s  eh=%s ss=%s",
+        #                  self,
+        #                  nodeType,
+        #                  hash_vector,
+        #                  extra_hashes,
+        #                  size)
+        
+        assert self.state == self.STATE_GOSSIPING
+        myNode = self.curNode
+
+        # Both nodes are empty means that we are done.
+        if (self.nt == NODE_STATUS_EMPTY) and (nodeType == NODE_STATUS_EMPTY):
+            #self.logger.debug("reconcile %s both empty" %self)
+            self.reconcile_next()
+        
+        #His node is empty, send all terminal data.
+        elif nodeType==NODE_STATUS_EMPTY:
+            #self.logger.debug("reconcile %s his empty" %self)
+            td = self.set.internal2external(myNode.terminal_data())
+            for x in td:
+                assert x not in self.outBuff
+                self.outBuff.append(x)
+            self.reconcile_next()
+          
+        # My node is empty. Request all elements in this partition.
+        elif self.nt == NODE_STATUS_EMPTY:
+            #self.logger.debug("reconcile %s my empty" %self)
+            self.reconcile_next()
+
+        # We have 2 non empty nodes. If one of them is terminal, we
+        # can compute the difference directly. If both are none
+        # terminal, we must use the set reconciliation algorithm.
+
+        else:            
+
+            # If his node is terminal, I can figure out what he is missing.
+            if nodeType == NODE_STATUS_TERMINAL:
+                #self.logger.debug("reconcile %s his treminal" %self)
+                td = myNode.terminal_data()
+                hismissing = self.set.internal2external(setrecon.difference_set(hash_vector, td))
+                
+                for x in hismissing:
+                    assert x not in self.outBuff
+                    self.outBuff.append(x)
+
+                # If I have a non-terminal node, the other guy can not
+                # figure out what hashes I'm missing. Since I know
+                # what I'm missing from his set, I need to request
+                # these.                
+                if self.nt == NODE_STATUS_NONTERMINAL:
+                    #self.logger.debug("reconcile %s both nodes treminal" %self)
+                    mymissing = self.set.internal2external(setrecon.difference_set(td, hash_vector))
+                    for x in mymissing:
+                        assert x not in self.reqBuff
+                        self.reqBuff.append(x)
+                self.reconcile_next()
+            
+            # My node is terminal, his is not. The other node will
+            # inform me of missing elements.            
+            elif self.nt == NODE_STATUS_TERMINAL:
+                #self.logger.debug("reconcile %s mynode not treminal" %self)
+                self.reconcile_next()
+
+            # Both nodes are non-terminal.
+            else:
+                #self.logger.debug("reconcile %s both not terminal" % self)
+                valids = myNode.valids
+                if self.master:
+                    aHash = self.hv
+                    aExtra = self.ev
+                    aSize = self.ss
+                    bHash = hash_vector
+                    bExtra = extra_hashes
+                    bSize = size                    
+                else:
+                    bHash = self.hv
+                    bExtra = self.ev
+                    bSize = self.ss
+                    aHash = hash_vector
+                    aExtra = extra_hashes
+                    aSize = size
+
+                status, aMissing, bMissing = self.set.reconcile(aHash, aExtra, aSize, bHash, bExtra, bSize, valids)
+                ##self.logger.debug("reconcile %sreconcile\n\taHash=%s \n\taExtra=%s \n\taSize=%d \n\tbHas=%s \n\tbExtra=%s \n\tbSize=%d \n\tvalids=%s ", self,
+##                                  aHash,
+##                                  aExtra,
+##                                  aSize,
+##                                  bHash,
+##                                  bExtra,
+##                                  bSize,
+##                                  valids)
+                
+
+                if self.master:
+                    mymissing = aMissing
+                    hismissing = bMissing
+                else:
+                    mymissing = bMissing
+                    hismissing = aMissing                    
+
+                if status == 0:
+                    #self.logger.debug("reconcile %s reconcile failed valids", self)
+                    c = []
+                    for x in range(self.set._recon.p):
+                        if self.curNode.hasChild(x):
+                            n = self.curNode.getChild(x)
+                            n.ref()
+                            c.append(n)
+                        else:
+                            c.append(None)
+                    self.nodes = c + self.nodes
+                else:
+                    #self.logger.debug("reconcile %s reconcile worked hismissing=%s mymissing=%s", self, hismissing, mymissing)
+                    for x in hismissing:
+                        assert x not in self.outBuff
+                        self.outBuff.append(x)                    
+                self.reconcile_next()
+
+    def handle_reconcile_data(self, data):
+        """Data from client.
+        """
+        assert self.nodes == []
+        assert self.state == self.STATE_GOSSIPING
+        self.logger.debug("reconcile_data<-%s %s", self, data)
+        self.dataBuff.append(data)
+
+    def handle_reconcile_data_req(self, hashes):
+        self.cancelTimeout()         
+        assert self.state == self.STATE_GOSSIPING
+        assert self.nodes == [], "%s %s %s" % (self.factory.peer, self, self.nodes)
+        
+        self.logger.debug("reconcile_data_req<-%s %d", self, len(hashes))
+
+        for x in hashes:
+            assert not x in self.outBuff
+            self.outBuff.append(x)
+
+        badness = self.factory.peer.note.badness
+        while self.outBuff:
+            x = self.outBuff.pop()
+            
+            if self.setName == "aSet" and badness == 1:
+                #Passive attack, do not forward accusations.
+                continue
+                
+            try:
+                d = self.set[x]
+            except KeyError, e:
+                self.logger.warning("reconcile_data->%s %s removed", self, x)
+            else:
+
+                if badness == 2 and self.setName == "nSet":
+                    # If active attack, forward only our own notes.
+                    if d.serial != self.factory.peer.serial:
+                        continue                
+                self.sendCommand("reconcile_data", d)
+
+        if self.master:
+            self.logger.debug("reconcile_done->%s", self)
+            self.sendCommand("reconcile_done")
+
         self.setTimeout()
-        self.sendCommand("redirect", copy.copy(peer.cert), copy.copy(peer.note))
-
-    def accept(self):
-        self.logger.debug("accepted-> %s", self)
-        self.sendCommand("accepted")
-        
-    def handle_partner(self, ringNr):
-        self.cancelTimeout()
-        view = self.factory.peer.view
-        pprint = view.pprint
-        self.logger.debug("partner<- %s on %d", self, ringNr)
-        self.ringNr = ringNr
-        reactor.callLater(0, self.factory.clientConnected, self, ringNr)
-        
-    def handle_note(self, note):
-        self.factory.addNotes(note)
-    
-    def handle_cert(self, cert):
-        self.factory.addCert(cert)
-    
-    def handle_accus(self, accus):
-        self.factory.addAccus(accus)
-
-
 
 
 class ServerProtocol(GossipBase):
 
-    def __init__(self):
-        self.peer = None
-        self.ringNr = None
+    def __init__(self):        
+        self.other = None
         self.state = self.STATE_CONNECTING
         self._stop = False
         self._timer = None
-        self.timestamp = 0
-            
+        self.curNode = None
+        self.nodes = []
+        self.master = False
+        self.dataBuff = []
+        self.reqBuff = []
+        self.outBuff = []
     def connectionMade(self):
         pass
 
@@ -396,6 +563,22 @@ class ServerProtocol(GossipBase):
             pass
         self.state = self.STATE_TERMINATED
 
+
+    def handle_version(self, major, minor, patchlevel):
+
+        #
+        # TODO: The node will die if it has an old version
+        # number. This is VERY INSECURE and will be removed. However,
+        # it is nice for testing on PlanetLab.
+        #
+        
+        if (major, minor, patchlevel) > fireflies.protocol_version:
+            self.logger.warning("authenticate<- %s Version error. I have an old version. Exiting.", self)
+            reactor.callLater(2, reactor.stop)
+        elif (major, minor, patchlevel) < fireflies.protocol_version:
+            self.logger.warning("authenticate<- %s Version error. Other have an old version. Exiting.", self)
+        self.sendCommand("version", *fireflies.protocol_version)
+
     def handle_authenticate(self, crt, note):
         view = self.factory.peer.view
         pprint = view.pprint
@@ -407,19 +590,21 @@ class ServerProtocol(GossipBase):
             self.logger.debug("authenticate<- %s %s", self, pprint(crt))
             view.addCerts(crt)
             view.addNotes(note)
-            self.peer = view.sn2peer[note.serial]
+            self.other = view.sn2peer[crt.serial]
             self.setTimeout()
-            self.sendCommand("authenticate", copy.copy(self.factory.peer.cert), copy.copy(self.factory.peer.note))
+            self.sendCommand("authenticate", self.factory.peer.cert, self.factory.peer.note)
 
     def redirect(self, peer):
+        self.factory.peer.view.stats.redirect += 1
         pprint = self.factory.peer.view.pprint
         self.logger.debug("redirect-> %s to %s", self, pprint(peer.cert))
         self.setTimeout()
-        self.sendCommand("redirect", copy.copy(peer.cert), copy.copy(peer.note))
+        self.sendCommand("redirect", peer.cert, peer.note)
 
     def accept(self):
         self.logger.debug("accepted-> %s", self)
         self.sendCommand("accepted")
+        self.state = self.STATE_IDLE
         
     def handle_partner(self, ringNr):
         self.cancelTimeout()
@@ -428,108 +613,115 @@ class ServerProtocol(GossipBase):
         self.logger.debug("partner<- %s on %d", self, ringNr)
         self.ringNr = ringNr
         reactor.callLater(0, self.factory.clientConnected, self, ringNr)
+
+
+    #
+    # Recon server stuff.
+    #
+
+
+
+    #
+    # Main protocol steps
+    #
+
+    def handle_reconcile(self, name, digest):
+        """
+        Protocol start. Name specifies the set to be reconciled.
+        """
+
+        self.logger.debug("reconcile<-%s name=%s", self, name)
+        assert self.state == self.STATE_IDLE
+        self.state = self.STATE_GOSSIPING
+
+        assert self.dataBuff == []
+        assert self.reqBuff == []
+        assert self.outBuff == []
+        self.set, self.appendfunc = self.factory.getSet(name)
+        self.setName = name
         
-    def handle_hashes(self, ch, nh, ah):
-        if self.state == self.STATE_GOSSIPING:
-            self.logger.error("error %s double gossiping", self)
-            self.hangup(True)
-            return
-        self.logger.debug("hashes<- %s", self)
-        self.state = self.STATE_GOSSIPING        
-        view = self.factory.peer.view
+        if self.curNode: self.curNode.unref()
+        self.curNode = None
+        self.nodes = []
+        
+        n = self.set.getRootPartition()
+        hsh = sha.new()
+        for x in n.hash_vector:
+            hsh.update(str(x))
 
-        self.updateBuckets()
-
-        if (self.certHash == ch and
-            self.noteHash == nh and
-            self.accHash == ah):
-            
-            self.timestamp = self.bucketTS
-            self.sendCommand("match")
+        if digest == hsh.digest():
+            self.logger.debug("digest_match->%s True", self)
+            self.sendCommand("digest_match", True)
             self.state = self.STATE_IDLE
-            #self.factory.gossipCompleted()
         else:
-            self.logger.debug("gossip-> %s c=%d n=%d a=%d",
-                             self,
-                             len(self.certBucket),
-                             len(self.noteBucket),
-                             len(self.accBucket))
-            self.setTimeout()
+            n.ref()
+            self.nodes = [n]
+            self.logger.debug("digest_match->%s False", self)
+            self.sendCommand("digest_match", False)
+            self.reconcile_next()
+    
 
-            if self.factory.peer.note.badness == 2:
-                #nb = filter(lambda x: (x.serial == self.peer.id) or (not view.sn2peer[x.serial].isAccused()), self.noteBucket)                                
-                nb = filter(lambda x: x.serial == self.factory.peer.id, self.noteBucket)
-                self.sendCommand("gossip",
-                                 self.certHash,
-                                 self.noteHash,
-                                 self.accHash,
-                                 map(lambda x: copy.copy(x), self.certBucket),
-                                 map(lambda x: copy.copy(x), nb),
-                                 map(lambda x: copy.copy(x), self.accBucket))
-            elif self.factory.peer.note.badness == 1:
-                self.sendCommand("gossip",
-                                 self.certHash,
-                                 self.noteHash,
-                                 self.accHash,
-                                 map(lambda x: copy.copy(x), self.certBucket),
-                                 map(lambda x: copy.copy(x), self.noteBucket),
-                                 [])                
-            else:
-                self.sendCommand("gossip",
-                                 self.certHash,
-                                 self.noteHash,
-                                 self.accHash,
-                                 map(lambda x: copy.copy(x), self.certBucket),
-                                 map(lambda x: copy.copy(x), self.noteBucket),
-                                 map(lambda x: copy.copy(x), self.accBucket))
+    def handle_reconcile_done(self):
+        """Reconciliation is done.
 
-    def handle_match(self):
+        Sends:
+         - reconcile_done ()
+        """
+        assert not self.nodes
         self.cancelTimeout()
-        if self.state != self.STATE_GOSSIPING:
-            self.logger.error("error %s protocol", self)
-            self.hangup(True)
-        self.logger.debug("match<- %s", self)
-        self.timestamp = self.bucketTS
-        #self.factory.gossipCompleted()
+        self.logger.debug("reconcile_done<-%s", self)
+        assert self.state == self.STATE_GOSSIPING, "%s %s, invalid state %s" %(self.factory.peer, self, self.state)
+        assert self.nodes == []
+        self.logger.debug("reconcile_done->%s", self)
+        self.sendCommand("reconcile_done")
         self.state = self.STATE_IDLE
+        self.appendfunc(self.dataBuff)
+        self.dataBuff = []
 
-    def handle_gossip(self, ch, nh, ah, crts, notes, accusations):
-        self.cancelTimeout()
-        self.logger.info("gossip<- %s c=%d n=%d a=%d", self, len(crts), len(notes), len(accusations))
-        view = self.factory.peer.view
-
-        view.addCerts(crts)
-        view.addNotes(notes, True)
-        view.addAccusations(accusations, True)
-        view.checkAccusations()
-        self.timestamp = self.bucketTS
-        self.updateBuckets()
-        if self.certHash != ch:
-            self.logger.debug("gossip %s mismatch cert hashes", self)
-        if self.noteHash != nh:
-            self.logger.debug("gossip %s mismatch note hashes", self)
-        if self.accHash != ah:
-            self.logger.debug("gossip %s mismatch accusation hashes", self)
-        self.sendCommand("match")
-        self.state = self.STATE_IDLE
-        #self.factory.gossipCompleted()
 
 
         
 class ClientProtocol(GossipBase):
 
     def __init__(self, peer, ringNr):
-        self.peer = peer
+
+        self.other = peer
         self.ringNr = ringNr
         self.state = self.STATE_CONNECTING
         self._timer = None
         self.timestamp = 0
         self._d = None
-        
+        self.curNode = None
+        self.nodes = []
+        self.master = True
+        self.dataBuff = []
+        self.reqBuff = []
+        self.outBuff = []
+
     def connectionMade(self):
         self.factory.peer.view.stats.tcpOpen += 1
+        self.sendCommand("version", *fireflies.protocol_version)
+        self.setTimeout()
+        #self._sendAuthenticate()
+
+    def handle_version(self, major, minor, patchlevel):
+
+        #
+        # TODO: The node will die if it has an old version
+        # number. This is VERY INSECURE and will be removed. However,
+        # it is nice for testing on PlanetLab.
+        #
+        
+        self.cancelTimeout()
+        if (major, minor, patchlevel) > fireflies.protocol_version:
+            self.logger.warning("version<- %s Version error. I have an old version. Exiting.", self)
+            reactor.callLater(2, reactor.stop)
+        elif (major, minor, patchlevel) < fireflies.protocol_version:
+            self.logger.warning("version<- %s Version error. Other have an old version. Exiting.", self)
+            
         crt, note = self.factory.getCredentials()
         self._sendAuthenticate(crt, note)
+
 
     def connectionLost(self, reason):
         addr = self.transport.getPeer()
@@ -540,19 +732,19 @@ class ClientProtocol(GossipBase):
         pprint = self.factory.peer.view.pprint
         self.logger.debug("authenticate-> %s %s-%s ", self, pprint(crt),pprint(note))
         self.setTimeout()
-        self.sendCommand("authenticate", copy.copy(crt), copy.copy(note))
+        self.sendCommand("authenticate", crt, note)
         
     def handle_authenticate(self, crt, note):
         view = self.factory.peer.view
         pprint = self.factory.peer.view.pprint
         self.cancelTimeout()
         
-        if crt.serial != self.peer.id:
-            self.logger.warning("authenticate<- %s Error. Expected %s. Got  %s.", self, pprint(self.peer.cert), pprint(crt))
+        if crt.serial != self.other.id:
+            self.logger.warning("authenticate<- %s Error. Expected %s. Got  %s.", self, pprint(self.other.cert), pprint(crt))
             self.hangup()
             return
 
-        if  note.serial != self.peer.id:
+        if  note.serial != self.other.id:
             self.logger.warning("authenticate<- %s Error. Note and crt serial do not match.", self)
             self.hangup()
             return
@@ -580,96 +772,81 @@ class ClientProtocol(GossipBase):
         self.factory.view.addNotes(note)
         self.hangup()
 
-    def __gossip(self):    
-        view = self.factory.peer.view
-        self.updateBuckets()        
-        self.setTimeout()
-        self.logger.debug("hashes-> %s", self)
-        self.sendCommand("hashes", self.certHash, self.noteHash, self.accHash)
-            
-    def gossip(self):
 
-        if self.state == self.STATE_GOSSIPING:
-            self.logger.error("error %s double gossiping", self)
-            self.hangup()
-            return
+
+
+    #
+    # Reconcile stuff
+    #    
+    def reconcile(self, name, set, appendfunc):
+
+        assert self.state == self.STATE_IDLE
         self.state = self.STATE_GOSSIPING
+
         self._d = defer.Deferred()
-        reactor.callLater(0, self.__gossip)
+        assert self.reqBuff == []
+        assert self.outBuff == []
+        assert self.dataBuff == []
+        self.setName = name
+        self.set = set
+        self.appendfunc = appendfunc
+
+        if self.curNode: self.curNode.unref()
+        self.curNode = None
+        
+        n = set.getRootPartition()
+        hsh = sha.new()
+
+        for x in n.hash_vector:
+            hsh.update(str(x))
+        
+        self.logger.debug("reconcile->%s %s hash=%s", self, name, str(hsh.hexdigest()))                
+        self.sendCommand("reconcile", name, hsh.digest())        
+        self.setTimeout()
         return self._d
-        
-    def handle_match(self):
-        self.cancelTimeout()
-        if self.state != self.STATE_GOSSIPING:
-            self.logger.error("match<- %s error protocol", self)
-            self.hangup()
-        self.logger.debug("match<- %s", self)
-        self.timestamp = self.bucketTS
-        #self.factory.gossipCompleted()
-        self.state = self.STATE_IDLE
-        self._d.callback(self)
-        
-    def handle_gossip(self, ch, nh, ah, crts, notes, accusations):
-        self.cancelTimeout()
-        view = self.factory.peer.view
-        self.logger.debug("gossip<- %s c=%d n=%d a=%d", self, len(crts), len(notes), len(accusations))
-        if self.state != self.STATE_GOSSIPING:
-            self.logger.error("error %s protocol", self)
-            self.hangup()
-            return
 
-        view.addCerts(crts)
-        view.addNotes(notes, True)
-        view.addAccusations(accusations, True)
-        view.checkAccusations()
-        self.updateBuckets()
-
-        if (self.certHash == ch and
-            self.noteHash == nh and
-            self.accHash == ah):
-            
-            #self.logger.debug("match-> %s", self)
-            self.timestamp = self.bucketTS
-            self.sendCommand("match")
-            #self.factory.gossipCompleted()
+    def handle_digest_match(self, match):
+        assert self.state == self.STATE_GOSSIPING
+        self.cancelTimeout()
+        self.logger.debug("digest_match<-%s %s", self, bool(match))
+        if match:
+            assert self.nodes == self.reqBuff == self.dataBuff == self.outBuff == []
             self.state = self.STATE_IDLE
-            self._d.callback(self)
-        else:                
-            self.logger.debug("gossip-> %s c=%d n=%d a=%d",
-                              self,
-                              len(self.certBucket),
-                              len(self.noteBucket),
-                              len(self.accBucket))
-            self.setTimeout()
-
-            if self.factory.peer.note.badness == 2:
-                #nb = filter(lambda x: (x.serial == self.peer.id) or (not view.sn2peer[x.serial].isAccused()), self.noteBucket)
-                nb = filter(lambda x: x.serial == self.factory.peer.id, self.noteBucket)
-                self.sendCommand("gossip",
-                                 self.certHash,
-                                 self.noteHash,
-                                 self.accHash,
-                                 map(lambda x: copy.copy(x), self.certBucket),
-                                 map(lambda x: copy.copy(x), nb),
-                                 map(lambda x: copy.copy(x), self.accBucket))
-            elif self.factory.peer.note.badness == 1:
-                self.sendCommand("gossip",
-                                 self.certHash,
-                                 self.noteHash,
-                                 self.accHash,
-                                 map(lambda x: copy.copy(x), self.certBucket),
-                                 map(lambda x: copy.copy(x), self.noteBucket),
-                                 [])
-            else:
-                self.sendCommand("gossip",
-                                 self.certHash,
-                                 self.noteHash,
-                                 self.accHash,
-                                 map(lambda x: copy.copy(x), self.certBucket),
-                                 map(lambda x: copy.copy(x), self.noteBucket),
-                                 map(lambda x: copy.copy(x), self.accBucket))
+            self._d.callback(None)
+        else:
+            n = self.set.getRootPartition()
+            n.ref()
+            self.nodes = [n]
+            self.reconcile_next()
 
 
+    def handle_reconcile_done(self):
+        """Done reply from server. This extra message is needed to
+        flush any data that might be on the wire.
+        """
+        assert not self.nodes
+        self.cancelTimeout()
+        self.logger.debug("reconcile_done<-%s", self)
+        assert self.state == self.STATE_GOSSIPING
+        self.state = self.STATE_IDLE
+        assert self.nodes == []
+        self.appendfunc(self.dataBuff)
+        self.dataBuff = []        
+        self._d.callback(None)
+
+
+            
+def isEmptyNode(node):
+    if node:
+        if node.intree:
+            if node.ref_count() < 2: node.printNode(0)
+            assert node.ref_count() > 1, "refcount is %d shoud be 2. intree=%s" %(node.ref_count(), node.intree)
+        else:
+            if node.ref_count() == 0: node.printNode(0)
+            assert node.ref_count() > 0, "refcount is %d shoud be >0. intree=%s" %(node.ref_count(), node.intree)
+            
+    return bool(   (node == None) or (node.setsize==0) or (node.intree == False))
+        
 class GossipServerFactory(ServerFactory):
 
     protocol = ServerProtocol
@@ -691,11 +868,26 @@ class GossipServerFactory(ServerFactory):
             c.hangup()
         self.cons = [None] * self.peer.view.cacert.config["NUM_GOSSIPRINGS"]
 
+    def getSet(self, name):
+        if name == "cSet":
+            s = self.peer.view.cSet
+            f = self.peer.view.addCerts
+        elif name == "nSet":
+            s = self.peer.view.nSet
+            f = self.peer.view.addNotes
+        elif name == "aSet":
+            s = self.peer.view.aSet
+            f = self.peer.view.addAccusations
+        else:
+            raise ValueError("No such set.")
+        return s, f
+
+
     def clientConnected(self, protocol, rnr):
         """Client connected."""
 
         me = self.peer
-        him = protocol.peer
+        him = protocol.other
         hisPartner = self.view.gRings[rnr].succ(him)
         while hisPartner.isFailed():
             hisPartner = self.view.gRings[rnr].succ(hisPartner)
@@ -716,20 +908,22 @@ class GossipServerFactory(ServerFactory):
                 protocol.accept()
                 self.cons[rnr] = protocol
             else:                
-                if (cp.peer.id == him.id) or self.view.gRings[rnr].between(cp.peer, him, me):
+                if (cp.other.id == him.id) or self.view.gRings[rnr].between(cp.other, him, me):
                     cp.hangup()
                     self.cons[rnr] = protocol
                     protocol.accept()
                 else:
                     # Our current connected client is closer to the
                     # connecting client than we are.
-                    protocol.redirect(cp.peer)
+                    protocol.redirect(cp.other)
                     #protocol.hangup()
 
     def buildProtocol(self, address):
         p = ServerFactory.buildProtocol(self, address)
         p.logger = self.logger
         return p
+
+
 
     
 class GossipClientFactory(ClientFactory):
@@ -802,8 +996,30 @@ class GossipClientFactory(ClientFactory):
         
         reactor.connectTCP(host, port, self)
 
+    def reconcile(self, protocol):
+
+        def _f(reason):
+            self.logger.error("Reconcile failed %s", error)
+        
+        def _2(result):
+            d = protocol.reconcile("aSet", self.peer.view.aSet, self.peer.view.addAccusations)
+            d.addErrback(_f)
+
+            for m in self.peer.view.pRing:
+                assert m.note
+            
+        def _1(result):
+            d = protocol.reconcile("nSet", self.peer.view.nSet, self.peer.view.addNotes)
+            d.addCallback(_2)
+            d.addErrback(_f)
+            
+        d = protocol.reconcile("cSet", self.peer.view.cSet, self.peer.view.addCerts)
+        d.addCallback(_1)
+        d.addErrback(_f)
+        
+
     def serverConnected(self, protocol):
-        protocol.gossip()
+        self.reconcile(protocol)
 
     def buildProtocol(self, address):
         id = "%s:%d" % (address.host, address.port) 
@@ -838,8 +1054,8 @@ class GossipClientFactory(ClientFactory):
             if (not cg) or (cg.state == cg.STATE_TERMINATED):
                 # We do not have an active connection on this ring, so
                 # make one.
-                ids = map(lambda t: t.peer.id, filter(None, self.connections[0:x]))
-                if (DUBLICATEPARTNERS) or (parntersOnX.id not in ids):
+                ids = map(lambda t: t.other.id, filter(None, self.connections[0:x]))
+                if (DUBLICATEPARTNERS) or (partnerOnX.serial not in ids):
                     if not partnerOnX.cert.address in self._initializing:
                         self.connect(partnerOnX, x)
                 else:
@@ -849,12 +1065,12 @@ class GossipClientFactory(ClientFactory):
                 # can either close the current one and connect to a
                 # new member, or keep the current connection.
 
-                if partnerOnX != cg.peer:
+                if partnerOnX != cg.other:
                     cg.hangup()
                     if not partnerOnX.cert.address in self._initializing:
                         self.connect(partnerOnX, x)
                 elif cg.state == cg.STATE_IDLE:
-                    cg.gossip()
+                    self.reconcile(cg)
                 else:
                     pass
 
