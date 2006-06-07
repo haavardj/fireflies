@@ -10,7 +10,7 @@
 ##  
 ##         Copyright 2006, University of Troms (Norway)
 ##                
-## $Id: __init__.py,v 1.6 2006/05/08 09:47:55 haavardj Exp $
+## $Id: __init__.py,v 1.7 2006/06/07 06:48:32 haavardj Exp $
 ##                
 ######################################################################
 
@@ -21,7 +21,7 @@ service.
 
 """
 
-protocol_version = (0,28,0)
+protocol_version = (0,28,1)
 
 __version__ = "%d.%d.%d" % protocol_version
 version = __version__
