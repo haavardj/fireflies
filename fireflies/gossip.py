@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip.py,v 1.4 2007/06/21 07:17:48 haavardj Exp $
+## $Id: gossip.py,v 1.5 2007/06/21 08:24:50 haavardj Exp $
 ##                
 ######################################################################
 
@@ -88,7 +88,7 @@ class Gossip:
 
         def _d():            
             self._task = task.LoopingCall(self.cFactory.update)
-            self._task.start(self.rate/len(self.peer.view.gRings) ).addErrback(self._failback)
+            self._task.start(self.rate/self.peer.view.k).addErrback(self._failback)
         reactor.callLater(0.1, _d)
 
     def stop(self):
@@ -888,9 +888,9 @@ class GossipServerFactory(ServerFactory):
 
         me = self.peer
         him = protocol.other
-        hisPartner = self.view.gRings[rnr].succ(him)
+        hisPartner = self.view.mRings[rnr].succ(him)
         while hisPartner.isFailed():
-            hisPartner = self.view.gRings[rnr].succ(hisPartner)
+            hisPartner = self.view.mRings[rnr].succ(hisPartner)
 
         cp = self.cons[rnr]
         if hisPartner.id != me.id:
@@ -908,7 +908,7 @@ class GossipServerFactory(ServerFactory):
                 protocol.accept()
                 self.cons[rnr] = protocol
             else:                
-                if (cp.other.id == him.id) or self.view.gRings[rnr].between(cp.other, him, me):
+                if (cp.other.id == him.id) or self.view.mRings[rnr].between(cp.other, him, me):
                     cp.hangup()
                     self.cons[rnr] = protocol
                     protocol.accept()
@@ -936,11 +936,11 @@ class GossipClientFactory(ClientFactory):
         self.view = peer.view
         if not peer.view: raise Exception, "Peer not in view"
         
-        self.connections = [None] * len(peer.view.gRings)
+        self.connections = [None] * peer.view.k
         self._initializing= {}        
 
         self.logger = logging.getLogger(peer.cert.address)
-        self._last = -1 % len(peer.view.gRings)
+        self._last = -1 % peer.view.k
         self._task = None
 
     def startFactory(self):
@@ -955,7 +955,7 @@ class GossipClientFactory(ClientFactory):
         for n,v in self._initializing.items():
             v.hangup()
             
-        self.connections = [None] *len(self.view.gRings)
+        self.connections = [None] *self.view.k
         self._initializing = {}
 
     def _failback(self, msg):
@@ -1031,7 +1031,7 @@ class GossipClientFactory(ClientFactory):
 
                 
     def update(self):
-        x = self._last = (self._last + 1) % len(self.view.gRings)
+        x = self._last = (self._last + 1) % self.view.k
         
         # Purge initializing protocols that terminated.
         for k,v in self._initializing.items():
@@ -1040,7 +1040,7 @@ class GossipClientFactory(ClientFactory):
 
         cg = self.connections[x]
 
-        ring = self.view.gRings[x]
+        ring = self.view.mRings[x]
         partnerOnX = ring.succ(self.peer)
         while partnerOnX.isFailed():
             partnerOnX = ring.succ(partnerOnX)
