@@ -11,7 +11,7 @@
 // Licence: GPL (see LICENSE file).
 //  
 //                
-// $Id: node.h,v 1.1 2006/01/20 12:41:27 haavardj Exp $
+// $Id: node.h,v 1.2 2007/06/21 06:35:14 haavardj Exp $
 //                
 //====================================================================
 
@@ -49,7 +49,7 @@ class node
   
  public:
 
-  node *node::delete_from_tree(ZZ_p element_to_delete);
+  node *delete_from_tree(ZZ_p element_to_delete);
   int ref(){
     return add_ref();
   }

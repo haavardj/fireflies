@@ -1,23 +1,13 @@
-#!/usr/bin/python
+#! /usr/bin/env python
 
 """Script for generating Fireflies CA keys."""
 
-from fireflies import members, cert
+import fireflies.crypto
 from optparse import OptionParser
 import os.path, sys, pickle, socket
 from Crypto.PublicKey import RSA
 
-defaultConfig = {
-    'RSA_SIZE': 1024,
-    'NUM_GOSSIPRINGS': 9,
-    'T': 6,
-    'PMISTAKE': 0.001,
-    'TMIN': 3,
-    'SMOOTHING': 0.999,
-    'REBUTTAL_TIME': 900,
-    'GOSSIPROUNDTIME': 60,
-    'PINGROUNDTIME': 30  
-    }
+defaultConfig = dict(fireflies.defaultConfig)
 
 parser = OptionParser(usage="%prog [options] <group name>")
 parser.add_option("-o", "--output", dest="path", 
@@ -51,36 +41,40 @@ d = defaultConfig['REBUTTAL_TIME']
 parser.add_option("--rebuttaltime", metavar="SECONDS", dest="rebuttaltime", type="float", default=d, 
                   help="Accusatin rebuttal time. Default=%d"%d)
 
-d = defaultConfig['GOSSIPROUNDTIME']
+d = defaultConfig['GOSSIP_ROUNDTIME']
 parser.add_option("--grate", metavar="SECONDS", dest="grate", type="float", default=d,
                   help="Gossip interval. Default=%f"%d)
 
-d = defaultConfig['PINGROUNDTIME']
+d = defaultConfig['PING_ROUNDTIME']
 parser.add_option("--prate", metavar="SECONDS", dest="prate", type="float", default=d,
                   help="Ping interval. Default=%d"%d)
 
 (options, args) = parser.parse_args()
 
+if len(args) != 1:
+    print parser.print_help()
+    sys.exit()
+
 defaultConfig = {
     'RSA_SIZE': options.rsasize,
     'NUM_GOSSIPRINGS': options.grings,
+    'k': options.grings,
+    'K': options.grings,
     'T': options.t,
+    't': options.t,
     'PMISTAKE': options.pmistake,
     'TMIN': options.tmin,
     'SMOOTHING': options.smoothing,
     'REBUTTAL_TIME': options.rebuttaltime,
-    'GOSSIPROUNDTIME': options.grate,
-    'PINGROUNDTIME': options.prate  
+    'GOSSIP_ROUNDTIME': options.grate,
+    'PING_ROUNDTIME': options.prate  
     }
 
 
-if len(args) != 1:
-    print parser.print_help()
-    sys.exit()
     
 
 cakey = None
-cakey = cert.CAKey(args[0], defaultConfig, options.rsasize)
+cakey = fireflies.crypto.CAKey(args[0], defaultConfig, options.rsasize)
 cacert = cakey.getCertificate()
 pickle.dump(cakey, file(os.path.join(options.path, args[0]+"CA.key" ), "w"))
 pickle.dump(cacert, file(os.path.join(options.path, args[0]+"CA.crt"), "w"))

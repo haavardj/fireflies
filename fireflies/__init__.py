@@ -3,41 +3,30 @@
 ## Filename:      __init__.py
 ## Description:   Fireflies: a scalabe and intrusion tolerant membership
 ##                protocol. 
-## Author:        Hï¿½ard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Håard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Wed Feb  1 18:53:46 2006
-## Modified by:   Hï¿½ard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Håard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright 2006, University of Troms (Norway)
+##         Copyright 2006, University of Tromsø (Norway)
 ##                
-## $Id: __init__.py,v 1.7 2006/06/07 06:48:32 haavardj Exp $
 ##                
 ######################################################################
 
-
-
 """Fireflies is a scalable and intrusion tolerant group membership
 service.
-
 """
 
-protocol_version = (0,28,1)
-
+protocol_version = (0,29,0)
 __version__ = "%d.%d.%d" % protocol_version
 version = __version__
 
-
-import time as t
-time = t
-del t
-
-
-#from group import BaseGroup
-
+defaultPort = 15378
 
 defaultConfig = {
-
+    
     'MBAR': 10,
+
     'BITSIZE': 160,
 
     # Length of encryption keys.
@@ -57,6 +46,10 @@ defaultConfig = {
     # 0.999.
     
     'NUM_GOSSIPRINGS': 8,
+
+    'k': 8,
+    'K': 8,
+
     #'NUMMONRINGS': 13,
     'T': 12,
 
@@ -84,3 +77,5 @@ defaultConfig = {
     }
 
 
+
+ 

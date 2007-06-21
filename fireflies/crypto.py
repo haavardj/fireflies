@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.2 2006/06/07 06:16:49 haavardj Exp $
+## $Id: crypto.py,v 1.3 2007/06/21 06:35:14 haavardj Exp $
 ##                
 ######################################################################
 
@@ -240,11 +240,11 @@ class CAKey(object, RSASigningKey, RSAVerifyingKey):
 
 class SignableString(RSASignable):
     """A signable string."""
-    
-    signature = ""
+
     
     def __init__(self, string):
         self.string = string
         
     def uidstr(self):
         return self.string
+
