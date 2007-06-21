@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: members.py,v 1.9 2007/06/21 07:17:48 haavardj Exp $
+## $Id: members.py,v 1.10 2007/06/21 08:24:18 haavardj Exp $
 ##                
 ######################################################################
 
@@ -22,7 +22,7 @@ from twisted.internet import reactor
 import bisect, fireflies, cert, logging, setrecon
 import random
 import fireflies.stats
-
+import fireflies.ring
 
 HISTORYSIZE = 100
 INITIAL_LRATE = 0.10
@@ -204,6 +204,9 @@ class Member(object):
         self.fdTimer = None
         self.stats = fireflies.stats.Stats()
 
+    def getSerial(self):
+        return self.mcert.serial
+
     def getMask(self):
         """Returns a mask that is based on t, nr rings, accusation history, and the old mask."""
 
@@ -351,25 +354,6 @@ class Member(object):
         for a in self.pAccusations.values():
             self.view.aSet.remove(a)
         self.pAccusations = {}
-        
-    def gRingID(self, nr):
-        """Return a members's identifier on gossip ring nr."""
-
-        try:
-            return self._gIDCache[nr]
-        except IndexError:
-            while len(self._gIDCache) <= nr:
-                self._gIDCache.append(SHA.new("%s-g-%d" % (self.serial, len(self._gIDCache))).digest())
-        return self._gIDCache[nr]
-
-    def mRingID(self, nr):
-        """Return a members's identifier on monitor ring nr."""
-        try:
-            return self._mIDCache[nr]
-        except IndexError:
-            while len(self._mIDCache) <= nr:
-                self._mIDCache.append(SHA.new("%s-m-%d" % (self.serial, len(self._mIDCache))).digest())
-        return self._mIDCache[nr]
 
     def __repr__(self):
         #return "%x" % bytes_to_long(self.serial)
@@ -422,14 +406,9 @@ class View:
         self.pRing = SerialRing() # List of all members.
         self.fRing = SerialRing() # List of failed members. Sorted by their serial number.
 
-        nrmr = cacert.config['T']*2 + 1
-        nrgr = cacert.config['NUM_GOSSIPRINGS']
-        self.mRings = []
-        for x in range(nrmr):
-            self.mRings.append(MonitorRing(x))
-        self.gRings = []
-        for x in range(nrgr):
-            self.gRings.append(GossipRing(x))
+        self.t = cacert.config['T']
+        self.k = cacert.config['NUM_GOSSIPRINGS']
+        self.mRings = MemberRings(max(self.t*2+1, self.k))
 
         self.logger = logging.getLogger(cacert.name)
         self._dirty = False
@@ -448,33 +427,7 @@ class View:
         return self.cacert.config['T']
 
     def getNrMonitorRings(self):
-        return len(self.mRings)
-
-    def clear(self):
-        """Clear the membership."""
-
-        # Remove circular dependency.
-        for p in self.pRing:
-            p.view = None
-            
-        self._listeners = []
-        self.sn2peer = {} 
-        self.aRing = SerialRing()
-        self.pRing = SerialRing()
-        self.fRing = SerialRing()
-
-        self.cSet = FFReconSet()
-        self.nSet = FFReconSet()
-        self.aSet = FFReconSet()
-
-        nrmr = cacert.config['T']*2+1
-        nrgr = cacert.config['NUM_GOSSIPRINGS']
-        self.mRings = []
-        for x in range(nrmr):
-            self.mRings.append(MonitorRing(x))
-        self.gRings = []
-        for x in range(nrgr):
-            self.gRings.append(GossipRing(x))
+        return self.t*2 + 1
                 
     def registerListener(self, object):
         """Register an object that will receive membership events.
@@ -648,7 +601,7 @@ class View:
                     continue
 
                 ca = self.sn2peer[pa.accuser] #Current accuser
-                if ring.between(ca, accuser, accused):
+                if ring.isBetween(ca, accuser, accused):
                     # This accuser is closer on the ring than the previous accuser.
                     # And if the previous accusation was valid, so is this.
                     accuser.stats.accusePossible += 1
@@ -733,7 +686,7 @@ class View:
                     # accused, or the accuser is closer on the ring
                     # than the current monitor (i.e. accuser can be
                     # accused or failed).
-                    if (cm.id == accuser.id) or (cm.id == accused.id) or (ring.between(cm, accuser, accused)):
+                    if (cm.id == accuser.id) or (cm.id == accused.id) or (ring.isBetween(cm, accuser, accused)):
 
                         if oldVa != accused.vAccusations.get(x, None):
                             pa.setTimestamp()
@@ -803,11 +756,9 @@ class View:
             self.cSet.append(c)
 
             # Add peer to all necessary rings.
-            for ring in self.mRings + self.gRings + [self.fRing, self.pRing]:
+            for ring in [self.mRings, self.fRing, self.pRing]:
                 assert not member in ring
                 ring.insert(member)
-            #self.fRing.insert(member)
-            #self.pRing.insert(member)
             #c.setTimestamp()
             self.logger.info("new %s s=%d t=%d", member, len(self.aRing), len(self.pRing))        
                    
@@ -885,191 +836,33 @@ class View:
             return str(data)
 
 
-
-def __ringIterator(ring, start=0):
-    for x in range(len(ring)):
-        yield ring[x]
-        
-
-def __ringTraverse(ring, idx):
-    l = len(ring)
-    idx = (start + 1) % l
-    while 1:
-        yield ring[idx]
-        idx = (idx + 1) % l
-        if idx == start: break
+_mRingIDCache = {}
+def _mRingID(member, ringNr):
+    """Return a members's identifier on gossip ring nr."""
     
-
-class Ring(object):    
-    """A ring is a finite field of items. A ring is similar to Python
-    list but items are kept sorted according to their sort
-    key. Inserting two items with the same key will raise a ValueError
-    exception.
+    if False: isinstance(member, Member)    
+    try:
+        return _mRingIDCache[member.getSerial()][ringNr]
+    except KeyError:
+        memberId = member.getSerial()
+        ids = _mRingIDCache.get(memberId, {})
+        idOnRing = SHA.new("%s-gossip-%d" % (memberId, ringNr)).digest()
+        ids[ringNr] = idOnRing
+        _mRingIDCache[memberId] = ids
+        return idOnRing
+   
     
-    This implementation uses the return value of the items hash
-    function as the sort keys. To use a different sort key,
-    re-implement the _sortKey method in a subclass. Keys can be any
-    object that implements a __hash__ and __cmp__ method, and is
-    unique to each object.    
-    """
-
-    def __init__(self):
-        self.__keylist = []
-        self.__key2itm = {}
-
-    def _sortKey(self, item):
-        """Returns the key used for sorting items. 
-        
-        This implementation uses the item's hash function return value
-        as a key. Reimplement this method in a subclass to use other
-        sort keys."""
-        return hash(item)
-
-    def __iterate__(self):
-        """Iterate the ring starting at the lowest number.
-        
-        The ring should not be modified during iteration."""
-        return __ringIterator(self, 0)
-
-    def traverse(self, item):
-        """Iterates the ring starting at item's successor."""
-        idx = self.__keylist.index(self._sortKey(item))        
-        return __ringIterator(self, idx)
-
-    def __len__(self):
-        return len(self.__keylist)
-        
-    def __getitem__(self, idx):
-        key = self.__keylist[idx]
-        return self.__key2itm[key]
-        
-    def __contains__(self, item):
-        key = self._sortKey(item)
-        return key in self.__key2itm
-
-    def index(self, item):
-        """Return the item's index in the ring. Raises ValueError if
-        the item is not in the ring."""
-
-        key = self._sortKey(item)
-        try:
-            return self.__keylist.index(key)
-        except ValueError:
-            raise ValueError, "Item %s not in ring" % str(item)
-        
-    def insert(self, item):
-        """Insert item into the ring. Raises ValueError if the item is
-        already in the ring. Return index where item was inserted."""
-
-        key = self._sortKey(item)
-        if key in self.__key2itm:
-            raise ValueError, "Item %s already in list" % (str(item))        
-        idx = bisect.bisect_right(self.__keylist, key)
-        self.__keylist.insert(idx, key)
-        self.__key2itm[key] = item
-        return idx
-
-    def remove(self, item):
-        """Remove item from the ring. Raises ValueError if the item is
-        not in the ring."""
-        
-        try:
-            del self[self.index(item)]
-        except ValueError:
-            raise ValueError, "Item %s not in ring" % str(item)
-        
-    def __delitem__(self, idx):
-        key = self.__keylist[idx]
-        del self.__keylist[idx]
-        del self.__key2itm[key]
-    
-    def sort(self):
-        """Does nothing. Ring is sorted on insert."""        
-        pass
-
-    def between(self, lp, bp, hp):
-        """Returns True if bp lies between lp and hp on the ring.
-
-        Please note the following:
-
-          - Nothing lies between an item and itself. That is, if
-          lp == hp this method returns False.
-
-          - An item is always between itself and any other item. That
-          is, if lp == bp, or hp == bp but hp != lp, this method
-          returns True.
-
-          - Raises a ValueError if lp, bp, or hp is not in the ring.          
-        """
-        
-        li = self.index(lp)
-        bi = self.index(bp)
-        hi = self.index(hp)
-        if hi > li:
-            if bi <= li or bi >= hi: return False
-            else: return True
-        elif hi < li:
-            if bi > li or bi < hi: return True
-            else: return False
-        else:
-            return False
-
-    def succ(self, item):
-        """Returns the the successor of item. Raises ValueError if
-        item is not in the ring. If the ring contains only item, item
-        will be returned.
-        """
-        
-        key = self._sortKey(item)
-        idx = self.__keylist.index(key)
-        idx = (idx + 1) % len(self.__keylist)
-        key = self.__keylist[idx]
-        return self.__key2itm[key]
-    
-    def pred(self, item):
-        """Returns the predecessor if item. Raises ValueError if item
-        is not in the ring. If the ring contains only item, item will be returned.
-        """
-        
-        key = self._sortKey(item)
-        idx = self.__keylist.index(key)
-        idx = (idx - 1) % len(self.__keylist)
-        key = self.__keylist[idx]
-        return self.__key2itm[key]
-
-        
-class SerialRing(Ring):
+class SerialRing(fireflies.ring.Ring):
     """A ring of Peer object. The ring is sorted according to the peer
     id attribute."""
 
     def _sortKey(self, item):
         return item.id
+       
+class MemberRing(fireflies.ring.NumberedRing):
+     
+    def _sortKey(self, item):
+        return _mRingID(item, self.nr)
 
-        
-class MonitorRing(Ring):
-    """A Fireflies monitor ring. The item's mRingID function is used
-    for generating sort keys. This class also needs to be instantiated
-    with the number of the monitor ring.
-    """
-    
-    def __init__(self, nr):
-        """nr - The monitor-ring number."""
-        self.nr = nr
-        super(MonitorRing, self).__init__()
-        
-    def _sortKey(self, peer):
-        return peer.mRingID(self.nr)
-
-
-class GossipRing(Ring):
-    """A Fireflies gossip ring. The item's gRingID function is used
-    for generating sort keys. This class also needs to be instantiated
-    with the number of the gossip ring.
-    """
-    
-    def __init__(self, nr):
-        """nr - The monitor-ring number."""
-        self.nr = nr
-        super(GossipRing, self).__init__()
-    def _sortKey(self, peer):
-        return peer.gRingID(self.nr)
+class MemberRings(fireflies.ring.NumberedSetOfRings):    
+    ringClass = MemberRing
