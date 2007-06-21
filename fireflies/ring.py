@@ -1,6 +1,4 @@
 import bisect
-from zope.interface import Interface, implements
-from twisted.python import components
 
 def __ringIterator(ring, start=0):
     for x in range(len(ring)):
@@ -57,6 +55,7 @@ class Ring(object):
         
     def __getitem__(self, idx):
         """Return the item with the sort key idx."""
+        
         key = self.__keylist[idx]
         return self.__key2itm[key]
         
@@ -232,7 +231,7 @@ class NumberedRing(Ring):
         self.nr = nr
         
     def _sortKey(self, item):
-        return hash(hash(item) + hash(self.nr))  
+        return hash(hash(item) + hash(self.nr))
 
 class NumberedSetOfRings(object):
     """A set of numbered rings. The constructor to the ring accept a
@@ -241,6 +240,7 @@ class NumberedSetOfRings(object):
     ringClass = NumberedRing
     
     def __init__(self, num):
+        self.__num = num
         self.__rings = []
         for x in range(num):
             self.__rings.append(self.ringClass(x))
@@ -254,20 +254,10 @@ class NumberedSetOfRings(object):
         return self.__rings[key]
     
     def __len__(self):
-        """Return the number of rings."""
-        return len(self.__rings)
+        return self.__num
     
     def __contains__(self, itm):
         return itm in self.__rings[0]
-
-    def setLength(self, num):
-        while num < len(self):
-            self.__rings.pop(-1)
-        while num > len(self):
-            newRing = self.ringClass(len(self.__rings))
-            for member in self.__rings[0]: 
-                newRing.insert(member)
-            self.__rings.append(newRing)
 
     def succ(self, itm, func=lambda x: True):
         """Return for each ring the first successor of itm for which func evaluates to true."""

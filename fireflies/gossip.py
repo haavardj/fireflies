@@ -1,33 +1,30 @@
 # -*- coding: iso-8859-1 -*-
 ######################################################################
-## Filename:      gossip.py
-## Description:   Fireflies' set-recon based gossip protocol 
+## Filename:      gossip4.py
+## Description:   Fireflies set-recon based gossip protocol 
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Wed Feb  1 18:12:09 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright© 2006, Håvard Dagenborg Johansen
+##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip.py,v 1.3 2007/06/21 06:35:14 haavardj Exp $
+## $Id: gossip.py,v 1.4 2007/06/21 07:17:48 haavardj Exp $
 ##                
 ######################################################################
 
 
 import logging
 from packer import FirefliesPacker, FirefliesUnpacker
-from twisted.application import service
+
 from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFactory
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.internet import reactor, task, defer
 from Crypto.Hash import MD5
 import sha
-from Crypto.Hash import SHA
 import fireflies, members, time, cert, setrecon
 from cert import TimestampMixin
 import copy, sys
-from zope.interface import Interface, implements
-import fireflies.group
 
 setrecon.init(fireflies.defaultConfig['BITSIZE'], fireflies.defaultConfig['MBAR'])
 
@@ -40,6 +37,8 @@ DATA_NOTE_ID = 0x2
 DATA_ACCUSATION_ID = 0x3
 
 DUBLICATEPARTNERS = False
+
+
 
 cmd2code = {
     'partner': 0x1,
@@ -67,46 +66,20 @@ for k, v in cmd2code.items():
     code2cmd[v] = k
 
 
-class Gossip(service.Service):
-        
-    def __init__(self, me, myKey, rate=60.0, TCPTimeout=360.0, k=8):
-        assert isinstance(me, fireflies.members.Member)
-        assert isinstance(myKey, fireflies.crypto.MemberKey)
-        assert me.getCertificate().serial = myKey.serial
-        
+
+
+class Gossip:
+    def __init__(self, peer, rate=60.0, TCPTimeout=360.0):
         self.rate = rate
-        self.me = me
-        self.myKey = myKey
-        self.k = k
-        
-        self.logger = logging.getLogger(me.getAddress())
-        
+        self.peer = peer
+        self.view = peer.view
+        if not peer.view: raise Exception, "Peer not in view"
+        self.logger = logging.getLogger(peer.cert.address)
         self.sFactory = GossipServerFactory(peer, TCPTimeout)
         self.cFactory = GossipClientFactory(peer, rate, TCPTimeout)    
-        
-        self.inboundPool = {}
-        self.outboundPool = {}
-        
-        self.inboundPartners = [None] * k
-        self.outboundPartners = [None] * k
-
-    def startService(self):
-        service.Service.startService(self)        
-        self.task = task.LoopingCall(self._timeToGossip)
-        self.task.start(self.rate / self.k, now=False)
-
-    def stopService(self):
-        self.task.stop()                
-        service.Service.stopService(self)
-
-    def getClientFactory(self):
-        return FirefliesClientFactory
-
-    def getServerFactory(self):
-        return FirefliesClientFactory
 
     def start(self):
-        host, port = self.me.getCertificate().address.split(":")
+        host, port = self.peer.cert.address.split(":")
         port = int(port)
         self.logger.info("Binding gossip to tcp %s:%d", host, port)
         self._port = reactor.listenTCP(port, self.sFactory, interface=host)
@@ -126,50 +99,6 @@ class Gossip(service.Service):
 
     def _failback(self, reason):
         self.logger.exception(reason)
-
-    def _timeToGossip(self):
-        x = self.last = (self.last + 1) % self.k
-        partnerOnX = self.rings[x].succ(self.member, lambda x: x.isLive())
-        print "do ring", x, partnerOnX
-        assert isinstance(partnerOnX, fireflies.members.Member)
-        
-        if not partnerOnX or partnerOnX == self.member:
-            if self.outboundPartners[x]: 
-                self.outboundPartners[x].disconnect()
-                self.outboundPartners[x] = None
-            return
-        if partnerOnX in self.outboundPool:
-            partnerObj = self.outboundPool[partnerOnX]
-        else:
-            partnerObj = GossipClient(self, partnerOnX)
-            self.outboundPool[partnerOnX] = partnerObj
-            
-        assert isinstance(partnerObj, GossipClient)
-
-        if partnerObj == self.outboundPartners[x]:
-            assert partnerObj.isActive()
-            assert partnerObj.ringnr == x
-            self.outboundPartners[x].gossip()
-            #print partnerObj.member, x, "active on this"
-        else:
-            if self.outboundPartners[x]: 
-                self.outboundPartners[x].disconnect()
-                self.outboundPartners[x] = None
-            
-            # Is partner active on some other ring, then skip.
-            if partnerObj.isActive():
-                assert partnerObj.ringnr != x
-                assert partnerObj.ringnr >= 0
-                #print partnerObj.member, x,  "active on other ring"
-            else:
-                self.outboundPartners[x] = partnerObj
-                partnerObj.connect(x) #.addCallbacks(self._cb_client_connect, self._eb_client_connect)                            
-                self.outboundPartners[x].gossip()
-
-
-
-
-
 
 class GossipBase(Int32StringReceiver):
     STATE_IDLE = "idle"
@@ -917,20 +846,18 @@ def isEmptyNode(node):
             assert node.ref_count() > 0, "refcount is %d shoud be >0. intree=%s" %(node.ref_count(), node.intree)
             
     return bool(   (node == None) or (node.setsize==0) or (node.intree == False))
-
-
-
-    
-
+        
 class GossipServerFactory(ServerFactory):
 
     protocol = ServerProtocol
-    timeout = 300.0
 
-    def __init__(self, service):
-        self.service = service
-        self.logger = logging.getLogger("")
-        self.cons = [None] * self.service.group.getGroupCertificate()["k"]
+    def __init__(self, peer, timeout):
+        self._timeout = timeout
+        if not peer.view: raise Exception, "Peer not in view"
+        self.peer = peer
+        self.view = peer.view        
+        self.logger = logging.getLogger(peer.cert.address)
+        self.cons = [None] * self.view.cacert.config["NUM_GOSSIPRINGS"]
 
     def startFactory(self):
         pass
@@ -939,18 +866,18 @@ class GossipServerFactory(ServerFactory):
         for c in self.cons:
             if not c: continue
             c.hangup()
-        self.cons = [None] 
+        self.cons = [None] * self.peer.view.cacert.config["NUM_GOSSIPRINGS"]
 
     def getSet(self, name):
         if name == "cSet":
-            s = self.service.group.cSet
-            f = self.peer.group.addCerts
+            s = self.peer.view.cSet
+            f = self.peer.view.addCerts
         elif name == "nSet":
-            s = self.service.group.nSet
-            f = self.service.group.addNotes
+            s = self.peer.view.nSet
+            f = self.peer.view.addNotes
         elif name == "aSet":
-            s = self.service.group.aSet
-            f = self.service.group.addAccusations
+            s = self.peer.view.aSet
+            f = self.peer.view.addAccusations
         else:
             raise ValueError("No such set.")
         return s, f
@@ -959,11 +886,11 @@ class GossipServerFactory(ServerFactory):
     def clientConnected(self, protocol, rnr):
         """Client connected."""
 
-        me = self.service.group.peer
+        me = self.peer
         him = protocol.other
-        hisPartner = self.service.group.gRings[rnr].succ(him)
+        hisPartner = self.view.gRings[rnr].succ(him)
         while hisPartner.isFailed():
-            hisPartner = self.service.group.gRings[rnr].succ(hisPartner)
+            hisPartner = self.view.gRings[rnr].succ(hisPartner)
 
         cp = self.cons[rnr]
         if hisPartner.id != me.id:
@@ -981,7 +908,7 @@ class GossipServerFactory(ServerFactory):
                 protocol.accept()
                 self.cons[rnr] = protocol
             else:                
-                if (cp.other.id == him.id) or self.service.group.gRings[rnr].between(cp.other, him, me):
+                if (cp.other.id == him.id) or self.view.gRings[rnr].between(cp.other, him, me):
                     cp.hangup()
                     self.cons[rnr] = protocol
                     protocol.accept()
@@ -990,7 +917,6 @@ class GossipServerFactory(ServerFactory):
                     # connecting client than we are.
                     protocol.redirect(cp.other)
                     #protocol.hangup()
-
 
     def buildProtocol(self, address):
         p = ServerFactory.buildProtocol(self, address)
@@ -1148,4 +1074,5 @@ class GossipClientFactory(ClientFactory):
                 else:
                     pass
 
- 
+        
+

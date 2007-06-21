@@ -1,15 +1,17 @@
-#!/usr/bin/env python
+#!/usr/bin/python
 
 import warnings
+
 warnings.filterwarnings(action="ignore", category=DeprecationWarning)
-del warnings
 
 from twisted.internet import reactor, task
 import random, sys, os.path, logging, socket, pickle, os, glob
 import logging.handlers
-import fireflies.agent, fireflies.crypto, fireflies.gossip5
-#from fireflies import members, fd, crypto, group, stats, gossip
+import fireflies
+from fireflies import gossip, members, fd, cert, group, stats
+
 from Crypto.Util.number import long_to_bytes, bytes_to_long
+
 random.seed()
 
 from twisted.python import threadable
@@ -24,7 +26,9 @@ if __name__ == "__main__":
     parser.add_option("-a", "--address", dest="address",
                       help="Bind to ADDRESS. Defaults to %s." % hostaddr, default=hostaddr )
     parser.add_option("-p", "--port", dest="port", type="int",
-                      help="Bind PORT.", default=fireflies.defaultPort)
+                      help="Bind PORT. Defaults to 14377", default=14377)
+    parser.add_option("-n", "--new", dest="new", default=False,
+                      help="Create a new certificate even if one exist.", action="store_true")
     parser.add_option("-k", "--key", dest="keydir", 
                       help="Store and load private keys and note from KEYDIR.", default="./")
     parser.add_option("-r", "--rundir",
@@ -34,10 +38,10 @@ if __name__ == "__main__":
                       help="When daemon, write logs to LOGDIR.", default="./")
     parser.add_option("-c", "--cache", dest="cachedir", default="./",
                       help="Look in the CACHEDIR for member's notes.")
-#    parser.add_option("-g", "--group", dest="group", default=None,
-#                      help="Run in group.")
-#    parser.add_option("-u", "--user", dest="user", default=None,
-#                      help="Run as USER.")
+    parser.add_option("-g", "--group", dest="group", default=None,
+                      help="Run in group.")
+    parser.add_option("-u", "--user", dest="user", default=None,
+                      help="Run as USER.")
     parser.add_option("-m", "--max", dest="max", type="int", default=1000,
                       help="Do not use more than MAX notes from the cache.")
     parser.add_option("-d", "--daemon",
@@ -52,41 +56,49 @@ if __name__ == "__main__":
     parser.add_option("-b", "--byzantine",
                       dest="byzantine", default=None,
                       help="Checks in this file if the member is supposed to be Byzantine.")
+
     
     (options, args) = parser.parse_args()
+
     if len(args) < 1:
         print parser.print_help()
         sys.exit()
 
 
+
     # The first argument can either be a CA certificate, or a CA
     # Key. If given the key, we can make our own member certificats. 
-    groupKey = groupCertificate = None
+    cakey = cacert = None
     try:
         ca = pickle.load(file(args[0]))
-        if isinstance(ca, fireflies.crypto.CAKey):
-            groupKey = ca
-            groupCertificate = ca.getCertificate()
-        elif isinstance(ca, fireflies.crypto.CACertificate):
-            groupCertificate = ca 
+        if isinstance(ca, cert.CAKey):
+            cakey = ca
+            cacert = ca.getCertificate()
+        elif isinstance(ca, cert.CACertificate):
+            cacert = ca
         else:
+            print ca
             raise TypeError
 
-        if not groupCertificate.verify(groupCertificate):
-            raise RuntimeError("CA certificate not valid.")
+        if not cacert.verify(cacert):
+            raise RuntimeError("CA certificate not valid")
+
     except Exception, why:
         print "Unable to load CA key/cert.", why
         sys.exit()
 
+    # Make sure address is an ipv4 address. Fireflies will only accept ip
+    # addresses.
+    options.address = socket.gethostbyname(options.address.lower())
 
     # Change user/group
-    #import pwd, grp
-    #if options.user:
-    #    os.seteuid(pwd.getpwnam(options.user)[2])
-    #if options.group:
-    #    os.seteuid(grp.getgrnam(options.group)[2])
-    #del pwd
-    #del grp
+    import pwd, grp
+    if options.user:
+        os.seteuid(pwd.getpwnam(options.user)[2])
+    if options.group:
+        os.seteuid(grp.getgrnam(options.group)[2])
+    del pwd
+    del grp
     
    
     # Set logging verbosity
@@ -97,11 +109,8 @@ if __name__ == "__main__":
         l.setLevel(logging.INFO)
 
 
-    # Make sure address is an IP address.
-    options.address = socket.gethostbyname(options.address.lower())
-
-    # Make sure required paths exists
-    for path in [options.keydir, options.logdir, options.rundir, options.cachedir]:
+    # Create paths to save private keys, notes, and logs.
+    for path in [options.keydir, options.logdir, options.rundir,options.cachedir]:
         if not path: continue        
         if not os.path.exists(path):
             os.mkdir(path)
@@ -111,6 +120,9 @@ if __name__ == "__main__":
         elif not os.access(path, os.R_OK | os.W_OK):
             print "%s access error.", path
             sys.exit(0)
+
+    #if options.cachedir and (not os.path.exists(options.cachedir)):
+    #    os.mkdir(options.cachedir)
 
     # Become a daemon?
     if options.daemon:
@@ -127,11 +139,10 @@ if __name__ == "__main__":
         log_hdlr = logging.handlers.RotatingFileHandler(os.path.join(options.logdir,
                                                                      "%s:%d.log" % (options.address,
                                                                                     options.port)),
-                                                                     "a", 100000000, 10)
+                                                        "a", 100000000, 10)
     else:
         log_hdlr = logging.StreamHandler(sys.stdout)
-
-    # Setup Logging
+        
     formatter = logging.Formatter('%(asctime)s %(message)s', "%d-%m-%H:%M:%S")
     log_hdlr.setFormatter(formatter)
     logging.getLogger().addHandler(log_hdlr)
@@ -151,53 +162,61 @@ if __name__ == "__main__":
     # Load own keys and notes.
     #
     
-    myKey = myCertificate = myNote = None
+    mkey = mcert = mnote = None
 
     # Create or load member key and certificate
-
-    try:
-        path = os.path.join(options.keydir, "%s:%d.priv" % (options.address, options.port))
-        myKey, myCertificate, myNote = pickle.load(file(path))
-    except (pickle.UnpicklingError, IOError):
-        if not groupKey: raise        
-        
-    if not myKey:
-        myKey = fireflies.crypto.MemberKey("%s:%d" %(options.address, options.port))
-        myCertificate = myNote = None
-        
-    group = fireflies.group.Group(groupCertificate, myKey)
-        
-    if not myCertificate:
-        if not groupKey: raise RuntimeError, "Cannot create member certificate without group key"        
-        myCertificate = myKey.getCertificate()
-        groupKey.sign(myCertificate)
-        myNote = None
-        
-    
-    group.addCertificate(myCertificate)
-    me = group.getMemberByCertificate(myCertificate)
-    isinstance(me, fireflies.members.Member)
-    
-    if not myNote:
-        
-        me = group.getMemberByCertificate(myCertificate)
-        myNote = fireflies.members.createRebuttal(me, group, myKey)        
-        myNote.badness = byzantine
-
-    myKey.sign(myNote)
-    group.addNote(myNote)
+    if options.new:
+        if not cakey:
+            logger.error("-n option invalid as %s is not a CA Key" % args[0])
+            sys.exit(0)
+        mkey = cert.MemberKey(options.address)
+        mcert = mkey.getCertificate()
+        cakey.sign(mcert)
+        mnote = members.createInitialNote(mcert.serial, cacert.config['T'])
+        mnote.badness = byzantine
+        mkey.sign(mnote)
+    else:
+        try:
+            path = os.path.join(options.keydir, "%s:%d.priv" % (options.address, options.port))
+            mkey, mcert, mnote = pickle.load(file(path))
+            if not mnote:
+                mnote = members.createInitialNote(mcert.serial, cacert.config['T'])
+                mnote.badness = byzantine
+                mkey.sign(mnote)
+            else:
+                t = cacert.config['T']
+                rings = 2*t+1
+                if (len(filter(lambda x: x==True, mnote.mask)) != rings-t or
+                    len(filter(lambda x: x==False, mnote.mask)) != t):
+                    logging.warning("loaded note has invalid mask")
+                    n = members.createInitialNote(mcert.serial, t)
+                    n.badness = byzantine
+                    n.lifeline = mnote.lifeline
+                    mnote = n 
+                    mkey.sign(mnote)                    
+                elif mnote.badness != byzantine:
+                    mnote.badness = byzantine
+                    mnote.lifeline += 1
+                    mkey.sign(mnote)
                 
-    logging.info("Me = %s on %s (badness=%d)", 
-                 bytes_to_long(myCertificate.serial), 
-                 myCertificate.address, 
-                 myNote.badness
-                 )
+        except (pickle.UnpicklingError, IOError):
+            if not cakey: raise IOError("Unable to load or create private data.")
+            mkey = cert.MemberKey("%s:%d" %(options.address, options.port))
+            mcert = mkey.getCertificate()
+            cakey.sign(mcert)
+            mnote = members.createInitialNote(mcert.serial, cacert.config['T'])
+            mnote.badness = byzantine
+            mkey.sign(mnote)
 
+    logging.info("Me = %s on %s (badness=%d)", bytes_to_long(mcert.serial), mcert.address, mnote.badness)
+    # Load boot nodes from the cache.
+    
+    bootnodes = []
 
     #
     # Load other certificates and notes.
     #
-    bootnodes = []
+
     pubfiles = []
     if options.cachedir:
         pubfiles = glob.glob(os.path.join(options.cachedir, "*.pub"))
@@ -211,17 +230,15 @@ if __name__ == "__main__":
             logging.warning("Member cache: Error loading cert/note from %s.", path)
             continue
 
-        if not (isinstance(ocert, fireflies.crypto.MemberCertificate) or isinstance(onote, fireflies.members.Note)):
-            logging.warning("Not valid data in %s", path)
+        if not (isinstance(ocert, cert.MemberCertificate) and isinstance(onote, members.Note)):
             continue
         
-        if not fireflies.members.isValidMask(onote.mask, group.T):
+        if not members.isValidMask(onote.mask, cacert.config['T']):
             continue        
-        
-        if ocert.serial == myCertificate.serial:
+        if ocert.serial == mcert.serial:
             logging.info("Member cache: Member in %s is me. Skipping", path)
             continue                
-        if not ( (groupCertificate.verify(ocert)) and
+        if not ( (cacert.verify(ocert)) and
                  (ocert.serial == onote.serial) and
                  (ocert.verify(onote))):
             logging.warning("Member cache: Skipping invalid cert/note in %s.", path)
@@ -229,67 +246,69 @@ if __name__ == "__main__":
 
         bootnodes.append((ocert, onote))
 
-    from twisted.python import log
-    import sys
-    log.startLogging(sys.stdout)
-
-    for c, n in bootnodes:
-        group.addCertificate(c)
-        group.addNote(n)
+    mgroup = group.BaseGroup(cacert, mkey, mcert, mnote)
+    mgroup.badness = mnote.badness
+    mgroup.join(bootnodes)
 
     if options.rundir:
-        statefile = os.path.join(options.rundir, "%s.dat" % myCertificate.address)
+        statefile = os.path.join(options.rundir, "%s.dat" % mcert.address)
         if os.path.exists(statefile):
             try:
                 cstate, nstate, astate = pickle.load(file(statefile))
-                for c in cstate:
-                    group.addCertificate(c)
-                for n in nstate:
-                    group.addNote(n)
-                for a in astate:
-                    group.addAccusation(a)
+                
+                mgroup.view.addCerts(cstate)
+                mgroup.view.addNotes(nstate)
+                mgroup.view.addAccusations(astate)
             except IOError:
                 pass
     
+    
+
+    
     # Save state. We need to do it here to make shure we do not lose
     # the data if the program crashes.
-    path = os.path.join(options.keydir, "%s.priv" % myCertificate.address)
-    pickle.dump( (myKey, myCertificate, me.getNote()), file(path, "w"))
-    path = os.path.join(options.keydir, "%s.pub" % myCertificate.address)
-    pickle.dump( (myCertificate, me.getNote()), file(path, "w"))
+    path = os.path.join(options.keydir, "%s.priv" % mcert.address)
+    pickle.dump( (mkey, mcert, mnote), file(path, "w"))
+    path = os.path.join(options.keydir, "%s.pub" % mcert.address)
+    pickle.dump( (mcert, mnote), file(path, "w"))
+
 
     # Start the web-stat server. The web-stat server modifies
     # checkpoints the stats to the log. If it's not running, we need
     # to do it here.
-    #if options.stats:
-    #    import fireflies.web
-    #    ws = fireflies.web.NodeViewer(mgroup)
-    #    ws.start()
+    if options.stats:
+        import fireflies.web
+        ws = fireflies.web.NodeViewer(mgroup)
+        ws.start()
+
+
     # find bogomips speed
-    #bogomips = 0
-    #try:
-        #lines = file("/proc/cpuinfo").readlines()
-    #except Exception:
-        #logging.warning("unable to open /proc/cpuinfo.")
-    #else:
-        #while 1:
-            #if len(lines) == 0:
-                #logging.warning("unable to find bogomips value.")
-                #break
 
-            #line = lines.pop(0)
-            #if not line.startswith("bogomips"): continue
-            #bogomips = line.split(":")[1]
-            #bogomips = bogomips.strip()
-            #bogomips = float(bogomips)
-            #logging.info("calculating load using bogomips=%f", bogomips)
-            #break
+    bogomips = 0
+
+    try:
+        lines = file("/proc/cpuinfo").readlines()
+    except Exception:
+        logging.warning("unable to open /proc/cpuinfo.")
+    else:
+        while 1:
+            if len(lines) == 0:
+                logging.warning("unable to find bogomips value.")
+                break
+
+            line = lines.pop(0)
+            if not line.startswith("bogomips"): continue
+            bogomips = line.split(":")[1]
+            bogomips = bogomips.strip()
+            bogomips = float(bogomips)
+            logging.info("calculating load using bogomips=%f", bogomips)
+            break
 
 
-    #global sold, snew
-    #sold = snew = stats.Stats()
-    #sold.cputime = os.times()[0] * bogomips
-    #t = fireflies.time.time()
+    global sold, snew
+    sold = snew = stats.Stats()
+    sold.cputime = os.times()[0] * bogomips
+    t = fireflies.time.time()
 
     def doCheckpoint():
         global sold, snew
@@ -298,10 +317,11 @@ if __name__ == "__main__":
         logging.info("checkpoint %s %d %d" % (str( (snew - sold)), snew.members, snew.fmembers) )
         sold = snew
 
+
     def doWriteState():
         assert options.rundir
         logging.info("writing state.")
-        statefile = os.path.join(options.rundir, "%s.dat" % mgroup.memberCertificate.address)
+        statefile = os.path.join(options.rundir, "%s.dat" % mgroup.mcert.address)
 
         cstate = []
         nstate = []
@@ -316,28 +336,19 @@ if __name__ == "__main__":
             pickle.dump((cstate, nstate, astate), file(statefile, "w"))
         except Exception, why:
             logging.error("Failed saving %s", path)
-   
+
+
+        
     def failback(msg):
         logging.exception(msg)
         
-    #checkpointTask = task.LoopingCall(doCheckpoint)
-    #checkpointTask.start(10).addErrback(failback)
+    checkpointTask = task.LoopingCall(doCheckpoint)
+    checkpointTask.start(10).addErrback(failback)
 
-    #if options.rundir:
-    #    rundirTask = task.LoopingCall(doWriteState)
-    #    rundirTask.start(60*10).addErrback(failback)
+    if options.rundir:
+        rundirTask = task.LoopingCall(doWriteState)
+        rundirTask.start(60*10).addErrback(failback)
 
-    
-    import fireflies.mesh
-    mesh = fireflies.mesh.Mesh(me)
-
-    h,p = me.getAddress().split(":")
-    p = int(p)    
-    reactor.listenTCP(p, mesh, interface=h)
-    logging.info("Binding Mesh to tcp %s:%d", h, p)    
-    
-    
-    
     try:
         reactor.run()
     except Exception, why:
@@ -346,8 +357,8 @@ if __name__ == "__main__":
     # Save the note. It might been updated since our last save.
     if options.keydir != None:
         try:
-            path = os.path.join(options.keydir, "%s.pub" % myCertificate.address)
-            pickle.dump( (myCertificate, me.getNote()), file(path, "w"))
+            path = os.path.join(options.keydir, "%s.pub" % mcert.address)
+            pickle.dump( (mcert, mgroup.mnote), file(path, "w"))
         except Exception, why:
             logging.error("Failed saving %s", path)
         else:

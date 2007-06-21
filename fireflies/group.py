@@ -9,530 +9,300 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
+## $Id: group.py,v 1.9 2007/06/21 07:17:48 haavardj Exp $
+##                
 ######################################################################
 
 
-import fireflies,  fireflies.members, fireflies.crypto, fireflies.stats
+
 import logging
-from twisted.internet import reactor, defer
-from zope.interface import Interface, implements
+import gossip, fd, members
+import fireflies.stats
+from twisted.internet import reactor    
 
+# To speed up the simulator, copying is done here.
+from copy import copy
 
-def _filterDupMonitors(l):
-    """Return a list monitores of the same length as l but any duplicate and
-    disabled monitores set to None."""
-    r = []
-    for x, n in enumerate(l):
-        if (not n) or (n in r) or (n._note.mask[x] == False): r.append(None)
-        else: r.append(n)
-    return r
+class BaseGroup(object):
+    """A basic Fireflies group object.
 
-EV_RECOVER_NEW = 0
-EV_RECOVER_REBUTTAL = 1
-EV_RECOVER_INVALIDATED = 2
-EV_CRASH_REVOKED = 0
-EV_CRASH_ACCUSED = 1
-EV_CRASH_NEW = 2
-
-class IMembershipEvent(Interface):   
-    def evRecover(self, member, reason):
-        """member has recovered from a crash.
-        
-        Reason:  0 first time a member is considered live
-                 1 recovered by rebuttal
-                 2 recovered by invalidation of accustations through structural changes
-        """
-        
-    def evCrash(self, member, reason):
-        """member has crashed or left the group. 
-        
-        Reason:  0 revoked certificate
-                 1 not revoked an accusation (aka crash)
-                 2 new member (have member certificate but no a note)
-        """
-
-EV_DATA_VALID = True
-EV_DATA_INVALID = False
-class IDataEvent(Interface):
-    def evAccusation(self, itm, valid): pass
-    def evNote(self, itm, valid): pass
-    def evCertificate(self, itm, valid): pass
-
-EV_NEIGHBOUR_INBOUND = 1**2
-EV_NEIGHBOUR_OUTBOUND = 2**2
-class INeighborEvent(Interface):
-    def evConnect(self, member, role): pass
-    def evDisconnect(self, member, role): pass
-
-def createGroup(name, config=fireflies.defaultConfig):
-    caPrivate = fireflies.crypto.CAKey(name, config, config["RSA_SIZE"])
-    caPublic = caPrivate.getCertificate()
+    cacert --- The certificate of the groups' CA.
     
-class Group:
-    """A Fireflies group."""
-    badness = 0
-    timeout = 10.0
+    mkey   --- The member's private key. 
     
-    logger = logging.getLogger()
-    _membersClass = fireflies.members.Member
+    mcert  --- The member's certificate, signed by the CA.
+    
+    mnote --- The member's note. If the member is re-joning the group,
+    its latest note can be supplied here. This argument is never
+    necessary but speeds up the joining process. If not specified a
+    new note will be created. Any previous notes that the member
+    issued will be learned from the group.        
+    """
+    peer = None
+    
+    def __init__(self, cacert, mkey, mcert, mnote=None):
+        
+        self.logger = logging.getLogger(mcert.address)
+        self.cacert, self.mkey, self.mcert = cacert, mkey, mcert
+
+        self.view = members.View(self.cacert)
+    
+        if not mnote:
+            self.mnote = members.createInitialNote(mcert.serial,
+                                                   cacert.config["T"])
+            self.view.stats.notesCreated += 1
+        else: self.mnote = mnote
+
+        self.joined = False        
+        self.badness = 0
+        self.view.logger = self.logger
+
+        self.stats = fireflies.stats.Stats()
+
+        #self.__setattr__ = self.__setattr_im__
+    
+    def __setattr_im__(self, k, v):
+        raise RuntimeError("immutable error")
                 
-    def __init__(self, groupCertificate, credentials): 
-        """Create a group from a CACertificate."""
-        
-        if not isinstance(groupCertificate, fireflies.crypto.CACertificate): raise ValueError
-        if not isinstance(credentials, fireflies.crypto.MemberKey): raise ValueError
-   
-        self._neighborsEvL = []
-        self._membershipEVL = [] 
-        self._dataEVL = []
-        
-        self._timers = {}
-        self._groupCA = groupCertificate
-        self.sn2member = {} # serial to member mapping.
+    def leave(self):
+        """Leave the group."""
+        self.logger.warning("leave %s", self.cacert.name)
+        assert self.joined
+        self.stats.leave += 1
+        self.pinger.stop()
+        self.gossiper.stop()
+        self.view.unregisterListener(self)
+        self.joined = False
 
-        # Rings
-        self.aRing = fireflies.members.SerialRing() # Live members
-        self.fRing = fireflies.members.SerialRing() # Failed members
-        self.T = t = max(2* groupCertificate.config['T'] + 1, groupCertificate.config['k'])
-        self.rings = fireflies.members.MemberRings(t)
-        
-        self.stats = fireflies.stats.Stats()     
-        self.credentials = credentials
-
-    def ensureNumRings(self, num):
-        if self.getNumRings() < num:
-            self.setNumRings(num)
-
-    def setNumRings(self, num):
-        self.rings.setLength(num)        
-        
-    def getNumRings(self):
-        return len(self.rings)
-        
-    def _makeLive(self, m):
-        isinstance(m, fireflies.members.Member)
-        self.fRing.remove(m)
-        self.aRing.insert(m)
-        m._setFailed(False)
-        
-     
     def __len__(self):
-        """Size of the membership (both failed and live members).""" 
-        
-        return len(self.sn2member)
+        return len(self.view.aRing)
+
+    def __contains__(self, serial):
+        return serial in self.view.aRing
     
-    def register(self, service, neighborEv=0,  membershipEv=False, dataEv=False):
-        if dataEv: 
-            self._dataEVL.append(service)
-        if membershipEv: 
-            self._membershipEVL.append(service)            
-        if neighborEv > 0: 
-            self._neighborsEvL.append( (neighborEv, service) )
+    def size(self):
+        """Return the number of live members."""
+        return len(self)
 
-    def _createMemberInstance(self, mCert):
-        return self._membersClass(mCert)
-                
-    def liveMembers(self):
-        """Return a Ring object containing all live members."""
-        return self.aRing
-
-    def failedMembers(self):
-        """Return a Ring object containing all failed members."""       
-        return self.fRing
-
-    def __contains__(self, serial):     
-        return serial in self.sn2member
-
-    def getMemberByAddress(self, address):
-        raise NotImplementedError
-    
-    def getMemberBySerial(self, serial):
-        """Return IMember object.
-        Raises KeyError if group has no member with the provided serial."""
-        return self.sn2member[serial]
-    
-    def getMemberByCertificate(self, memberCertificate):
-        return self.getMemberBySerial(memberCertificate.serial)
+    def getMembers(self):
+        """Returns a list of members serials and addresses."""
+        return map(lambda: (x.serial, x.cert.address), self.view.aRing)
 
     def getGroupID(self):
-        """Returns the unique identifier of the group."""        
-        return self._groupCA.serial
-    
-    def getGroupCertificate(self):
-        """Return the group's certificate."""
-        return self._groupCA
-    
-    def getCredentials(self):
-        """Return credentials to this group."""
-        return self.credentials
-    
+        """Returns the unique identifier if the group."""        
+        return self.cacert.serial
+
     def getGroupName(self):
         """Returns the group name."""
-        return self._groupCA.name
-                
+        return self.cacert.name
+        
+    def join(self, bootnodes=[]):
+        """Join the group.
+
+        bootnodes --- list of (certificate, note) tuples. To be
+        successfully integrated into an existing group, at least t
+        other members must be specified."""
+        
+        assert not self.joined
+        self.logger.warning("join %s", self.cacert.name)
+        self.stats.join += 1
+        cacert, mkey, mcert, mnote = self.cacert, self.mkey, self.mcert, self.mnote
+
+        self.mnote.badness = self.badness
+
+        self.view.registerListener(self)
+        self.view.addCerts(mcert)
+        peer = self.view.sn2peer[mcert.serial]
+        self.view.addNotes(self.mnote)
+        self.peer = peer
+        isinstance(self.peer, members.Member)
+        
+        for c, n in bootnodes:
+            self.view.addCerts(c)
+            self.view.addNotes(n)
+                    
+        def failback(failure):
+            self.logger.critical("%s failure", str(failure))
+            return failure
+
+        self.pinger = fd.FailureDetector(peer, self.mkey)
+        self.gossiper = gossip.Gossip(peer)
+        self.gossiper.start()
+        self.pinger.start()
+        self.joined = True
+        
+    def handle_join(self, member):
+        """Upcall when a member joins."""
+
+        self.logger.info("join %s total=%d known=%d", self.view.pprint(member),
+                         len(self.view.aRing),
+                         len(self.view.pRing))
+
+    def handle_leave(self, member):
+        """Upcall when a member leaves."""
+        pass
+
+    def handle_rebuttal(self, member):
+        """Upcall when receiving a new rebutal (note) from a member."""
+        pass
+
+    def handle_accused(self, member):
+        """Upcall when a member gets accused.
+
+        The default implementation rebuts accusation for itself."""
+
+        # Rebut accusation for this member.
+        isinstance(member, members.Member)
+        
+        if member.serial == self.peer.serial:
+            mask = self.peer.getMask()
+            newNote = members.Note(self.mcert.serial,
+                                   self.peer.note.lifeline + 1,
+                                   self.peer.getMask())
+            newNote.badness = self.badness
+            self.mkey.sign(newNote)
+            reactor.callLater(0, self.view.addNotes, newNote)
+            self.view.stats.notesCreated += 1
+
+
     def _failback(self, reason):
         self.logger.exception(reason)
 
-    def _startRebuttalTimer(self, member):
-        if member in self._timers: raise ValueError("Timer already started.")
-        self._timers[member] = reactor.callLater(self.timeout, self._toRebuttalTimer, member)
-        
-    def _toRebuttalTimer(self, member):
-        assert isinstance(member, fireflies.members.Member)
-        self.logger.info("%s failed", member)
-        member.setFailed(True)
-        self._timers.pop(member)
-        self.aRing.remove(members)
-        self.fRing.insert(member)
-        
-    def _stopRebuttalTimer(self, member):
-        t = self._timers.pop(member)
-        t.cancel()
 
+class FlyCast(BaseGroup):
+    """Intrusion tolerant multicast group."""
 
-    #
-    # Methods to change the membership.
-    #
-    def suspect(self, member): pass    
-    
-    def addAccusation(self, accusation): 
-        """Adds accusations.
+    def __init__(self, ca, priv, pub, note=None):
+        super(FlyCast, self).__init__(ca, priv, pub, note)
+        self._myViewOfOther = {}  # The last message nr I've seen from all known peers.
+        self._othersViewOfMe = {} # Dict of nr of the last of my message seen by all known peers.
+        self._msgWindow = []  # My message window. 
+        self._msgWindowBase = 0 # The first message in _msgWindow has this 
 
-        Return a deferred that triggers when all callbacks have run.
-        
-        Exceptions:
-            - TypeErrror: If accusation is not a Accusation object.
+    def handle_join(self, peer):
+        pass
 
-            - ValueError: If accuser or accused is not known. This would
-            typical happen if certificates, notes, and accusations are not
-            added in the correct order. These error could also indicate
-            malicous behaviour.
-            
-            - ByzantineError: If accusation prepresents malicious behaviour.
-            This happens if:
-                 - the accusation is not correctly signed,
-                 - the accused has disabled the ring, or
-                 - the accused epoch is larger than in the current held note. """        
-        
-        if not isinstance(accusation, fireflies.members.Accusation): raise TypeError            
-        #self.stats.accusationsTotal += 1        
-        
-        accusedID = accusation.accused
-        accuserID = accusation.accuser
-        
-        d = defer.succeed()
-        d.pause()
-        reactor.callLater(0, d.unpause)
+    def handle_leave(self, peer):
+        del self._myViewOfOther[peer.id]
+        del self._othersViewOfMe[peer.id]
 
-        # Check that we know about accused. This should not really
-        # happen if we gossip notes before accusations and
-        # certificates before notes.
-        if not accusedID in self.sn2member:
-            self.stats.accusationsInvalid += 1
-            self.logger.warning("discard %s Unknown accused", accusation)
-            raise ValueError
+    def handle_rebuttal(self, member):
+        note = member.note
+        if not note.data: return
+        if note.serial == self.peer.id: return # Ignore messages from ourselves.
 
-        accused = self.sn2member[accusedID]
-        assert isinstance(accused, fireflies.member.Member)            
-        # Ditto for the accuser
-        if not accuserID in self.sn2member:
-            #self.stats.accusationsInvalid += 1
-            self.logger.warning("discard %s Unknown accuser", accusation)
-            raise ValueError
+        print "Received", note, note.data
+        print "myViewOfOther", self._myViewOfOther
+        print "oterhsViewOfMe", self._othersViewOfMe
+        print "mymsgs", self._msgWindow
+        print "base", self._msgWindowBase
         
-        accuser = self.sn2member[accuserID]
-        assert isinstance(accuser, fireflies.members.Member)  
-        
-        if not self.getGroupCertificate().verify(accusation):
-            #    accuser.stats.accuseByzantine += 1
-            #    accused.stats.accusedByzantine += 1
-            #    self.stats.accusationsInvalid += 1
-            self.logger.warning("discard %s Invalid signature", accusation)
-            raise fireflies.members.ByzantineError("Invalid signature")
-        
-        if not accuser.getNote():
-            #self.stats.accusationsInvalid += 1
-            self.logger.debug("discard %s invalid note", accusation)
-            raise ValueError
-            
-        # Check that accusation is recent.
-        if not accused.getNote():
-            #self.stats.accusationsInvalid += 1
-            self.logger.warning("discard %s byzantine behaviour", accusation)
-            raise ValueError
-        
-        if accusation.epoch < accused.getNote().epoch:
-            #self.stats.accusationsRedundant += 1
-            self.logger.warning("discard %s newer note", accusation)
-            return defer.succeed()
-        
-        if accusation.epoch > accused.getNote().epoch:
-            #self.stats.accusationsInvalid += 1
-            self.logger.warning("discard %s accusing newer note.", saccusation)
-            raise defer.succeed()
+        # Todo: Check data format
+        hisVersions, hisWindowBase, hisMsgWindow = note.data
+        hisId = note.serial
 
-        # Check that the accuser is not specifying an invalid ring.
-        # No correct member should do this.
-        if accusation.nr >= self.T:
-            #self.stats.accusationInvalid += 1
-            accuser.accuseByzantine += 1
-            accused.accusedByzantine += 1
-            self.logger.warning("discard %s byzantine behavior. Not on a valid ring", accusation)
-            raise ByzantineError(accuserID)
-
-        # Check that the ring is enabled.
-        # No correct member should violate this.
-        if not accused.getNote().mask[accusation.nr]:
-            self.stats.accusationInvalid += 1
-            accuser.accuseByzantine += 1
-            accused.accusedByzantine += 1
-            self.logger.warning("discard %s byzantine behavior. Ring disabled by accused", accusation)
-            raise ByzantineError(accuserID)
-
-        # Make some shortcuts :-)
-        rnr = accusation.nr
-        ring = self.rings[rnr]
-        isinstance(ring, fireflies.members.MonitoringRings)
-
-        # If member currently is accused on ring, keep the new one only if it
-        # is from a closer predecessor.
-        if accused.hasAccusationOn(rnr):
-            assert accused.isAccused()
-            currentAccusation = accused.getAccusation(rnr)
-            currentAccuser = self.getMemberBySerial(currentAccusation.accuser)
-            assert isinstance(currentAccusation, Accusation)
-            assert isinstance(currentAccuser, fireflies.member.Member)
-            
-            if ring.isBetween(currentAccuser, accuser, accused):
-                accused._setAccusation(accusation)
-                self.logger.info("%s accused by %s on ring %d (replacing %s)", accused, accuser, accusation.nr, currentAccuser)
-                d.addCallback(lambda x: self._trigger_accusation(accusation, True))
-                d.addCallback(lambda x: self._trigger_accusation(currentAccusation, False))
-            
-        elif accuser == ring.pred(accused, func=lambda x: (not x.isAccused()) or (x == accuser)):
-            accused._setAccusation(accusation)
-            if not accused.isFailed():
-                self.logger.info("%s accused by %s on ring %d (timer started)", accused, accuser, accusation.nr)
-                self._startRebuttalTimer(accused)
-            d.addCallback(lambda x: self._trigger_accusation(accusation, True))
-        return d
+        #
+        # Shrink msg window
+        #
         
-    def addCertificate(self, elm):
-        """Adds cert to the view.
+        # Record what msg nr he has seen. If we are not in his dict,
+        # he has not seen any messages.        
+        if self.peer.id in hisVersions:
+            hisVersionOfMe = hisVersions[self.peer.id]
+        else:
+            hisVersionOfMe = self._msgWindowBase - 1
+        self._othersViewOfMe[hisId] = hisVersionOfMe
         
-        Return a deferred that triggers when all callbacks have run. The callback will contain the added member object.
-        
-        Exceptions:
-             -TypeError: elm is not a MemberCertificate object.
-             -ValueError: The certificate already exists.
+        # Check that he is in range
+        assert hisVersionOfMe >= self._msgWindowBase - 1
+        assert hisVersionOfMe <= self._msgWindowBase + len(self._msgWindow)
 
-        Events:
-            - cb_add_certificate"""
+        # Move window past the last acked message.
+        rear = self._rearOfWindow()
+        print rear, self._msgWindowBase
+        while rear >= self._msgWindowBase:
+            self._msgWindowBase += 1
+            self._msgWindow.pop(0)
+
+        #
+        # Deliver any new messages
+        #        
+        myVersionOfHim = self._myViewOfOther.get(hisId, hisWindowBase-1)
+        sendAck = False
+        for nr in range(len(hisMsgWindow)):
+            msg = hisMsgWindow[nr]
+            msgnr = hisWindowBase + nr
+            if myVersionOfHim >= msgnr: continue
+            reactor.callLater(0, self.handle_mcast, msg, hisId, msgnr)
+            sendAck = True
+            myVersionOfHim = msgnr
+        self._myViewOfOther[hisId] = myVersionOfHim
         
-        if not isinstance(elm, fireflies.crypto.MemberCertificate): raise TypeError
-        self.stats.certsTotal += 1
-            
-        # MOVEME
-        if not self.getGroupCertificate().verify(elm): 
-            #self.stats.certsInvalid += 1
-            #self.logger.warning("discard %s invalid CA signature.", c)
-            raise ValueError("Certificate not correctly signed %s." % str(elm))
-        try:
-            m = self.getMemberBySerial(elm.serial)
-        except KeyError:
-            m = None
-            
-        if m:
-            m.stats.certsRedundant += 1
-            self.logger.debug("discard %s redundant", c)
-            return defer.succeed(m)
-            #raise NotImplementedError
+        if sendAck:
+            self.mcast()
+
                 
-        m = self._createMemberInstance(elm)
-        m.group = self
-        self.sn2member[m.getSerial()] = m
-
-        # Add peer to all necessary rings.
-        self.rings.insert(m)
-        self.fRing.insert(m)
-        d = defer.succeed(None)
-        d.pause()
-        reactor.callLater(0, d.unpause)
-        d.addCallback(lambda x: self._trigger_certificate(elm, True))
-        d.addCallback(lambda x: m)
-        self.logger.info("new %s", m)
-        return d
-
-    def addNote(self, note):
-        """Add a note.
+    def mcast(self, msg=None):
+        """Multicast msg."""
         
-        Return a deferred that triggers when all callbacks have completed.
+        print "Sending: ", msg
 
-        Exceptions:
-           - TypeError: note is not a Note object.
-           - ByzantineError: Invalid mask. Note must have disabled exactly t rings."""
+        if msg:
+            self._msgWindow.append(msg)
+            
+        n = copy(self.peer.note)
+        n.data = (self._myViewOfOther, self._msgWindowBase, self._msgWindow)
+        n.lifeline += 1
+        n.sign(self.peer.priv)
         
-        if not isinstance(note, fireflies.members.Note):
-            raise TypeError
+        reactor.callLater(0, self.view.addNotes, n)
+
+    def _rearOfWindow(self):
+        v = self._othersViewOfMe.values()
+        if v == []:
+            return self._msgWindowBase + len(self._msgWindow)
+        else:
+            return min(self._othersViewOfMe.values())
         
-        #self.stats.notesTotal +=1 
-        if not note.serial in self.sn2member:
-            self.stats.notesInvalid += 1
-            self.logger.warning("discard %s unknown peer", note)
-            raise ValueError
+    def handle_mcast(self, msg, sender, version):
+        print "MCAST:", msg, sender, version
+        pass
+
+
+class FlyDict(FlyCast):
+
+    def __init__(self, ca, priv, pub, note=None):
+        super(FlyDict, self).__init__(ca, priv, pub, note)
+        self._flydict = {}
+
+    def handle_mcast(self, data, sender, version):
+        self._flydict[sender] = data
+        self.handle_update(sender)
+
+    def handle_update(self, key):
+        pass
         
-        m = self.getMemberBySerial(note.serial)
-    
-        assert isinstance(m, fireflies.members.Member)
-        assert m._note.serial == note.serial
+    def handle_leave(self, peer):
+        super(FlyDict, self).handle_leave(peer)
+        if peer.id in self._flydict:
+            del self._flydict[peer.id]
         
-        d = defer.succeed(None)
-        d.pause()        
-        reactor.callLater(0, d.unpause)
+    def __setitem__(self, key, value):        
+        if not self.isWritable[key]:
+            raise IndexError, "Read only"
+        peer = self.sn2peer[key]
+        sn = peer.id
+        n = copy(peer.note)
+        n.data = (self_versions[key]+1, data)
+        n.lifeline += 1
+        n.sign(peer.priv)
+        self.view.addNotes(n)
         
-        if not m.getCertificate().verify(note):
-            raise ValueError("Invalid Signature")
-        
-        if not fireflies.members.isValidMask(note.mask, self.T): 
-            #self.logger.warning("discard %s invalid mask", self.pprint(note))
-            raise fireflies.members.ByzantineError("Invalid mask %s from %s" % (str(note.mask), note))
-        
-        if m.getEpoch() > note.epoch:
-            # Old note
-            return d
-        if m.getEpoch() == note.epoch:
-            # We have the note. Return silently.
-            return d
-        
-        d.addCallback(lambda x: self._trigger_note(note, True))
-        d.addCallback(lambda x: self._trigger_note(m.getNote(), False))        
+    def __getitem__(self, key):
+        return self._flydict[key]
 
-        if m.isFailed():
-            if m.getEpoch() == 0: 
-                assert not m.isAccused()
-                m._note = note
-                self._makeLive(m)
-                d.addCallback(lambda x: self._trigger_evRecover(m, EV_RECOVER_NEW))
-                self.logger.info("rebuttal %s first note", m)
+    def isWritable(self, key):
+        return self.view.sn2peer[key].priv != None
 
-            else:
-                assert m.isAccused()
-                for a in m.vAccusations.values():
-                    d.addCallback(lambda x: self._trigger_accusation(a, False))
-                m._note = note
-                m.clearAccusations()
-
-                self._makeLive(m)
-                d.addCallback(lambda x: self._trigger_evRecover(m, EV_RECOVER_REBUTTAL))
-                
-                # The member goes from an accused to not accused state. As such,
-                # it may invalidate other accusations. 
-                # Let m_j be m's first live successor on ring r.
-                # All accusations for members between m and m_j
-                #   If m between accuser and accuse: invalidate accusation.  
-                #   If accused now is cleared, rerun for this member.            
-                check = [m,]
-                while check:
-                    m = check.pop()      
-                    for ring in self.rings:
-                        isinstance(ring, fireflies.members.MonitorRing)                    
-                        for q in ring.collectSucc(m, lambda x: not x.isAccused()):
-                            isinstance(q, fireflies.member.Member)
-                            if not q.isAccusedOn(ring.nr): continue                        
-                            qa = q.getAccusation(ring.nr)
-                            assert isinstance(qa, Accusation)
-                            accuser = self.getMemberBySerial(qa.accuser)
-                            accused = self.getMemberBySerial(qa.accused)
-                            if ring.isBetween(accuser, q, accused):
-                                assert q.isAccused()
-                                assert q.isAccusedOn(ring.nr)
-                                q.delAccusation(ring.nr)
-                                d.addCallback(lambda x: self._trigger_accusation(qa, False))
-                                self.logger.debug("%s accusation invalidated", m)
-                                if not q.isAccused():                                 
-                                    if q.isFailed():
-                                        self._makeLive(q)
-                                        self.logger.info("%s live (accusations invalidated)", q)
-                                        d.addCallback(lambda x: self._trigger_evRecover(q, EV_RECOVER_INVALIDATED))
-                                    else:
-                                        self._stopRebuttalTimer(q)
-                                        self.logger.debug("%s rebuts (accusation invalidated)", m)
-                                    check.append(q)
-                            
-        return d
-
-    #
-    # IGroupEvents
-    #    
-    
-    def _trigger_evRecover(self, member, reason):
-        l = map(lambda x: defer.maybeDeferred(x.evRecover, member, reason), self._membershipEVL)
-        return defer.DeferredList(l, 0, 1, 0)
-
-    def _trigger_evCrash(self, member, reason):
-        l = map(lambda x: defer.maybeDeferred(x.evCrash, member, reason), self._membershipEVL)
-        return defer.DeferredList(l, 0, 1, 0)
-    
-    #def _trigger_member_joined(self, member):
-        #l = map(lambda x: defer.maybeDeferred(x._evJoin, member, ), self._membershipEVL)
-        #return defer.DeferredList(l, 0, 1, 0)
-
-    #def _trigger_member_lives(self, member):
-        #l = map(lambda x: defer.maybeDeferred(x._cb_member_lives, member), self._membershipEVL)
-        #return defer.DeferredList(l, 0, 1, 0)
-
-    #def _trigger_member_rebuts(self, member):
-        #l = map(lambda x: defer.maybeDeferred(x._cb_member_rebuts, member), self._membershipEVL)
-        #return defer.DeferredList(l, 0, 1, 0)    
-    
-    #def _trigger_member_leaves(self, member):
-        #l = map(lambda x: defer.maybeDeferred(x._cb_member_leaves, member), self._membershipEVL)
-        #return defer.DeferredList(l, 0, 1, 0)
-
-    #def _trigger_member_accused(self, member):
-        #l = map(lambda x: defer.maybeDeferred(x._cb_member_accused, member), self._membershipEVL)
-        #return defer.DeferredList(l, 0, 1, 0)
-
-    #def _trigger_member_failes(self, member):
-        #l = map(lambda x: defer.maybeDeferred(x._cb_member_failes, member), self._membershipEVL)
-        #return defer.DeferredList(l, 0, 1, 0)
-    
-
-    #
-    # IDataEvents
-    #     
-    def _trigger_accusation(self, elm, valid):
-        l = map(lambda x: defer.maybeDeferred(x.evAccusation, elm, valid), self._dataEVL)
-        return defer.DeferredList(l, 0, 1, 0)
-
-    def _trigger_note(self, elm, valid):
-        l = map(lambda x: defer.maybeDeferred(x.evNote, elm, valid), self._dataEVL)
-        return defer.DeferredList(l, 0, 1, 0)
-    
-    def _trigger_certificate(self, elm, valid):
-        l = map(lambda x: defer.maybeDeferred(x.evCertificate, elm, valid), self._dataEVL)
-        return defer.DeferredList(l, 0, 1, 0)
-    
-    #def _trigger_add_accusation(self, elm):
-        #l = map(lambda x: defer.maybeDeferred(x.evAccusation, elm, True), self._dataEVL)
-        #return defer.DeferredList(l, 0, 1, 0)
-
-    #def _trigger_del_accusation(self, elm):
-        #l = map(lambda x: defer.maybeDeferred(x.evAccusation, elm, False), self._dataEVL)
-        #return defer.DeferredList(l, 0, 1, 0)
-    
-    #def _trigger_add_note(self, elm):
-        #l = map(lambda x: defer.maybeDeferred(x.evNote, elm, True), self._dataEVL)
-        #return defer.DeferredList(l, 0, 1, 0)
-
-    #def _trigger_del_note(self, elm):
-        #l = map(lambda x: defer.maybeDeferred(x.evNote, elm, False), self._dataEVL)
-        #return defer.DeferredList(l, 0, 1, 0)
-
-    #def _trigger_add_certificate(self, elm):
-        #l = map(lambda x: defer.maybeDeferred(x.evCertificate, elm, True), self._dataEVL)
-        #return defer.DeferredList(l, 0, 1, 0)
-
-    #def _trigger_del_certificate(self, elm):
-        #l = map(lambda x: defer.maybeDeferred(x.evCertificate, elm, False), self._dataEVL)
-        #return defer.DeferredList(l, 0, 1, 0)  
+    def __iterate__(self):
+        return self._flydict.__iterate__()

@@ -1,7 +1,7 @@
 # -*- coding: iso-8859-1 -*-
 ######################################################################
 ## Filename:      fd.py
-## Description:   Fireflies failure detection service.
+## Description:   Fireflies failure detection protocol.
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Tue Feb  7 14:18:25 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
@@ -9,335 +9,362 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.6 2007/06/21 06:35:14 haavardj Exp $
+## $Id: fd.py,v 1.7 2007/06/21 07:17:48 haavardj Exp $
 ##                
 ######################################################################
 
-import fireflies
-import fireflies.packer
-
-from fireflies.group import Group
-from fireflies.members import Member
-
-import logging
-
-from math import *
+import logging, pickle
 from twisted.internet.protocol import Factory, DatagramProtocol, Protocol, ClientFactory
-from twisted.internet import reactor, defer
-from twisted.application.service import MultiService, Service
-from twisted.application import internet
-from zope.interface import Interface, implements
+from twisted.internet import reactor, task
+import members, socket
+from math import *
+
+import cert
+import fireflies
+import new, random
+
+from packer import FirefliesPacker, FirefliesUnpacker
 from Crypto.Util.number import long_to_bytes, bytes_to_long
-from twisted.python import components
 
 ROUNDTIME = 60
 PMISTAKE = 0.001
 SMOOTHING = 0.999
 TMIN = 3
 
+MSG_PING = 0x23
+MSG_PONG = 0x24    
 
-class IPingProtocol(Interface):    
-    def ping(member):
-        """Ping member. Returns a deferred that triggers when pong is received."""
-
-class IFailureDetector(Interface):
-
-    def monitor(self, member):
-        """Monitor a member. Returns a deferred that will trigger it the member failes."""
-        
-    def stopMonitoring(self, member):
-        """Stop Monitoring a member."""
-        
-def calculateThreshold(lossrate):    
-    __pSucc = (1 - lossrate)**2 
-    return ((1-__pSucc)/__pSucc) + 1
-
-class FDMember:
-    task = None
-    nrPing = 0
-    avgLossrate = calculateThreshold(0.20)
+class PingMsg(cert.RSASignable):
+    count = 0
+    msgType = MSG_PING
     
-    def __init__(self, member):
-        self.member = member
-        self.d = defer.Deferred()
-            
-
-class FailureDetector(MultiService):
-
-    DEFAULT_LOSSRATE = 0.1
-    rate = 20
-    pmistake = 0.010
-    smoothing = 0.990
-    tmin = 2
-    
-    def __init__(self, group, member, key, rate=20.0, pmistake=0.010, smoothing = 0.990, tmin=2.0):
-        MultiService.__init__(self)
-        isinstance(group, fireflies.group.Group)                
-        self.group = group
-        self.members = member
-        self.key = key
-        
-        self.members = {}
-        self.protocol = None
-        
-    def monitor(self, member):
-        m = FDMember(member)
-        m.task = internet.task.LoopingCall(self.rate, self._timeToPing, m, now=False)        
-        self.members[member.getIdentity()] = m
-        return m.d
-    
-    def stopMonitoring(self, member):
-        m = self.members[member.getIdentity()]
-        m.task.stop()
-        del self.members[member.getIdentity()]
-    
-    def _timeToPing(self, m):        
-        isinstance(m, FDMember)
-        
-        p = min( 1./m.avgLossrate, 1. - self.pmistake**(1./float(max(self.tmin, 1))))
-        assert p < 1.0 and p > 0.0, "Psuc out of bounds."
-        t = log(self.pmistake) / log(1. - p)
-            
-        #self.logger.info("%s time-to-ping nPing %d", mon, nPing)
-
-        if m.nrPing > t:
-            member.d.callback()
-            self.stopMonitoring(member)
-            #self.logger.warning("created %s t=%.2f nPing=%d", self.rings.pprint(accusation), t, nPing)
-            #view.stats.accusationsCreated += 1
-            # mon.avgLoss = (g.SMOOTHING * mon.avgLoss) + ( (1. - g.SMOOTHING) * (mon.nPing))                
-        else:
-            try:
-                d = self.protocol.ping(m.member)
-                d.addCallback(self._pong, m)
-            except KeyboardInterrupt:
-                raise
-            except Exception, why:
-                self.logger.exception("error pinging: %s", why)
-            m.nrPing += 1
-         
-    def _pong(self, m):
-        
-        #self.logger.debug("pong<- %s", member)
-        assert isinstance(m, FDMember)
-        if m.nrPing == 0:
-            return            
-        assert m.avgLossrate >= 1.0
-        m.avgLossrate = (self.smoothing * m.avgLossrate) + ( (1. - self.smoothing) * (m.avgLossrate))
-        m.nrPing = 0
-
-
-#
-# Low Level ping protocol
-# 
-
-_cmd2code = {
-    'ping': 0x1,
-    'pong': 0x2
-    }
-
-_code2cmd = {}
-for k, v in _cmd2code.items():
-    _code2cmd[v] = k
-del k
-del v
-
-class Ping(object, fireflies.crypto.RSASignable):
-    
-    def __init__(self, toSn, fromSn, nounce):
+    def __init__(self, fromSn, toSn):
         self.fromSn = fromSn
         self.toSn = toSn
-        self.nounce = nounce
+        self.noun = PingMsg.count
+        PingMsg.count += 1
         self.signature = 0
-
-    def __setstate__(self, data):
-        for k,v in data.items():
-            setattr(self, k, v)
-         
+        
     def uidstr(self):
-        return "ping-%x-%x-%d" % (bytes_to_long(self.fromSn), bytes_to_long(self.toSn), self.nounce)
+        return "ping-%x-%x-%d" % (bytes_to_long(self.fromSn), bytes_to_long(self.toSn), self.noun)
 
-class Pong(object, fireflies.crypto.RSASignable):
+class PongMsg(cert.RSASignable):
+    msgType = MSG_PONG
     
     def __init__(self, ping):
-        assert isinstance(ping, Ping)
-        self.ping = ping
+        self.fromSn = ping.toSn
+        self.toSn = ping.fromSn
+        self.noun = ping.noun
         self.signature = 0
-
-    def __setstate__(self, data):
-        for k,v in data.items():
-            setattr(self, k, v)        
-        
+    
     def uidstr(self):
-        return "pong-%s" % (self.ping.uidstr())
+        return "pong-%x-%x-%d" % (bytes_to_long(self.fromSn), bytes_to_long(self.toSn), self.noun)
 
-class FDPacker(fireflies.packer.FirefliesPacker):
+
+class FDMsgPacker(FirefliesPacker):
     """Serializer for Ping and Pong messages.""" 
-    
-    def __init__(self):
-        fireflies.packer.FirefliesPacker.__init__(self)
 
-    def pack_ping(self, ping):
-        self.pack_serial(ping.fromSn)
-        self.pack_serial(ping.toSn)
-        self.pack_uint(ping.nounce)
-        self.pack_signature(ping.signature)
+    def pack_PingMsg(self, msg):
+        self.pack_serial(msg.fromSn)
+        self.pack_serial(msg.toSn)
+        self.pack_uint(msg.noun)
+        self.pack_signature(msg.signature)
 
-    def pack_pong(self, pong):
-        self.pack_ping(pong.ping)
-        self.pack_signature(pong.signature)
+    def pack_PongMsg(self, msg):
+        self.pack_serial(msg.fromSn)
+        self.pack_serial(msg.toSn)
+        self.pack_uint(msg.noun)
+        self.pack_signature(msg.signature)
 
-class FDUnpacker(fireflies.packer.FirefliesUnpacker):
+    def pack_msgid(self, mid):
+        assert mid >= 0 and mid < 256
+        self.pack_fstring(1, chr(mid))
+
+    def pack_msg(self, msg):
+        tpe = type(msg)
+        if isinstance(msg, PingMsg):
+            self.pack_msgid(PingMsg.msgType)
+            self.pack_PingMsg(msg)
+        elif isinstance(msg, PongMsg):
+            self.pack_msgid(PongMsg.msgType)
+            self.pack_PongMsg(msg)
+        else:
+            raise Exception
+
+class FDMsgUnpacker(FirefliesUnpacker):
     """Un-serializer for Ping and Pong messages."""
-
-    def __init__(self, data):
-        fireflies.packer.FirefliesUnpacker.__init__(self, data)
     
-    def unpack_ping(self):
+    def unpack_PingMsg(self):
         fromSn = self.unpack_serial()
         toSn = self.unpack_serial()
-        nounce = self.unpack_uint()
+        noun = self.unpack_uint()
         signature = self.unpack_signature()
+        state = {'fromSn': fromSn,
+                 'toSn': toSn,
+                 'noun': noun,
+                 'signature': signature}
+        return new.instance(PingMsg, state)
 
-        d = {'fromSn': fromSn,
-             'toSn': toSn,
-             'nounce': nounce,
-             'signature': signature}
-        
-        c = object.__new__(Ping)
-        c.__setstate__(d)
-        return c
-
-    def unpack_pong(self):
-        ping = self.unpack_ping()
+    def unpack_PongMsg(self):
+        fromSn = self.unpack_serial()
+        toSn = self.unpack_serial()
+        noun = self.unpack_uint()
         signature = self.unpack_signature()
-        
-        d = {'ping': ping,
-             'signature': signature}
-        c = object.__new__(Pong)
-        c.__setstate__(d)
-        return c
-    
-class UDPPingPong(DatagramProtocol):
-    """Ping-Pong protocol."""
-    
-    implements(IPingProtocol)
-    
-    def __init__(self, service):
-        self.service = self.factory = service
-    
-    def handle_ping(self, fromIP, fromPort, ping):
-        f = self.factory 
-        assert isinstance(f, FailureDetector)
-        assert isinstance(ping, Ping)
-        g = f.group        
-        mk = g.key        
+        state = {'fromSn': fromSn,
+                 'toSn': toSn,
+                 'noun': noun,
+                 'signature': signature}
+        return new.instance(PongMsg, state)
 
-        #self.logger.info("ping<- %s", fromIP)
+    def unpack_msgid(self):
+        return ord(self.unpack_fstring(1))
+
+    def unpack_msg(self):
+        msgType = self.unpack_msgid()
+        if msgType == PingMsg.msgType:
+            return self.unpack_PingMsg()
+        elif msgType == PongMsg.msgType:
+            return self.unpack_PongMsg()
+        else:
+            raise Exception
+
+
+class FailureDetector:
+
+    def __init__(self, peer, mkey,
+                 roundtime=ROUNDTIME,
+                 pmistake=PMISTAKE,
+                 smoothing=SMOOTHING,
+                 tmin=TMIN):
+
+        self.peer = peer
+        self.roundtime = roundtime
+        self.pmistake = pmistake
+        self.smoothing = smoothing
+        self.tmin = tmin        
+        self.mkey = mkey
+        self.view = peer.view
+        self.logger = logging.getLogger(mkey.address)
+         
+        nrRings = self.view.getNrMonitorRings()
+        self.last = -1 % nrRings
+        self._pinglist = [None] * nrRings
+
+    def start(self):
+        self.protocol = PingPong()
+        self.protocol.logger = self.logger
+        self.protocol.factory = self
+        address, port = self.mkey.address.split(":")
+        port = int(port)
+        self.logger.info("Binding fd to udp %s:%d", address, port)
+        self._udpport = reactor.listenUDP(port, self.protocol, interface=address)
+
+        def _d():            
+            self._task = task.LoopingCall(self.update)
+            self._task.start(float(self.roundtime)/float(self.view.getNrMonitorRings())).addErrback(self._failback)
+        reactor.callLater(0.1, _d)
+
+    def _failback(self, reason):
+        self.logger.exception(reason)
         
-        if not ping.toSn == g.peer.getSerial():
-            self.logger.warning("ping<- %s wrong receiver %s", fromIP, bytes_to_long(g.peer.getSerial()))
+    def stop(self):
+        if self._task:
+            self._task.stop()
+            self._task = None
+        if self._udpport:
+            self._udpport.stopListening()
+            self._udpport = None
+        self.protocol = None
+        
+    def update(self):
+        nrRings = self.view.getNrMonitorRings()
+        mkey = self.mkey
+        view = self.view
+        mpeer = view.sn2peer[mkey.serial]
+        isinstance(mpeer, members.Member)
+        myBadness = mpeer.note.badness
+
+        x = self.last = (self.last + 1) % nrRings
+
+        if myBadness == 1: return 
+        if len(view.sn2peer) < 2:
+            return
+
+        mon = view.mRings[x].succ(mpeer)
+        isinstance(mon, members.Member)
+        while mon.isFailed() or mon.isAccused():
+            if mon.id == mpeer.id: break
+            mon = view.mRings[x].succ(mon)            
+            
+        # It's me!
+        if mon.id == mpeer.id:
+            return 
+
+        # We can be the monitor of the same peer on more than one
+        # ring. By keeping track of which peer we ping on which ring,
+        # we can avoid "double-pinging".
+        self._pinglist[x] = mon.id
+        #if mon.id in self._pinglist[0:x]: return
+
+        # If the monitoree has disabled the ring, we do not need to
+        # ping that host.
+        if mon.note.mask[x] == False:            
+            # Prevents this from blocking other rings
+            self._pinglist[x] = 0 
+            return
+        
+        if myBadness == 2:
+            a = mon.pAccusations.get(x, None)
+            if a and a.accuser == mpeer.id:
+                return
+            
+            accusation = members.Accusation(mon.id,
+                                            mon.note.lifeline,
+                                            x,
+                                            mpeer.id
+                                            )
+            mkey.sign(accusation)
+            view.stats.accusationsCreated += 1
+            view.stats.accusationsCreatedByzantine += 1
+            view.addAccusations(accusation)
+            self.logger.warning("created %s aggressive attack", self.peer.view.pprint(accusation))
+        elif myBadness == 0:
+            
+            #Do not accuse if this node has already made an accusation
+            #on this ring.
+            a = mon.pAccusations.get(x, None)
+            if a and (a.accuser == mpeer.id):
+                return
+            a = mon.vAccusations.get(x, None)
+            if a and (a.accuser == mpeer.id):
+                return
+            
+            p = min( 1./mon.avgLoss, 1. - self.pmistake**(1./float(max(self.tmin, 1))))
+            assert p < 1.0 and p > 0.0, "Psuc out of bounds."
+            
+            t = log(self.pmistake) / log(1. - p)
+
+            #if (mon.nPing - t) >= random.random():
+            if mon.nPing > t:
+                accusation =  members.Accusation(mon.id,
+                                                 mon.note.lifeline,
+                                                 x,
+                                                 mpeer.id)
+                mkey.sign(accusation)
+                self.logger.warning("created %s t=%.2f nPing=%d", self.peer.view.pprint(accusation), t, mon.nPing)
+                view.addAccusations(accusation)                
+                view.stats.accusationsCreated += 1
+
+
+                #assert mon.nPing > 0
+                #mon.avgLoss = (g.SMOOTHING * mon.avgLoss) + ( (1. - g.SMOOTHING) * (mon.nPing))                
+                mon.nPing = 0
+                
+            else:
+
+                # If we pinged this peer on a lower ring, we dont ping
+                # again on this ring.
+                if mon.id in self._pinglist[0:x]: return
+                try:
+                    self.protocol.ping(mon)
+                except KeyboardInterrupt:
+                    raise
+                except Exception, why:
+                    self.logger.exception("error pinging: %s", why)
+
+                mon.nPing += 1
+            
+            #if ((self.peer.cert.address == "127.0.0.1:12000") and
+            #    (mon.cert.address == "127.0.0.1:12001")):
+            #    fireflies.stats.gStats.avgLoss = [mon.avgLoss, p, t]
+
+
+class PingPong(DatagramProtocol):
+
+        
+    def handle_PingMsg(self, msg):
+        view = self.factory.view
+        mkey = self.factory.mkey
+        
+        toSn, fromSn, noun = msg.toSn, msg.fromSn, msg.noun
+        if not toSn == mkey.serial:
+            self.logger.warning("ping<- %x wrong receiver %x", bytes_to_long(fromSn), bytes_to_long(toSn))
             return        
-        try:
-            sender = g.getMemberBySerial(ping.fromSn)                                                  
-        except KeyError:            
+        if not fromSn in view.sn2peer:
             self.logger.debug("ping<- %x Unknown host", bytes_to_long(fromSn))
             return
 
-        assert isinstance(sender, fireflies.members.Member)        
-        if not sender.getCertificate().verify(ping):
-            self.logger.warning("ping<- %s invalid signature", fromIP)
+        sender = view.sn2peer[fromSn]
+        if not sender.cert.verify(msg):
+            self.logger.warning("ping<- %s Invalid ping", fromSn)
             return
-
-        host, port = sender.getAddress().split(":")
-        port = int(port)
-
-        if fromIP != host:
-            self.logger.warning("ping<- %s from ip does not match note %s", fromIP, host)
-            
-        pong = Pong(ping)
-        g.key.sign(pong)
-        
-        p = FDPacker()
-        p.pack_uint(_cmd2code["pong"])
-        p.pack_pong(pong)        
-        data = p.get_buffer()
-        #self.factory.rings.stats.udpW += len(data)
-        self.transport.write(data, (host, port))
-             
-    def handle_pong(self, fromIP, fromPort, pong):
-        f = self.factory 
-        assert isinstance(f, FailureDetector)
-        assert isinstance(pong, Pong)
-        g = f.group
-        sk = g.key
-        
-        if pong.ping.fromSn != g.peer.getSerial():
-            self.logger.warning("pong<- %x wrong receiver %x", 
-                                bytes_to_long(pong.ping.fromSn), 
-                                bytes_to_long(pong.ping.toSn))
-            return
-
-        
-        if not g.peer.getCertificate().verify(pong.ping):
-            self.logger.warning("pong<- %s wrong singatur on ping", fromIP)
-            return
-
-        try:
-            sender = g.getMemberBySerial(pong.ping.toSn)
-        except KeyError:
-            self.logger.debug("pong<- %s Unknown peer", fromIP)            
-            return
-        
-        assert isinstance(sender, fireflies.members.Member)
-        
-        if not sender.getCertificate().verify(pong):
-            self.logger.warning("pong<- %s wrong signature", fromIP)
-            return
-
-        #self.logger.info("pong<- %s", fromIP)
-        f._pong(sender, pong.ping.nounce)
-                                
-        
-    def ping(self, member):
-        """Send a ping containing nounce to member."""
-        
-        if not isinstance(Member, fireflies.members.Member): raise ValueError        
-        f = self.factory
-        g = f.group
-        sk = g.key
-        d = defer.Deferred()
+        #self.logger.debug("ping<- %s", peer)
+        self.pong(msg)
                 
-        ping = Ping(member.getSerial(), g.peer.getSerial(), nounce)
-        sk.sign(ping)
-        p = FDPacker()
-        p.pack_uint(_cmd2code["ping"])
-        p.pack_ping(ping)        
-        data = p.get_buffer()
-        #self.factory.rings.stats.udpW += len(data)
-        h, p = toMember.getAddress().split(":")
-        p = int(p)
-        self.transport.write(data, (h, p))
-        self.logger.warning("ping-> %s %d", toMember, nounce)       
-        return d
-
-    def datagramReceived(self, data, (from_ip, from_port)):
-       # self.factory.peer.view.stats.udpR += len(data)
-
-        if len(data) < 1:
-            self.logger.warning("Dropped invalid datagram")
+    def handle_PongMsg(self, msg):
+        view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
+        
+        if msg.toSn != mkey.serial:
+            self.logger.warning("pong<- %x wrong receiver %x", bytes_to_long(msg.fromSn), bytes_to_long(msg.toSn))
             return        
+        sender = view.sn2peer.get(msg.fromSn, None)
+        if sender:
+            #self.logger.debug("pong<- %s", peer)
+            if sender.nPing == 0:
+                return
+            assert sender.avgLoss >= 1.0
+            sender.avgLoss = (smoothing * sender.avgLoss) + ( (1. - smoothing) * (sender.nPing))
+            sender.nPing = 0
+        else:
+            self.logger.debug("pong<- %x Unknown peer", bytes_to_long(msg.fromSn))
+            
+    def ping(self, receiver):
+        view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
+        #self.logger.warning("ping-> %s", receiver.cert.address)
+        msg = PingMsg(mkey.serial, receiver.serial)
+        mkey.sign(msg)
+        self.sendCommand(receiver, msg)
+        
+    def pong(self, pingMsg):
+        view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
+        sender = view.sn2peer[pingMsg.fromSn]        
+        #self.logger.debug("pong-> %s", peer)
+        
+        msg = PongMsg(pingMsg)
+        mkey.sign(msg)
+        self.sendCommand(sender, msg)
+
+    def dispatch(self, msg):        
         try:
-            p = FDUnpacker(data)
-            type = _code2cmd[p.unpack_uint()]
-            if type == "ping":
-                args = (p.unpack_ping(),)
-            elif type == "pong":
-                args = (p.unpack_pong(),)             
-            p.done()
-            getattr(self, "handle_" + type)(from_ip, from_port, *args)
+            getattr(self, "handle_" + msg.__class__.__name__)(msg)
         except KeyboardInterrupt:
             raise
         except Exception, why:
-            self.logger.exception("Error in message from %s:%d: %s", from_ip, from_port, why)            
+            self.logger.exception("Command error %s", why)
+
+    def sendCommand(self, receiver, msg):
+
+        p = FDMsgPacker()
+        p.pack_msg(msg)
+        data = p.get_buffer()
+        h, p = receiver.cert.address.split(":")
+        p = int(p)
+        
+        self.factory.peer.view.stats.udpW += len(data)
+        self.transport.write(data, (h, p))
+
+    def datagramReceived(self, data, (host, port)):
+        self.factory.peer.view.stats.udpR += len(data)
+        if len(data) < 1:
+            self.logger.warning("Dropped invalid datagram")
+            return        
+        try:        
+            p = FDMsgUnpacker(data)
+            msg = p.unpack_msg()
+            p.done()
+            self.dispatch(msg)
+        except KeyboardInterrupt:
+            raise
+        except Exception, why:
+            self.logger.warning("Error in message from %s:%d: %s", host, port, why)            
 

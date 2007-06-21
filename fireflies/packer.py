@@ -1,4 +1,4 @@
-#l -*- coding: iso-8859-1 -*-
+# -*- coding: iso-8859-1 -*-
 ######################################################################
 ## Filename:      packer.py
 ## Description:   Fireflies data (de)-marshalling functions.
@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: packer.py,v 1.4 2007/06/21 06:35:14 haavardj Exp $
+## $Id: packer.py,v 1.5 2007/06/21 07:17:48 haavardj Exp $
 ##                
 ######################################################################
 
@@ -25,8 +25,6 @@ import setrecon
 
 SERIAL_LENGTH = serialSize()
 HASH_LENGTH = serialSize()
-
-
 
 class FirefliesPacker(xdrlib.Packer):
 
@@ -124,7 +122,7 @@ class FirefliesPacker(xdrlib.Packer):
           """
         
         self.pack_serial(note.serial)    
-        self.pack_uint(note.epoch)
+        self.pack_uint(note.lifeline)
         self.pack_mask(note.mask)
         self.pack_signature(note.signature)
         self.pack_uint(note.badness)
@@ -139,7 +137,7 @@ class FirefliesPacker(xdrlib.Packer):
         """
         
         self.pack_serial(accusation.accused)    
-        self.pack_uint(accusation.epoch)
+        self.pack_uint(accusation.lifeline)
         self.pack_uint(accusation.nr)    
         self.pack_serial(accusation.accuser)
         self.pack_signature(accusation.signature)
@@ -237,7 +235,7 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         
         d = {
             'serial': serial,
-            'epoch': epoch,
+            'lifeline': epoch,
             'mask': mask,
             'signature': signature,
             'badness': badness,
@@ -257,7 +255,7 @@ class FirefliesUnpacker(xdrlib.Unpacker):
 
         state = {
             'accused': accused,
-            'epoch': epoch,
+            'lifeline': epoch,
             'nr': nr,
             'accuser': accuser,
             'signature': signature}
