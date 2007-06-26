@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.7 2007/06/21 07:17:48 haavardj Exp $
+## $Id: fd.py,v 1.8 2007/06/26 08:57:24 haavardj Exp $
 ##                
 ######################################################################
 
@@ -26,7 +26,7 @@ import new, random
 from packer import FirefliesPacker, FirefliesUnpacker
 from Crypto.Util.number import long_to_bytes, bytes_to_long
 
-ROUNDTIME = 60
+ROUNDTIME = 2
 PMISTAKE = 0.001
 SMOOTHING = 0.999
 TMIN = 3
@@ -146,7 +146,7 @@ class FailureDetector:
         self.view = peer.view
         self.logger = logging.getLogger(mkey.address)
          
-        nrRings = self.view.getNrMonitorRings()
+        nrRings = self.view.getNumberOfRings()
         self.last = -1 % nrRings
         self._pinglist = [None] * nrRings
 
@@ -161,7 +161,7 @@ class FailureDetector:
 
         def _d():            
             self._task = task.LoopingCall(self.update)
-            self._task.start(float(self.roundtime)/float(self.view.getNrMonitorRings())).addErrback(self._failback)
+            self._task.start(float(self.roundtime)/float(self.view.getNumberOfRings())).addErrback(self._failback)
         reactor.callLater(0.1, _d)
 
     def _failback(self, reason):
@@ -177,13 +177,19 @@ class FailureDetector:
         self.protocol = None
         
     def update(self):
-        nrRings = self.view.getNrMonitorRings()
+
+        nrRings = self.view.getNumberOfRings()
         mkey = self.mkey
         view = self.view
         mpeer = view.sn2peer[mkey.serial]
         isinstance(mpeer, members.Member)
-        myBadness = mpeer.note.badness
-
+        
+        if mpeer.note:
+            myBadness = mpeer.note.badness
+        else:
+            self.logger.warning("Mynote is empty")
+            myBadness = 0
+            
         x = self.last = (self.last + 1) % nrRings
 
         if myBadness == 1: return 
@@ -199,6 +205,7 @@ class FailureDetector:
         # It's me!
         if mon.id == mpeer.id:
             return 
+
 
         # We can be the monitor of the same peer on more than one
         # ring. By keeping track of which peer we ping on which ring,
@@ -219,7 +226,7 @@ class FailureDetector:
                 return
             
             accusation = members.Accusation(mon.id,
-                                            mon.note.lifeline,
+                                            mon.note.epoch,
                                             x,
                                             mpeer.id
                                             )
@@ -247,14 +254,13 @@ class FailureDetector:
             #if (mon.nPing - t) >= random.random():
             if mon.nPing > t:
                 accusation =  members.Accusation(mon.id,
-                                                 mon.note.lifeline,
+                                                 mon.note.epoch,
                                                  x,
                                                  mpeer.id)
                 mkey.sign(accusation)
                 self.logger.warning("created %s t=%.2f nPing=%d", self.peer.view.pprint(accusation), t, mon.nPing)
                 view.addAccusations(accusation)                
                 view.stats.accusationsCreated += 1
-
 
                 #assert mon.nPing > 0
                 #mon.avgLoss = (g.SMOOTHING * mon.avgLoss) + ( (1. - g.SMOOTHING) * (mon.nPing))                
@@ -298,7 +304,7 @@ class PingPong(DatagramProtocol):
         if not sender.cert.verify(msg):
             self.logger.warning("ping<- %s Invalid ping", fromSn)
             return
-        #self.logger.debug("ping<- %s", peer)
+        self.logger.debug("ping<- %s", self.factory.peer)
         self.pong(msg)
                 
     def handle_PongMsg(self, msg):
@@ -309,7 +315,7 @@ class PingPong(DatagramProtocol):
             return        
         sender = view.sn2peer.get(msg.fromSn, None)
         if sender:
-            #self.logger.debug("pong<- %s", peer)
+            self.logger.debug("pong<- %s", self.factory.peer)
             if sender.nPing == 0:
                 return
             assert sender.avgLoss >= 1.0
@@ -320,7 +326,7 @@ class PingPong(DatagramProtocol):
             
     def ping(self, receiver):
         view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
-        #self.logger.warning("ping-> %s", receiver.cert.address)
+        self.logger.debug("ping-> %s", receiver.cert.address)
         msg = PingMsg(mkey.serial, receiver.serial)
         mkey.sign(msg)
         self.sendCommand(receiver, msg)
@@ -328,7 +334,7 @@ class PingPong(DatagramProtocol):
     def pong(self, pingMsg):
         view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
         sender = view.sn2peer[pingMsg.fromSn]        
-        #self.logger.debug("pong-> %s", peer)
+        self.logger.debug("pong-> %s", self.factory.peer)
         
         msg = PongMsg(pingMsg)
         mkey.sign(msg)

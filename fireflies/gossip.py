@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip.py,v 1.5 2007/06/21 08:24:50 haavardj Exp $
+## $Id: gossip.py,v 1.6 2007/06/26 08:57:24 haavardj Exp $
 ##                
 ######################################################################
 
@@ -38,8 +38,6 @@ DATA_ACCUSATION_ID = 0x3
 
 DUBLICATEPARTNERS = False
 
-
-
 cmd2code = {
     'partner': 0x1,
     'accepted': 0x4,
@@ -58,7 +56,6 @@ cmd2code = {
     'reconcile_data': 0x28,
     'reconcile_data_req': 0x29,
     'digest_match': 0x2F
-
     }
 
 code2cmd = {}
@@ -66,20 +63,28 @@ for k, v in cmd2code.items():
     code2cmd[v] = k
 
 
-
-
 class Gossip:
-    def __init__(self, peer, rate=60.0, TCPTimeout=360.0):
+    def __init__(self, group, me, byzantineToleranceNumber=7, rate=60.0, TCPTimeout=360.0):
         self.rate = rate
-        self.peer = peer
-        self.view = peer.view
-        if not peer.view: raise Exception, "Peer not in view"
-        self.logger = logging.getLogger(peer.cert.address)
-        self.sFactory = GossipServerFactory(peer, TCPTimeout)
-        self.cFactory = GossipClientFactory(peer, rate, TCPTimeout)    
+        self.group = group
+        self.me = me
+        self.byzantineToleranceNumber = byzantineToleranceNumber
+        self.rings = fireflies.view.MemberRings(byzantineToleranceNumber)
+        self.logger = logging.getLogger()        
+        self.sFactory = GossipServerFactory(self, TCPTimeout)
+        self.cFactory = GossipClientFactory(self, rate, TCPTimeout)    
+        
+        self.group.registerEventHandler("member.new", self.evMemberNew)
+        for m in group.getMembers():
+            self.rings.insert(m)
+        
+    def evMemberNew(self, name, member):
+        self.rings.insert(member)
+        self.logger.debug("adding %s to gossip rings", member)
+
 
     def start(self):
-        host, port = self.peer.cert.address.split(":")
+        host, port = self.me.getAddress().split(":")
         port = int(port)
         self.logger.info("Binding gossip to tcp %s:%d", host, port)
         self._port = reactor.listenTCP(port, self.sFactory, interface=host)
@@ -88,9 +93,10 @@ class Gossip:
 
         def _d():            
             self._task = task.LoopingCall(self.cFactory.update)
-            self._task.start(self.rate/self.peer.view.k).addErrback(self._failback)
+            self._task.start(self.rate/len(self.rings)).addErrback(self._failback)
+                             
         reactor.callLater(0.1, _d)
-
+        
     def stop(self):
         self._task.stop()
         self._port.stopListening()
@@ -113,14 +119,14 @@ class GossipBase(Int32StringReceiver):
         if self.state == self.STATE_TERMINATED:
             self.logger.warning("traffic after hangup.")
             return
-        self.factory.peer.view.stats.tcpR += len(recd)
+        self.factory.service.group.view.stats.tcpR += len(recd)
         return Int32StringReceiver.dataReceived(self, recd)
 
     def sendString(self, data):
         if self.state == self.STATE_TERMINATED:
             self.logger.warning("traffic after hangup.")
             return        
-        self.factory.peer.view.stats.tcpW += (len(data) + 4)
+        self.factory.service.group.view.stats.tcpW += (len(data) + 4)
         return Int32StringReceiver.sendString(self, data)
 
     def sendCommand(self, cmd, *args):
@@ -306,7 +312,7 @@ class GossipBase(Int32StringReceiver):
 
     def __repr__(self):
         if self.other:
-            return "%s,%s" % (self.factory.peer.view.pprint(self.other.note), self.state) 
+            return "%s,%s" % (self.factory.service.group.view.pprint(self.other.note), self.state) 
         elif self.transport:
             addr = self.transport.getPeer()
             return "%s:%d,%s" % (addr.host, addr.port, self.state)
@@ -511,7 +517,7 @@ class GossipBase(Int32StringReceiver):
             assert not x in self.outBuff
             self.outBuff.append(x)
 
-        badness = self.factory.peer.note.badness
+        badness = self.factory.service.group.badness
         while self.outBuff:
             x = self.outBuff.pop()
             
@@ -527,7 +533,7 @@ class GossipBase(Int32StringReceiver):
 
                 if badness == 2 and self.setName == "nSet":
                     # If active attack, forward only our own notes.
-                    if d.serial != self.factory.peer.serial:
+                    if d.serial != self.factory.service.me.getSerial():
                         continue                
                 self.sendCommand("reconcile_data", d)
 
@@ -580,7 +586,7 @@ class ServerProtocol(GossipBase):
         self.sendCommand("version", *fireflies.protocol_version)
 
     def handle_authenticate(self, crt, note):
-        view = self.factory.peer.view
+        view = self.factory.service.group.view
         pprint = view.pprint
 
         if note.serial != crt.serial:
@@ -592,7 +598,7 @@ class ServerProtocol(GossipBase):
             view.addNotes(note)
             self.other = view.sn2peer[crt.serial]
             self.setTimeout()
-            self.sendCommand("authenticate", self.factory.peer.cert, self.factory.peer.note)
+            self.sendCommand("authenticate", self.factory.service.me.cert, self.factory.service.me.note)
 
     def redirect(self, peer):
         self.factory.peer.view.stats.redirect += 1
@@ -608,7 +614,7 @@ class ServerProtocol(GossipBase):
         
     def handle_partner(self, ringNr):
         self.cancelTimeout()
-        view = self.factory.peer.view
+        view = self.factory.service.group.view
         pprint = view.pprint
         self.logger.debug("partner<- %s on %d", self, ringNr)
         self.ringNr = ringNr
@@ -851,13 +857,12 @@ class GossipServerFactory(ServerFactory):
 
     protocol = ServerProtocol
 
-    def __init__(self, peer, timeout):
+    def __init__(self, service, timeout):
+        if not isinstance(service, Gossip): raise ValueError
         self._timeout = timeout
-        if not peer.view: raise Exception, "Peer not in view"
-        self.peer = peer
-        self.view = peer.view        
-        self.logger = logging.getLogger(peer.cert.address)
-        self.cons = [None] * self.view.cacert.config["NUM_GOSSIPRINGS"]
+        self.service = service
+        self.logger = logging.getLogger(service.me.getAddress())
+        self.cons = [None] * service.byzantineToleranceNumber
 
     def startFactory(self):
         pass
@@ -866,18 +871,18 @@ class GossipServerFactory(ServerFactory):
         for c in self.cons:
             if not c: continue
             c.hangup()
-        self.cons = [None] * self.peer.view.cacert.config["NUM_GOSSIPRINGS"]
+        self.cons = [None] * service.byzantineToleranceNumber
 
     def getSet(self, name):
         if name == "cSet":
-            s = self.peer.view.cSet
-            f = self.peer.view.addCerts
+            s = self.service.group.view.cSet
+            f = self.service.group.view.addCerts
         elif name == "nSet":
-            s = self.peer.view.nSet
-            f = self.peer.view.addNotes
+            s = self.service.group.view.nSet
+            f = self.service.group.view.addNotes
         elif name == "aSet":
-            s = self.peer.view.aSet
-            f = self.peer.view.addAccusations
+            s = self.service.group.view.aSet
+            f = self.service.group.view.addAccusations
         else:
             raise ValueError("No such set.")
         return s, f
@@ -886,11 +891,11 @@ class GossipServerFactory(ServerFactory):
     def clientConnected(self, protocol, rnr):
         """Client connected."""
 
-        me = self.peer
+        me = self.service.me
         him = protocol.other
-        hisPartner = self.view.mRings[rnr].succ(him)
+        hisPartner = self.service.rings[rnr].succ(him)
         while hisPartner.isFailed():
-            hisPartner = self.view.mRings[rnr].succ(hisPartner)
+            hisPartner = self.service.rings[rnr].succ(hisPartner)
 
         cp = self.cons[rnr]
         if hisPartner.id != me.id:
@@ -908,7 +913,7 @@ class GossipServerFactory(ServerFactory):
                 protocol.accept()
                 self.cons[rnr] = protocol
             else:                
-                if (cp.other.id == him.id) or self.view.mRings[rnr].between(cp.other, him, me):
+                if (cp.other.id == him.id) or self.service.rings[rnr].isBetween(cp.other, him, me):
                     cp.hangup()
                     self.cons[rnr] = protocol
                     protocol.accept()
@@ -928,19 +933,19 @@ class GossipServerFactory(ServerFactory):
     
 class GossipClientFactory(ClientFactory):
 
-    def __init__(self, peer, roundtime, timeout=420):
+    def __init__(self, service, roundtime, timeout=420):
         self._timeout = timeout
         self._roundtime = roundtime
+        if not isinstance(service, Gossip): raise ValueError
+        self.service = service
+        self.peer = service.me 
+        self.view = service.group.view
         
-        self.peer = peer
-        self.view = peer.view
-        if not peer.view: raise Exception, "Peer not in view"
-        
-        self.connections = [None] * peer.view.k
+        self.connections = [None] * service.byzantineToleranceNumber
         self._initializing= {}        
 
-        self.logger = logging.getLogger(peer.cert.address)
-        self._last = -1 % peer.view.k
+        self.logger = logging.getLogger(service.me.getAddress())
+        self._last = -1 % service.byzantineToleranceNumber
         self._task = None
 
     def startFactory(self):
@@ -955,7 +960,7 @@ class GossipClientFactory(ClientFactory):
         for n,v in self._initializing.items():
             v.hangup()
             
-        self.connections = [None] *self.view.k
+        self.connections = [None] * self.service.byzantineToleranceNumber
         self._initializing = {}
 
     def _failback(self, msg):
@@ -1031,7 +1036,7 @@ class GossipClientFactory(ClientFactory):
 
                 
     def update(self):
-        x = self._last = (self._last + 1) % self.view.k
+        x = self._last = (self._last + 1) % self.service.byzantineToleranceNumber
         
         # Purge initializing protocols that terminated.
         for k,v in self._initializing.items():

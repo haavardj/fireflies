@@ -10,7 +10,7 @@
 ##  
 ##         Copyright 2006, University of Troms (Norway)
 ##                
-## $Id: __init__.py,v 1.9 2007/06/21 07:17:48 haavardj Exp $
+## $Id: __init__.py,v 1.10 2007/06/26 08:57:24 haavardj Exp $
 ##                
 ######################################################################
 
@@ -31,8 +31,18 @@ import time as t
 time = t
 del t
 
+from members import Member, Note, Accusation
+from view import View
 
-#from group import BaseGroup
+
+EV_RECOVER_NEW = 0 # First time a member is considered live.
+EV_RECOVER_REBUTTAL = 1 # Recover by rebuttal
+EV_RECOVER_INVALIDATED = 2 # Recover by having all accusations becoming invalid
+EV_CRASH_REVOKED = 0 # Crash by revoked member certificate
+EV_CRASH_ACCUSED = 1  # Crash by accusation
+
+EV_DATA_VALID = True
+EV_DATA_INVALID = False
 
 
 defaultConfig = {

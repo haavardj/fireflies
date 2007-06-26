@@ -7,9 +7,9 @@
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright© 2006, University of Tromsø (Norway)
+##         Copyright© 2007, Håvard D Johansen (Norway)
 ##                
-## $Id: members.py,v 1.10 2007/06/21 08:24:18 haavardj Exp $
+## $Id: members.py,v 1.11 2007/06/26 08:57:24 haavardj Exp $
 ##                
 ######################################################################
 
@@ -21,20 +21,77 @@ from math import *
 from twisted.internet import reactor
 import bisect, fireflies, cert, logging, setrecon
 import random
-import fireflies.stats
-import fireflies.ring
 
-HISTORYSIZE = 100
+
 INITIAL_LRATE = 0.10
-
-PARTITION_FACTOR = 3
-RECON_EXTRA = 5
 
 def isValidMask(mask, t):
     """Returns True if mask is valid given a Byzantine tolerance t."""
     if len(filter(lambda x: x == True, mask)) != t + 1: return False 
     if len(filter(lambda x: x == False, mask)) != t: return False 
     return True 
+
+def getMask(member, t): 
+    """Returns a mask that is based on t, nr rings, accusation history, and the old mask."""
+
+    # We need to disable t rings. If the member has not been
+    # accused on at least t rings, we pick disabled rings from the
+    # old mask. If the note has not been set for this member, we
+    # build a random mask.
+    
+    # p1 is a list of the ring numbers we are to disable. p1 is
+    # sorted according to which rings are to be disabled first.         
+    
+    if not isinstance(member, Member): raise ValueError
+    
+    p1 = map(lambda x: (member.__hAccusations[x], x), member.__hAccusations.keys())
+    p1.sort()
+    p1.reverse()
+    p1 = map(lambda x: x[1], p1)
+
+    if member.note and isValidMask(member.note.mask, t):
+        p2 = list(member.note.mask)
+    else:
+        p2 = ([False] * t) + ([True] * (t+ 1))
+        random.shuffle(p2)
+            
+    for n, v in enumerate(p2):
+        if v == True: continue
+        if len(p1) >= t: break
+        if n not in p1: p1.append(n)
+        
+    if not len(p1) >= t:
+        raise RuntimeError("Mask computation error.")
+
+    p1 = p1[0:t]
+        
+    mask = [True] * (2*t + 1)
+    for n in p1:
+        mask[n] = False
+        
+    assert isValidMask(mask, t)
+    return mask            
+
+
+def createInitialMask(t):
+    """Return a note with the specified serial, initial epoch of 1,
+    and a 2t+1 length mask with t disabled rings."""
+
+    rings = 2*t + 1
+    mask = [False] * t + ([True] * (rings - t))
+    random.shuffle(mask)
+    return mask
+
+def createRebuttal(member, group, priv):
+    T = group.T
+    if member.getEpoch() == 0:
+        mask = createInitialMask(T)
+    else:
+        mask = getMask(member, T)
+    n = Note(member.getSerial(), member.getEpoch()+1, mask)
+    priv.sign(n)
+    return n
+
 
 
 class Accusation(object, cert.TimestampMixin, cert.RSASignable):
@@ -43,14 +100,14 @@ class Accusation(object, cert.TimestampMixin, cert.RSASignable):
 
     def __init__(self, accused, ll, nr, accuser):
         self.accused = accused
-        self.lifeline = ll
+        self.epoch = ll
         self.nr = nr
         self.accuser = accuser 
         self.signature = 0
 
     def __getstate__(self):
         return {"accused": self.accused,
-                "lifeline": self.lifeline,
+                "epoch": self.epoch,
                 "nr": self.nr,
                 "accuser": self.accuser,
                 "signature": self.signature
@@ -71,12 +128,12 @@ class Accusation(object, cert.TimestampMixin, cert.RSASignable):
             return "%s" % (self.uidstr())
         
     def uidstr(self):
-        return "Accusation:%d,%d,%d-%d" % (bytes_to_long(self.accused), self.lifeline,
+        return "Accusation:%d,%d,%d-%d" % (bytes_to_long(self.accused), self.epoch,
                                   self.nr, bytes_to_long(self.accuser))
 
         
 def createInitialNote(serial, t):
-    """Return a note with the specified serial, initial lifeline of 1,
+    """Return a note with the specified serial, initial epoch of 1,
     and a 2t+1 length mask with t disabled rings."""
 
     rings = 2*t + 1
@@ -84,34 +141,35 @@ def createInitialNote(serial, t):
     random.shuffle(mask)
     return Note(serial, 1, mask)
 
+
 class Note(object, cert.TimestampMixin, cert.RSASignable):
     """A Fireflies note. Except for the signature, this class
     should be considered immutable.
 
     Important attributes are:
       - serial --- The member's serial number.
-      - lifeline --- The lifeline/epoch of the note.
+      - epoch --- The epoch/epoch of the note.
       - mask --- A list of True/False values. True means the corresponding
                  monitoring ring is enabled.
       - signature ---
     """
 
-    def __init__(self, serial, lifeline, mask):        
+    def __init__(self, serial, epoch, mask):        
         self.serial = serial
-        self.lifeline = lifeline
+        self.epoch = epoch
         self.mask = mask
         self.signature = 0
         self.badness = 0
 
     def __repr__(self):        
-        return "N:%x-%d" % (bytes_to_long(self.serial), self.lifeline)
+        return "N:%x-%d" % (bytes_to_long(self.serial), self.epoch)
 
     def __hash__(self):
         return hash(self.shash())
 
     def __getstate__(self):
         return {"serial": self.serial,
-                "lifeline": self.lifeline,
+                "epoch": self.epoch,
                 "mask": self.mask,
                 "signature": self.signature,
                 "badness": self.badness,
@@ -126,14 +184,9 @@ class Note(object, cert.TimestampMixin, cert.RSASignable):
         except AttributeError: return -1
 
     def uidstr(self):
-        return "Note:%d-%d-%s" % (bytes_to_long(self.serial), self.lifeline,
+        return "Note:%d-%d-%s" % (bytes_to_long(self.serial), self.epoch,
                                      str(self.mask))
 
-
-# hashCache is used to speed up simulations. This data structure
-# contains the members ring hashes and is shared between all simulated
-# members.
-hashCache = {}
 
 
 class Member(object):
@@ -147,18 +200,18 @@ class Member(object):
     view - The view the member is in.
     """
 
-    def __init__(self, mcert, view, note = None, initLRate=INITIAL_LRATE):
+    def __init__(self, mcert, group, note = None, initLRate=INITIAL_LRATE):
 
-        assert isinstance(mcert, cert.MemberCertificate), type(mcert)
-        assert isinstance(view, View)
+        #assert isinstance(mcert, cert.MemberCertificate), type(mcert)
+        #assert isinstance(view, fireflies.view.View)
         if note: assert isinstance(note, Note)
         
-        self.cert = mcert
-        self.mcert = mcert
+        self.cert = self.mcert = self._cert = mcert
         self.id = mcert.serial
         self.serial = self.mcert.serial
-        self.view = view
-        
+        self.group = group
+        self.view = group.view
+        self.note = note
         self.note = None    
         if note:
             self.setNote(note)
@@ -193,19 +246,34 @@ class Member(object):
         # Used by the web status displayer        
         self.allAccusations = []
 
-        if not self.serial in hashCache:
-            self._gIDCache = []
-            self._mIDCache = []
-            hashCache[self.serial] = (self._gIDCache, self._mIDCache)
-            hashCache[self.serial]             
-        else:
-            self._gIDCache, self._mIDCache = hashCache[self.id]
-
-        self.fdTimer = None
         self.stats = fireflies.stats.Stats()
+        self.__failed = True
 
+
+    def _setFailed(self, failed):
+        """Set the failed status of the member."""
+        
+        # A member should never be set live when there's been no note.
+        if not failed: assert self.note
+        self.__failed = failed
+
+
+    def getAddress(self):
+        return self.mcert.address
+
+    def getEpoch(self):
+        return self.note.epoch
+    
+    def getNote(self):
+        return self.note
+    
+    def getCertificate(self):
+        """Return member's fireflies.crypto.MemberCertificate object."""
+        return self._cert
+    
     def getSerial(self):
-        return self.mcert.serial
+        """Return serial number / member id."""
+        return self._cert.serial
 
     def getMask(self):
         """Returns a mask that is based on t, nr rings, accusation history, and the old mask."""
@@ -257,7 +325,15 @@ class Member(object):
     def isFailed(self):
         """Returns True if the member is failed."""
         
-        return self in self.view.fRing
+        # A member without a note is failed.
+        
+        if not self.note or self.note.epoch == 0: assert self.__failed
+        return self.__failed
+ 
+    def isLive(self):
+        """Return true if member is concidered live."""
+        return not self.isFailed()
+
 
     def isAccused(self):
         """Return True if the member is accused."""
@@ -286,7 +362,7 @@ class Member(object):
             raise ValueError("Note not signed correctly.")
         
         if self.note:
-            if self.note.lifeline >= note.lifeline:
+            if self.note.epoch >= note.epoch:
                 raise ValueError("Lifeline must be larger.")
 
         self.view.nSet.append(note)
@@ -294,13 +370,12 @@ class Member(object):
             self.view.nSet.remove(self.note)
         self.note = note
         
-
     def setAccusation(self, accusation):
         """Keep the given accusation. This will invalidate and
         overwrite an existing accusation on the particular ring.""" 
 
         nr = accusation.nr
-        assert accusation.lifeline == self.note.lifeline
+        assert accusation.epoch == self.note.epoch
         assert accusation.accused == self.serial
         assert self.note.mask[nr]
 
@@ -364,505 +439,3 @@ class Member(object):
             return cmp(self.serial, other.serial)
         except AttributeError, why:
             return -1
-
-
-class FFReconSet(setrecon.ReconSet):
-    def elmToZZp(self, elm):
-        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.shash()))
-
-
-class View:
-    """Membership view.
-
-    The view is modified by adding certificates, notes, or
-    accusations (see add* methods).
-
-    The view is initialized with the CA certificate. 
-
-    registerListener --- registers a callback object that will receive
-    view events. Such object must implement the following methods:
-
-       handle_leave(member): Member leaves or fails.
-       handle_join(member):  Member joins.
-       handle_rebuttal(member): A rebuttal is received from member.
-       handle_accused(member): A member is accused. 
-    
-    """
-    
-    def __init__(self, cacert):
-        """Create a new view with cacert as authority."""
-
-        self.cSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
-        self.nSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
-        self.aSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
-
-        self._listeners = []
-        self.cacert = cacert
-        self.sn2peer = {} # Maps serial nr's to peer objects.
-
-        self.stats = fireflies.stats.Stats()
-        
-        self.aRing = SerialRing() # List of live members. Sorted by their serial number.
-        self.pRing = SerialRing() # List of all members.
-        self.fRing = SerialRing() # List of failed members. Sorted by their serial number.
-
-        self.t = cacert.config['T']
-        self.k = cacert.config['NUM_GOSSIPRINGS']
-        self.mRings = MemberRings(max(self.t*2+1, self.k))
-
-        self.logger = logging.getLogger(cacert.name)
-        self._dirty = False
-
-    def getMember(self, serial):
-        return self.sn2peer[serial]
-
-    def getMembersByAddress(self, address):
-        return filter(lambda x: x.cert.address == address, self.pRing)
-        
-    def rebuttalTime(self):
-        return self.cacert.config['REBUTTAL_TIME']
-
-    def getT(self):
-        """Returns the Byzantine tolerance factor t."""
-        return self.cacert.config['T']
-
-    def getNrMonitorRings(self):
-        return self.t*2 + 1
-                
-    def registerListener(self, object):
-        """Register an object that will receive membership events.
-
-        Raises ValueError if object is already registered.
-        """
-
-        if object in self._listeners:
-            raise ValueError("Dublicate object.")
-        self._listeners.append(object)
-
-    def unregisterListener(self, object):
-        """Unregister object as a membership event listener.
-
-        Raises ValueError if object is not registered previously.
-        """
-        
-        self._listeners.remove(object)
-        
-    def fail(self, member):
-        """Make a live member failed.
-
-        Raises ValueError is member is not a live member in the view.
-        """
-        
-        if member.view != self: raise ValueError("Peer not in view.")
-        assert member in self.pRing
-                
-        self.aRing.remove(member)
-        self.fRing.insert(member)
-        
-        try:
-            if not (member.fdTimer.called):
-                member.fdTimer.cancel()
-        except AttributeError:
-            pass
-        member.fdTimer = None
-        member.stats.failed += 1
-        
-        self.logger.info("failed %s s=%d t=%d", member, len(self.aRing), len(self.pRing))        
-
-        for l in self._listeners:
-            l.handle_leave(member)
-            #reactor.callLater(0, l.handle_leave, member)
-
-    def revive(self, member):
-        """Make a failed member live.
-
-        Raises ValueError if the member is not failed.
-        """
-        
-        if member.view != self: raise ValueError("Member not in view.")
-        assert member in self.pRing
-
-        self.fRing.remove(member)
-        self.aRing.insert(member)
-        member.nPing = 0
-        if member.isAccused():
-            self.logger.warning("revived peer is accused. Setting timeout.")
-            assert not member.fdTimer
-            member.fdTimer = reactor.callLater(self.rebuttalTime(), self.fail, member)
-
-        self.logger.info("joined %s s=%d t=%d", member, len(self.aRing), len(self.pRing))        
-        member.stats.revived += 1
-        for l in self._listeners:
-            #reactor.callLater(0, l.handle_join, member)
-            l.handle_join(member)
-            
-    def addAccusations(self, accusations, delayCheck=False):
-        """Add accusations to the view."""
-        
-        if not type(accusations) == type([]):
-            accusations = [accusations, ]
-
-        for accusation in accusations:
-
-            assert isinstance(accusation, Accusation)            
-            self.stats.accusationsTotal += 1
-            
-            accusedID = accusation.accused
-            accuserID = accusation.accuser
-
-            # Check that we know about accused. This should not really
-            # happen if we gossip notes before accusations and
-            # certificates before notes.
-            if not accusedID in self.sn2peer:
-                self.stats.accusationsInvalid += 1
-                self.logger.warning("discard %s Unknown accused", self.pprint(accusation))
-                continue
-            accused = self.sn2peer[accusedID]
-            
-            # Ditto for the accuser
-            if not accuserID in self.sn2peer:
-                self.stats.accusationsInvalid += 1
-                self.logger.warning("discard %s Unknown accuser", self.pprint(accusation))
-                continue
-            accuser = self.sn2peer[accuserID]
-
-            if not accuser.cert.verify(accusation):
-                accuser.stats.accuseByzantine += 1
-                accused.stats.accusedByzantine += 1
-                self.stats.accusationsInvalid += 1
-                self.logger.warning("discard %s Invalid signature", self.pprint(accusation))
-                continue
-
-            if not accuser.note:
-                self.stats.accusationsInvalid += 1
-                self.logger.debug("discard %s invalid note", self.pprint(accusation))
-                continue
-            
-            # Check that accusation is recent.
-            if not accused.note:
-                self.stats.accusationsInvalid += 1
-                self.logger.warning("discard %s byzantine behaviour", self.pprint(accusation))
-                continue
-            
-            if accusation.lifeline < accused.note.lifeline:
-                self.stats.accusationsRedundant += 1
-                self.logger.warning("discard %s newer note", self.pprint(accusation))
-                continue
-
-            if accusation.lifeline > accused.note.lifeline:
-                self.stats.accusationsInvalid += 1
-                self.logger.warning("discard %s accusing newer note.", self.pprint(accusation))
-                continue
-
-            # Check that the accuser is not specifying an invalid ring.
-            # No correct member should do this.
-            if accusation.nr >= len(accused.note.mask):
-                self.stats.accusationInvalid += 1
-                accuser.accuseByzantine += 1
-                accused.accusedByzantine += 1
-                self.logger.warning("discard %s byzantine behavior. Not on a valid ring", self.pprint(accusation))
-                continue
-
-            # Check that the ring is enabled.
-            # No correct member should violate this.
-            if not accused.note.mask[accusation.nr]:
-                self.stats.accusationInvalid += 1
-                accuser.accuseByzantine += 1
-                accused.accusedByzantine += 1
-                self.logger.warning("discard %s byzantine behavior. Ring disabled by accused", self.pprint(accusation))
-                continue
-
-            # Make some shortcuts :-)
-            rnr = accusation.nr
-            ring = self.mRings[rnr]
-            vas = accused.vAccusations
-            va = vas.get(rnr, None)
-            pas = accused.pAccusations
-            pa = pas.get(rnr, None)
-            
-            # Always keep the closest accusation in pAccusations
-            if not pa:
-                # Peer has never been accused on this ring.
-                assert va == None # No possible accusations => no valid accusations either
-                accused.setAccusation(accusation)
-                self._dirty = True
-                accuser.stats.accusePossible += 1
-                accused.stats.accusedPossible += 1
-                
-                self.logger.debug("add %s new", self.pprint(accusation))
-                accused.allAccusations.insert(0, accusation)
-                if len(accused.allAccusations) > HISTORYSIZE: accused.allAccusations.pop(-1)
-            else:
-                # Peer has been accused on this ring.
-                if pa.accuser == accusation.accuser:
-                    # We have this accusation
-                    self.stats.accusationsRedundant += 1
-                    self.logger.debug("discard %s dublicate", self.pprint(accusation))
-                    continue
-
-                ca = self.sn2peer[pa.accuser] #Current accuser
-                if ring.isBetween(ca, accuser, accused):
-                    # This accuser is closer on the ring than the previous accuser.
-                    # And if the previous accusation was valid, so is this.
-                    accuser.stats.accusePossible += 1
-                    accused.stats.accusedPossible += 1
-
-                    ca.stats.accuseReplaced += 1
-                    accuser.stats.accuseCloser +=1                    
-
-                    self.logger.warning("add %s replacing %s",
-                                        self.pprint(accusation),
-                                        self.pprint(pa))
-                    accused.setAccusation(accusation)
-                    self._dirty = True
-                    # Keep this in our history
-                    accused.allAccusations.insert(0, accusation)
-                    if len(accused.allAccusations) > HISTORYSIZE: accused.allAccusations.pop(-1)
-                else:
-                    # We have a closer accusation than this, so toss it.
-                    self.stats.accusationsRedundant += 1
-                    
-                    self.logger.debug("discard %s have closer", self.pprint(accusation))
-
-        if (not delayCheck) and (self._dirty): self.checkAccusations()
-
-
-    def checkAccusations(self):
-        
-        if not self._dirty: return
-
-        # Make a list of all peers that have accusations. Since we
-        # might need to do multiple passes through all accused peers,
-        # this will reduce the amount of work when only a few peers
-        # are accused. We start out with no valid accusations and loop
-        # through the list untill no more accusations can be made
-        # valid. A copy of the previous valid accusations are keept to
-        # track changes.
-        hasAccus = []
-        for peer in self.pRing:
-            if peer.hasAccusations():
-                hasAccus.append((peer, dict(peer.vAccusations)))
-                peer.invalidateAllAccusations()
-
-        nrrings = self.getNrMonitorRings()
-        changed = True
-        
-        while changed:
-            changed = False
-            for accused, oldVas in hasAccus:
-                for x in range(nrrings):
-                    va = accused.vAccusations.get(x, None)
-                    oldVa = oldVas.get(x, None)
-                    pa = accused.pAccusations.get(x, None)
-                    
-                    # No accusation on this ring.                    
-                    if not pa:
-                        assert not va and not oldVa
-                        continue
-
-                    # Any previous valid accusation should either be
-                    # the same as pa, or None.
-                    if oldVa:
-                        assert oldVa == pa
-
-                    # This accusation was set valid in a previous run.
-                    if va: continue 
-
-                    ring = self.mRings[x]                                        
-                    accuser = self.sn2peer[pa.accuser]
-                    isinstance(accuser, Member)
-                    isinstance(accused, Member)
-                    
-                    # In my view, cm is the current valid monitor to
-                    # the accused.
-                    cm = ring.pred(accused)
-                    isinstance(cm, Member)
-                    while cm.isAccused():
-                        if cm.serial == accused.serial: break
-                        cm = ring.pred(cm)
-                    
-                    # The accusation is valid if the accuser is the
-                    # predecessor of the accused, the accuser is the
-                    # accused, or the accuser is closer on the ring
-                    # than the current monitor (i.e. accuser can be
-                    # accused or failed).
-                    if (cm.id == accuser.id) or (cm.id == accused.id) or (ring.isBetween(cm, accuser, accused)):
-
-                        if oldVa != accused.vAccusations.get(x, None):
-                            pa.setTimestamp()
-                            
-                        accused.validateAccusation(x)
-                        changed = True                        
-                    else: 
-                        pass
-
-
-        # One extra pass of the peers is needed to set and remove
-        # fail-timers and revive members.
-        for peer, oldVas in hasAccus:
-            isAccused = peer.isAccused()
-            isFailed = peer in self.fRing
-            if not isAccused:
-                if isFailed:
-                    assert not peer.fdTimer
-                    self.logger.warning("%s invalidated accusations reviving", self.pprint(peer))
-                    self.revive(peer)
-                    continue
-                else:
-                    pass
-                    #self.logger.warning("%s invalidated accusations", self.pprint(peer))
-                # If a member is not accused, any fail-timer should be
-                # removed.
-                try:
-                    self.fdTimer.cancel()
-                    peer.stats.accusedClear += 1
-                except AttributeError:
-                    pass
-                self.fdTimer = None                
-            else:
-                if isFailed: continue
-                if peer.fdTimer: continue
-                peer.stats.accusedFirst += 1
-                self.logger.warning("%s validated accusations first.", self.pprint(peer))
-                peer.fdTimer = reactor.callLater(self.cacert.config['REBUTTAL_TIME'], self.fail, peer)
-                for l in self._listeners:
-                    l.handle_accused(peer)
-                    #reactor.callLater(0, l.handle_accused, peer)
-
-        self._dirty = False
-        
-        
-    def addCerts(self, certs):
-        if not type(certs) == type([]):
-            certs = [certs, ]
-        for c in certs:
-            self.stats.certsTotal += 1
-            
-            if not self.cacert.verify(c): 
-                self.stats.certsInvalid += 1
-                self.logger.warning("discard %s invalid CA signature.", self.pprint(c))
-                continue
-
-            member = self.sn2peer.get(c.serial, None)
-            if member:
-                member.stats.certsRedundant += 1
-                #self.logger.debug("discard %s redundant", self.pprint(c))
-                continue
-
-            
-            member = Member(c, self)
-            assert not member in self.pRing
-            self.sn2peer[member.id] = member
-            self.cSet.append(c)
-
-            # Add peer to all necessary rings.
-            for ring in [self.mRings, self.fRing, self.pRing]:
-                assert not member in ring
-                ring.insert(member)
-            #c.setTimestamp()
-            self.logger.info("new %s s=%d t=%d", member, len(self.aRing), len(self.pRing))        
-                   
-    def addNotes(self, notes, delayCheck=False):
-        if not type(notes) == type([]):
-            notes = [notes, ]
-            
-        for note in notes:
-            assert isinstance(note, Note)            
-            self.stats.notesTotal +=1 
-            
-            if not note.serial in self.sn2peer:
-                self.stats.notesInvalid += 1
-                self.logger.warning("discard %s unknown peer", self.pprint(note))
-                continue
-            peer = self.sn2peer[note.serial]
-            
-            if not peer.cert.verify(note):
-                self.stats.notesInvalid += 1
-                self.logger.warning("discard %s invalid signature", self.pprint(note))
-                continue
-            if not isValidMask(note.mask, self.getT()): 
-                self.logger.warning("discard %s invalid mask", self.pprint(note))
-                continue
-        
-            if (not peer.note) or (note.lifeline > peer.note.lifeline):
-                self.logger.debug("add %s updated (old=%s)", self.pprint( note), self.pprint(peer.note))
-
-                peer.setNote(note)
-                peer.stats.noteUpdated += 1                
-                peer.clearAccusations()
-                try:
-                    peer.fdTimer.cancel()    
-                except AttributeError:
-                    pass
-                peer.fdTimer = None
-                
-                self._dirty = True
-                #note.setTimestamp()
-                if peer in self.fRing:
-                    self.logger.info("revive %s", self.pprint(note))
-                    self.revive(peer)
-                else:
-                    pass                
-                for l in self._listeners:
-                    l.handle_rebuttal(peer)
-                    #reactor.callLater(0, l.handle_rebuttal, peer)
-            else:
-                self.stats.notesRedundant += 1
-                
-        if (not delayCheck) and self._dirty: self.checkAccusations()
-
-    def pprint(self, data):
-        if type(data) == Note:
-            if data.serial in self.sn2peer:
-                peer = self.sn2peer[data.serial]
-                return "N:%s-%d" % (peer.cert.address, data.lifeline)
-            else:
-                return  str(data)
-            
-        elif type(data) == Accusation:
-            if data.accused in self.sn2peer:
-                accused = self.sn2peer[data.accused].cert.address
-            else: accused = "%x" % bytes_to_long(data.accused)
-            if data.accuser in self.sn2peer:
-                accuser = self.sn2peer[data.accuser].cert.address
-            else: accuser = "%x" % bytes_to_long(data.accuser)
-
-            return "A:%s-%d,%d,%s" % (accused,
-                                      data.lifeline,
-                                      data.nr,
-                                      accuser
-                                      )
-        else:
-            return str(data)
-
-
-_mRingIDCache = {}
-def _mRingID(member, ringNr):
-    """Return a members's identifier on gossip ring nr."""
-    
-    if False: isinstance(member, Member)    
-    try:
-        return _mRingIDCache[member.getSerial()][ringNr]
-    except KeyError:
-        memberId = member.getSerial()
-        ids = _mRingIDCache.get(memberId, {})
-        idOnRing = SHA.new("%s-gossip-%d" % (memberId, ringNr)).digest()
-        ids[ringNr] = idOnRing
-        _mRingIDCache[memberId] = ids
-        return idOnRing
-   
-    
-class SerialRing(fireflies.ring.Ring):
-    """A ring of Peer object. The ring is sorted according to the peer
-    id attribute."""
-
-    def _sortKey(self, item):
-        return item.id
-       
-class MemberRing(fireflies.ring.NumberedRing):
-     
-    def _sortKey(self, item):
-        return _mRingID(item, self.nr)
-
-class MemberRings(fireflies.ring.NumberedSetOfRings):    
-    ringClass = MemberRing
