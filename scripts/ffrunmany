@@ -41,10 +41,7 @@ for x in range(num):
                    options.command,
                    "-a", options.address,
                    "--verbose",
-                   "-s",
-                   "-b", "hosts",
                    "-p", str(port),
-		   "-m", "100",
                    "-d",
                    args[1])
     pidmap[pid] = x
