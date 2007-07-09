@@ -1,16 +1,15 @@
-# -*- coding: iso-8859-1 -*-
 ######################################################################
 ## Filename:      __init__.py
 ## Description:   Fireflies: a scalabe and intrusion tolerant membership
 ##                protocol. 
-## Author:        H�ard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Haavard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Wed Feb  1 18:53:46 2006
-## Modified by:   H�ard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Haavard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright 2006, University of Troms (Norway)
+##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: __init__.py,v 1.11 2007/07/09 08:59:59 haavardj Exp $
+## $Id: __init__.py,v 1.12 2007/07/09 09:20:37 haavardj Exp $
 ##                
 ######################################################################
 
@@ -21,7 +20,7 @@ service.
 
 """
 
-protocol_version = (0,28,1)
+protocol_version = (0,0,1)
 
 __version__ = "%d.%d.%d" % protocol_version
 version = __version__
@@ -30,11 +29,6 @@ version = __version__
 import time as t
 time = t
 del t
-
-from members import Member, Note, Accusation
-from crypto import MemberCertificate, CACertificate
-from view import View
-
 
 EV_RECOVER_NEW = 0 # First time a member is considered live.
 EV_RECOVER_REBUTTAL = 1 # Recover by rebuttal
@@ -96,3 +90,7 @@ defaultConfig = {
     }
 
 
+from members import Member, Note, Accusation
+from crypto import MemberCertificate, CACertificate
+from group import BaseGroup
+from view import View
