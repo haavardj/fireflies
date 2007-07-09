@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip.py,v 1.6 2007/06/26 08:57:24 haavardj Exp $
+## $Id: gossip.py,v 1.7 2007/07/09 08:58:41 haavardj Exp $
 ##                
 ######################################################################
 
@@ -24,9 +24,11 @@ from Crypto.Hash import MD5
 import sha
 import fireflies, members, time, cert, setrecon
 from cert import TimestampMixin
-import copy, sys
-
+import copy, sys, setrecon
 setrecon.init(fireflies.defaultConfig['BITSIZE'], fireflies.defaultConfig['MBAR'])
+
+PARTITION_FACTOR = 3
+RECON_EXTRA = 5
 
 NODE_STATUS_EMPTY = 0
 NODE_STATUS_TERMINAL = 1
@@ -63,8 +65,12 @@ for k, v in cmd2code.items():
     code2cmd[v] = k
 
 
+class FFReconSet(setrecon.ReconSet):
+    def elmToZZp(self, elm):
+        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.shash()))
+
 class Gossip:
-    def __init__(self, group, me, byzantineToleranceNumber=7, rate=60.0, TCPTimeout=360.0):
+    def __init__(self, group, me, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
         self.rate = rate
         self.group = group
         self.me = me
@@ -74,14 +80,39 @@ class Gossip:
         self.sFactory = GossipServerFactory(self, TCPTimeout)
         self.cFactory = GossipClientFactory(self, rate, TCPTimeout)    
         
-        self.group.registerEventHandler("member.new", self.evMemberNew)
+        self.group.registerEventHandler("member.crash", self.evMemberNew)
         for m in group.getMembers():
             self.rings.insert(m)
-        
-    def evMemberNew(self, name, member):
-        self.rings.insert(member)
-        self.logger.debug("adding %s to gossip rings", member)
+      
+        self.cSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
+        self.nSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
+        self.aSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
 
+        print "init data sets"
+        for m in self.group.getMembers():
+            self.cSet.append(m.getCertificate())
+            if m.getNote(): self.nSet.append(m.getNote())
+            for a in m.getAccusations(): self.aSet.append(a)
+            
+        self.group.registerEventHandler("data.accusation", self.evDataAccusation)
+        self.group.registerEventHandler("data.note", self.evDataAccusation)
+        self.group.registerEventHandler("data.certificate", self.evDataAccusation)
+
+    def evDataAccusation(self, name, itm, status):
+        if name == "data.accusation": set = self.aSet
+        elif name == "data.note": set = self.nSet
+        elif name == "data.certificate": set = self.cSet
+        else: raise RuntimeError, "Invalid data event", name
+        
+        if status == True:
+            set.append(itm)
+        else:
+            set.remove(itm)
+            
+    def evMemberNew(self, name, member, status):
+        if status == fireflies.EV_CRASH_NEW:
+            self.rings.insert(member)
+            self.logger.debug("adding %s to gossip rings", member)
 
     def start(self):
         host, port = self.me.getAddress().split(":")
@@ -181,17 +212,17 @@ class GossipBase(Int32StringReceiver):
 
             elif cmd == "reconcile_data":
                 data, = args
-                if isinstance(data, members.Accusation):
+                if isinstance(data, fireflies.Accusation):
                     p.pack_uint(DATA_ACCUSATION_ID)
                     p.pack_accusation(data)
-                elif isinstance(data, members.Note):
+                elif isinstance(data, fireflies.Note):
                     p.pack_uint(DATA_NOTE_ID)
                     p.pack_note(data)
-                elif isinstance(data, cert.MemberCertificate):
+                elif isinstance(data, fireflies.MemberCertificate):
                     p.pack_uint(DATA_CERTIFICATE_ID)
                     p.pack_cert(data)
                 else:
-                    raise ValueError("Unknown data type")
+                    raise ValueError, "Unknown data type", data
                 # note, accus, or cert
 
             elif cmd in ["reconcile_data_req",]:
@@ -392,12 +423,12 @@ class GossipBase(Int32StringReceiver):
 
         # Both nodes are empty means that we are done.
         if (self.nt == NODE_STATUS_EMPTY) and (nodeType == NODE_STATUS_EMPTY):
-            #self.logger.debug("reconcile %s both empty" %self)
+            self.logger.debug("reconcile %s both empty" %self)
             self.reconcile_next()
         
         #His node is empty, send all terminal data.
         elif nodeType==NODE_STATUS_EMPTY:
-            #self.logger.debug("reconcile %s his empty" %self)
+            self.logger.debug("reconcile %s his empty" %self)
             td = self.set.internal2external(myNode.terminal_data())
             for x in td:
                 assert x not in self.outBuff
@@ -406,7 +437,7 @@ class GossipBase(Int32StringReceiver):
           
         # My node is empty. Request all elements in this partition.
         elif self.nt == NODE_STATUS_EMPTY:
-            #self.logger.debug("reconcile %s my empty" %self)
+            self.logger.debug("reconcile %s my empty" %self)
             self.reconcile_next()
 
         # We have 2 non empty nodes. If one of them is terminal, we
@@ -417,7 +448,7 @@ class GossipBase(Int32StringReceiver):
 
             # If his node is terminal, I can figure out what he is missing.
             if nodeType == NODE_STATUS_TERMINAL:
-                #self.logger.debug("reconcile %s his treminal" %self)
+                self.logger.debug("reconcile %s his treminal" %self)
                 td = myNode.terminal_data()
                 hismissing = self.set.internal2external(setrecon.difference_set(hash_vector, td))
                 
@@ -430,7 +461,7 @@ class GossipBase(Int32StringReceiver):
                 # what I'm missing from his set, I need to request
                 # these.                
                 if self.nt == NODE_STATUS_NONTERMINAL:
-                    #self.logger.debug("reconcile %s both nodes treminal" %self)
+                    self.logger.debug("reconcile %s both nodes treminal" %self)
                     mymissing = self.set.internal2external(setrecon.difference_set(td, hash_vector))
                     for x in mymissing:
                         assert x not in self.reqBuff
@@ -440,12 +471,12 @@ class GossipBase(Int32StringReceiver):
             # My node is terminal, his is not. The other node will
             # inform me of missing elements.            
             elif self.nt == NODE_STATUS_TERMINAL:
-                #self.logger.debug("reconcile %s mynode not treminal" %self)
+                self.logger.debug("reconcile %s mynode not treminal" %self)
                 self.reconcile_next()
 
             # Both nodes are non-terminal.
             else:
-                #self.logger.debug("reconcile %s both not terminal" % self)
+                self.logger.debug("reconcile %s both not terminal" % self)
                 valids = myNode.valids
                 if self.master:
                     aHash = self.hv
@@ -481,7 +512,7 @@ class GossipBase(Int32StringReceiver):
                     hismissing = aMissing                    
 
                 if status == 0:
-                    #self.logger.debug("reconcile %s reconcile failed valids", self)
+                    self.logger.debug("reconcile %s reconcile failed valids", self)
                     c = []
                     for x in range(self.set._recon.p):
                         if self.curNode.hasChild(x):
@@ -492,7 +523,7 @@ class GossipBase(Int32StringReceiver):
                             c.append(None)
                     self.nodes = c + self.nodes
                 else:
-                    #self.logger.debug("reconcile %s reconcile worked hismissing=%s mymissing=%s", self, hismissing, mymissing)
+                    self.logger.debug("reconcile %s reconcile worked hismissing=%s mymissing=%s", self, hismissing, mymissing)
                     for x in hismissing:
                         assert x not in self.outBuff
                         self.outBuff.append(x)                    
@@ -536,6 +567,7 @@ class GossipBase(Int32StringReceiver):
                     if d.serial != self.factory.service.me.getSerial():
                         continue                
                 self.sendCommand("reconcile_data", d)
+                self.logger.debug("reconcile_data->%s %s", self, d)
 
         if self.master:
             self.logger.debug("reconcile_done->%s", self)
@@ -594,8 +626,8 @@ class ServerProtocol(GossipBase):
             self.hangup()
         else:
             self.logger.debug("authenticate<- %s %s", self, pprint(crt))
-            view.addCerts(crt)
-            view.addNotes(note)
+            view.addCertificate(crt)
+            view.addNote(note)
             self.other = view.sn2peer[crt.serial]
             self.setTimeout()
             self.sendCommand("authenticate", self.factory.service.me.cert, self.factory.service.me.note)
@@ -652,9 +684,12 @@ class ServerProtocol(GossipBase):
         
         n = self.set.getRootPartition()
         hsh = sha.new()
-        for x in n.hash_vector:
-            hsh.update(str(x))
-
+        
+        hv = map(lambda x: str(x), n.hash_vector)
+        hv.sort()
+        for x in hv:            
+            hsh.update(x)
+        
         if digest == hsh.digest():
             self.logger.debug("digest_match->%s True", self)
             self.sendCommand("digest_match", True)
@@ -756,8 +791,8 @@ class ClientProtocol(GossipBase):
             return
 
         self.logger.debug("authenticate<- %s OK", self)
-        self.factory.view.addCerts(crt)
-        self.factory.view.addNotes(note)        
+        self.factory.view.addCertificate(crt)
+        self.factory.view.addNote(note)        
         self._sendPartner(self.ringNr)
         
     def _sendPartner(self, ringNr):
@@ -775,7 +810,7 @@ class ClientProtocol(GossipBase):
         self.cancelTimeout()
         self.logger.debug("redirect<- %s to %s", self, crt.address)
         self.factory.view.addCerts(crt)
-        self.factory.view.addNotes(note)
+        self.factory.view.addNote(note)
         self.hangup()
 
 
@@ -803,8 +838,10 @@ class ClientProtocol(GossipBase):
         n = set.getRootPartition()
         hsh = sha.new()
 
-        for x in n.hash_vector:
-            hsh.update(str(x))
+        hv = map(lambda x: str(x), n.hash_vector)
+        hv.sort()
+        for x in hv:            
+            hsh.update(x)
         
         self.logger.debug("reconcile->%s %s hash=%s", self, name, str(hsh.hexdigest()))                
         self.sendCommand("reconcile", name, hsh.digest())        
@@ -875,14 +912,15 @@ class GossipServerFactory(ServerFactory):
 
     def getSet(self, name):
         if name == "cSet":
-            s = self.service.group.view.cSet
-            f = self.service.group.view.addCerts
+            s = self.service.cSet
+            f = lambda x: map(self.service.group.view.addCertificate, x)
         elif name == "nSet":
-            s = self.service.group.view.nSet
-            f = self.service.group.view.addNotes
+            s = self.service.nSet
+            f = lambda x: map(self.service.group.view.addNote, x)
+
         elif name == "aSet":
-            s = self.service.group.view.aSet
-            f = self.service.group.view.addAccusations
+            s = self.service.aSet
+            f = lambda x: map(self.service.group.view.addAccusation, x)
         else:
             raise ValueError("No such set.")
         return s, f
@@ -1007,18 +1045,18 @@ class GossipClientFactory(ClientFactory):
             self.logger.error("Reconcile failed %s", error)
         
         def _2(result):
-            d = protocol.reconcile("aSet", self.peer.view.aSet, self.peer.view.addAccusations)
+            d = protocol.reconcile("aSet", self.service.aSet, lambda x: map(self.peer.view.addAccusation, x))
             d.addErrback(_f)
 
             for m in self.peer.view.pRing:
                 assert m.note
             
         def _1(result):
-            d = protocol.reconcile("nSet", self.peer.view.nSet, self.peer.view.addNotes)
+            d = protocol.reconcile("nSet", self.service.nSet, lambda x: map(self.peer.view.addNote, x))
             d.addCallback(_2)
             d.addErrback(_f)
             
-        d = protocol.reconcile("cSet", self.peer.view.cSet, self.peer.view.addCerts)
+        d = protocol.reconcile("cSet", self.service.cSet, lambda x: map(self.peer.view.addCertificate, x))
         d.addCallback(_1)
         d.addErrback(_f)
         
