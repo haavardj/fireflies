@@ -1,15 +1,14 @@
-# -*- coding: iso-8859-1 -*-
 ######################################################################
 ## Filename:      packer.py
 ## Description:   Fireflies data (de)-marshalling functions.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Haavard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Thu Jan 19 21:26:19 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Haavard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright© 2006, University of Tromsø (Norway)
+##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.7 2007/07/09 08:59:59 haavardj Exp $
+## $Id: packer.py,v 1.8 2007/07/09 09:20:56 haavardj Exp $
 ##                
 ######################################################################
 
