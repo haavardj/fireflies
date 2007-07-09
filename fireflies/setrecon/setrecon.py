@@ -9,7 +9,7 @@
 ## Licence: GPL (see LICENCE file).
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: setrecon.py,v 1.4 2006/06/06 21:06:53 haavardj Exp $
+## $Id: setrecon.py,v 1.5 2007/07/09 08:59:34 haavardj Exp $
 ##                
 ######################################################################
 
@@ -40,6 +40,7 @@ class ReconSet:
         if not initialized: raise RuntimeError("Not initialized.")
         self._recon = reconciled_set(p, k)
         self._data = {}
+        self.p = p
 
     def create_node(self):
         return self._recon.create_node()
@@ -66,8 +67,9 @@ class ReconSet:
         return self._data[km]
 
     def append(self, elm):
-        zz_p = self.elmToZZp(elm)
 
+        zz_p = self.elmToZZp(elm)
+        print "----------> add", elm, zz_p
         if elm in self._data:
             assert zz_p in self._recon
             raise ValueError("Element in set.")
@@ -78,6 +80,8 @@ class ReconSet:
 
         
     def remove(self, elm):
+        
+        print "--------_> remove", elm 
         if isinstance(elm, ZZ_p):
             zz_p = elm
         else:
@@ -113,12 +117,13 @@ class ReconSet:
         
 
     def printTree(self):
+
         def _(lvl, node):
             if node.isTerminal():
                 print "  "*lvl, node.hash_vector, "*"
             else:
                 print "  "*lvl, node.hash_vector
-            for child in iterChildren(node):
+            for child in iterChildren(node, self._recon.p):
                 if child: _(lvl+1, child)
         _(0, self.getRootPartition())
             
@@ -130,7 +135,7 @@ class ReconSet:
         return self._recon.external2internal(hash_vec)
 
 
-def iterChildren(node):
+def iterChildren(node, p):
     for x in range(p):
         yield node.getChild(x)
 
