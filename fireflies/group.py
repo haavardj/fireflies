@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: group.py,v 1.10 2007/06/26 08:57:24 haavardj Exp $
+## $Id: group.py,v 1.11 2007/07/09 08:59:59 haavardj Exp $
 ##                
 ######################################################################
 
@@ -17,9 +17,6 @@ import logging
 import gossip, fd, members
 import fireflies.stats
 from twisted.internet import reactor    
-
-# To speed up the simulator, copying is done here.
-from copy import copy
 
 class BaseGroup(object):
     """A basic Fireflies group object.
@@ -44,11 +41,10 @@ class BaseGroup(object):
         self.cacert, self.mkey, self.mcert = cacert, mkey, mcert
 
         self.view = fireflies.view.View(self, byzantineToleranceNumber=cacert.config["T"])
-    
+        
         if not mnote:
             self.mnote = members.createInitialNote(mcert.serial, cacert.config["T"])
             self.view.stats.notesCreated += 1
-
         else: 
             self.mnote = mnote
 
@@ -57,12 +53,16 @@ class BaseGroup(object):
         self.view.logger = self.logger
 
         self.stats = fireflies.stats.Stats()
-        self._eventSinkRegistry = {}             
+        self._eventSinkRegistry = {}
+        self.registerEventHandler("data.accusation", self.evSelfRebuttal)
     
     def registerEventHandler(self, name, func, *args, **kwargs): 
         t = self._eventSinkRegistry.get(name, [])
         t.append((func, args, kwargs))
         self._eventSinkRegistry[name] = t
+    
+    def getMemberBySerial(self, serial):
+        return self.view.sn2peer[serial]
     
     def getEventNames(self):
         return self._eventSinkRegistry.keys()
@@ -76,9 +76,9 @@ class BaseGroup(object):
                 na = args + a
                 reactor.callLater(0, f, name, *na, **nk)
         except KeyError:
-            self.logger.debug("notify %s but no subscribers", name)
-            
-            
+            pass
+            #self.logger.debug("notify %s but no subscribers", name)
+                        
     def leave(self):
         """Leave the group."""
         self.logger.warning("leave %s", self.cacert.name)
@@ -89,6 +89,15 @@ class BaseGroup(object):
         self.view.unregisterListener(self)
         self.joined = False
 
+    def evSelfRebuttal(self, name, elm, status):
+        assert name == "data.accusation"
+        if elm.accused == self.me.getSerial() and status == True:
+            self.logger.info("rebutting false accusation %s", elm)
+            n = self.me.nextNote()
+            self.mkey.sign(n)
+            reactor.callLater(0, self.view.addNote, n)
+
+            
     def __len__(self):
         return len(self.view.aRing)
 
@@ -119,6 +128,9 @@ class BaseGroup(object):
     def getGroupName(self):
         """Returns the group name."""
         return self.cacert.name
+    
+    def getByzantineToleranceLevel(self):
+        return self.cacert.config['T']
         
     def join(self, bootnodes=[]):
         """Join the group.
@@ -134,17 +146,17 @@ class BaseGroup(object):
 
         self.mnote.badness = self.badness
 
-        self.view.addCerts(mcert)
+        self.view.addCertificate(mcert)
         peer = self.view.sn2peer[mcert.serial]
-        self.view.addNotes(self.mnote)
-        self.peer = peer
+        self.view.addNote(self.mnote)
+        self.peer = self.me = peer
         isinstance(self.peer, members.Member)
         self.pinger = fd.FailureDetector(peer, self.mkey)
         self.gossiper = gossip.Gossip(self, peer)
         
         for c, n in bootnodes:
-            self.view.addCerts(c)
-            self.view.addNotes(n)
+            self.view.addCertificate(c)
+            self.view.addNote(n)
                     
         def failback(failure):
             self.logger.critical("%s failure", str(failure))
@@ -153,25 +165,8 @@ class BaseGroup(object):
         self.gossiper.start()
         self.pinger.start()
         self.joined = True
+
         
-
-    def handle_accused(self, member):
-        """Upcall when a member gets accused.
-
-        The default implementation rebuts accusation for itself."""
-
-        # Rebut accusation for this member.
-        isinstance(member, members.Member)
-        
-        if member.serial == self.peer.serial:
-            mask = self.peer.getMask()
-            newNote = members.Note(self.mcert.serial,
-                                   self.peer.note.epoch + 1,
-                                   self.peer.getMask())
-            newNote.badness = self.badness
-            self.mkey.sign(newNote)
-            reactor.callLater(0, self.view.addNotes, newNote)
-            self.view.stats.notesCreated += 1
 
 
     def _failback(self, reason):

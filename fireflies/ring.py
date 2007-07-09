@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.4 2007/06/21 07:37:14 haavardj Exp $
+## $Id: ring.py,v 1.5 2007/07/09 08:59:59 haavardj Exp $
 ##                
 ######################################################################
 
@@ -192,7 +192,7 @@ class Ring(object):
         lst = []
         s = self.succ(start)
         while s:
-            if s == stop: break
+            if s == start: break
             lst.append(s)
             s = self.succ(s)
         return lst            

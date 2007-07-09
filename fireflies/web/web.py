@@ -2,20 +2,19 @@
 ######################################################################
 ## Filename:      web.py
 ## Description:   
-## Author:        H�rd Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Haard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Fri Jan 20 12:29:37 2006
-## Modified by:   H�rd Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Haard Dagenborg Johansen <haavardj@cs.uit.no>
 ##  
-##         Copyright� 2006, University of Troms�rway)
+##         Copyright 2006, University of Tromso, Norway)
 ##                
-## $Id: web.py,v 1.2 2006/03/02 08:16:59 haavardj Exp $
+## $Id: web.py,v 1.3 2007/07/09 09:00:00 haavardj Exp $
 ##                
 ######################################################################
 
 from twisted.web import server, resource
 from twisted.internet import reactor, task
 import logging, fireflies, StringIO, socket, os.path, datetime
-import fireflies
 from nevow import appserver, static, loaders, rend
 from nevow import tags as T
 from math import log, ceil
@@ -231,7 +230,7 @@ class NodeViewer:
             self.interface= h
         else: self.interface = interface
         
-        self.root = RootPage(self.group.peer)
+        self.root = RootPage(self.group.me)
         ip2name[h] = socket.getfqdn(h)
         global gossipsubs, pingersubs
         gossipsubs = group.gossiper
@@ -321,8 +320,8 @@ class MasterPage(rend.Page):
                 c = datetime.datetime.now()
                 return context.tag.clear()[T.span[""]( _class="accusedbox", style="margin-right: 8px"),  "Failes in %s" % (str(to-c)) ]
 
-    def render_lifeline(self, context, peer):        
-        return context.tag.clear()[peer.note.lifeline]
+    def render_epoch(self, context, peer):        
+        return context.tag.clear()[peer.note.epoch]
 
     def render_mask(self, context, peer):
         assert isinstance(peer, fireflies.members.Member)
@@ -374,7 +373,7 @@ class MasterPage(rend.Page):
             bt = T.span["."](_class="active")
 
         if peer.note:
-            ll = T.span[str(peer.note.lifeline)]
+            ll = T.span[str(peer.note.epoch)]
         else:
             ll = T,span["-"]
         s[T.span[st, bt](style="background-color: #E9E9FF;"),
@@ -403,7 +402,7 @@ class MasterPage(rend.Page):
         for peer in l:
 
             if peer.note:
-                ll = T.td[str(peer.note.lifeline)]
+                ll = T.td[str(peer.note.epoch)]
             else:
                 ll = T.td["-"]
             
@@ -716,8 +715,8 @@ class PartnersPage(MasterPage):
                     d7 = T.td["mon"]
 
                 d5 = T.td[p.nPing]
-                pmist = self.peer.view.cacert.config["PMISTAKE"]
-                tmin = self.peer.view.cacert.config["TMIN"]
+                pmist = self.peer.group.cacert.config["PMISTAKE"]
+                tmin = self.peer.group.cacert.config["TMIN"]
                 psucc = min( 1./(p.avgLoss), 1. - pmist**(1./float(tmin)))
                 tau = log(pmist) / log(1. - psucc)
                 d6 = T.td[int(ceil(tau))]

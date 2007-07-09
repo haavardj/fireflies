@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.8 2007/06/26 08:57:24 haavardj Exp $
+## $Id: fd.py,v 1.9 2007/07/09 08:59:59 haavardj Exp $
 ##                
 ######################################################################
 
@@ -26,7 +26,7 @@ import new, random
 from packer import FirefliesPacker, FirefliesUnpacker
 from Crypto.Util.number import long_to_bytes, bytes_to_long
 
-ROUNDTIME = 2
+ROUNDTIME = 15
 PMISTAKE = 0.001
 SMOOTHING = 0.999
 TMIN = 3
@@ -221,7 +221,7 @@ class FailureDetector:
             return
         
         if myBadness == 2:
-            a = mon.pAccusations.get(x, None)
+            a = mon.vAccusations.get(x, None)
             if a and a.accuser == mpeer.id:
                 return
             
@@ -233,13 +233,13 @@ class FailureDetector:
             mkey.sign(accusation)
             view.stats.accusationsCreated += 1
             view.stats.accusationsCreatedByzantine += 1
-            view.addAccusations(accusation)
+            view.addAccusation(accusation)
             self.logger.warning("created %s aggressive attack", self.peer.view.pprint(accusation))
         elif myBadness == 0:
             
             #Do not accuse if this node has already made an accusation
             #on this ring.
-            a = mon.pAccusations.get(x, None)
+            a = mon.vAccusations.get(x, None)
             if a and (a.accuser == mpeer.id):
                 return
             a = mon.vAccusations.get(x, None)
@@ -259,7 +259,7 @@ class FailureDetector:
                                                  mpeer.id)
                 mkey.sign(accusation)
                 self.logger.warning("created %s t=%.2f nPing=%d", self.peer.view.pprint(accusation), t, mon.nPing)
-                view.addAccusations(accusation)                
+                view.addAccusation(accusation)                
                 view.stats.accusationsCreated += 1
 
                 #assert mon.nPing > 0
@@ -304,7 +304,7 @@ class PingPong(DatagramProtocol):
         if not sender.cert.verify(msg):
             self.logger.warning("ping<- %s Invalid ping", fromSn)
             return
-        self.logger.debug("ping<- %s", self.factory.peer)
+        #self.logger.debug("ping<- %s", self.factory.peer)
         self.pong(msg)
                 
     def handle_PongMsg(self, msg):
@@ -315,7 +315,7 @@ class PingPong(DatagramProtocol):
             return        
         sender = view.sn2peer.get(msg.fromSn, None)
         if sender:
-            self.logger.debug("pong<- %s", self.factory.peer)
+            #self.logger.debug("pong<- %s", self.factory.peer)
             if sender.nPing == 0:
                 return
             assert sender.avgLoss >= 1.0
@@ -326,7 +326,7 @@ class PingPong(DatagramProtocol):
             
     def ping(self, receiver):
         view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
-        self.logger.debug("ping-> %s", receiver.cert.address)
+        #self.logger.debug("ping-> %s", receiver.cert.address)
         msg = PingMsg(mkey.serial, receiver.serial)
         mkey.sign(msg)
         self.sendCommand(receiver, msg)
@@ -334,7 +334,7 @@ class PingPong(DatagramProtocol):
     def pong(self, pingMsg):
         view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
         sender = view.sn2peer[pingMsg.fromSn]        
-        self.logger.debug("pong-> %s", self.factory.peer)
+        #self.logger.debug("pong-> %s", self.factory.peer)
         
         msg = PongMsg(pingMsg)
         mkey.sign(msg)

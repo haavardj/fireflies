@@ -9,14 +9,14 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: packer.py,v 1.6 2007/06/26 08:57:24 haavardj Exp $
+## $Id: packer.py,v 1.7 2007/07/09 08:59:59 haavardj Exp $
 ##                
 ######################################################################
 
 
 
 from fireflies.members import Note, Accusation
-from fireflies.cert import CACertificate, MemberCertificate, serialSize
+from fireflies.crypto import CACertificate, MemberCertificate, serialSize
 
 import xdrlib, new, socket
 from Crypto.PublicKey import RSA

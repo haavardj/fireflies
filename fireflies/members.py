@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2007, Håvard D Johansen (Norway)
 ##                
-## $Id: members.py,v 1.11 2007/06/26 08:57:24 haavardj Exp $
+## $Id: members.py,v 1.12 2007/07/09 08:59:59 haavardj Exp $
 ##                
 ######################################################################
 
@@ -26,61 +26,20 @@ import random
 INITIAL_LRATE = 0.10
 
 def isValidMask(mask, t):
-    """Returns True if mask is valid given a Byzantine tolerance t."""
+    """Returns True if mask is valid given a Byzantine tolerance factor t."""
+
     if len(filter(lambda x: x == True, mask)) != t + 1: return False 
     if len(filter(lambda x: x == False, mask)) != t: return False 
     return True 
 
-def getMask(member, t): 
-    """Returns a mask that is based on t, nr rings, accusation history, and the old mask."""
-
-    # We need to disable t rings. If the member has not been
-    # accused on at least t rings, we pick disabled rings from the
-    # old mask. If the note has not been set for this member, we
-    # build a random mask.
-    
-    # p1 is a list of the ring numbers we are to disable. p1 is
-    # sorted according to which rings are to be disabled first.         
-    
-    if not isinstance(member, Member): raise ValueError
-    
-    p1 = map(lambda x: (member.__hAccusations[x], x), member.__hAccusations.keys())
-    p1.sort()
-    p1.reverse()
-    p1 = map(lambda x: x[1], p1)
-
-    if member.note and isValidMask(member.note.mask, t):
-        p2 = list(member.note.mask)
-    else:
-        p2 = ([False] * t) + ([True] * (t+ 1))
-        random.shuffle(p2)
-            
-    for n, v in enumerate(p2):
-        if v == True: continue
-        if len(p1) >= t: break
-        if n not in p1: p1.append(n)
-        
-    if not len(p1) >= t:
-        raise RuntimeError("Mask computation error.")
-
-    p1 = p1[0:t]
-        
-    mask = [True] * (2*t + 1)
-    for n in p1:
-        mask[n] = False
-        
-    assert isValidMask(mask, t)
-    return mask            
-
-
 def createInitialMask(t):
-    """Return a note with the specified serial, initial epoch of 1,
-    and a 2t+1 length mask with t disabled rings."""
+    """Return a mask of lenght 2t+1 with t randomly disabled rings."""
 
     rings = 2*t + 1
     mask = [False] * t + ([True] * (rings - t))
     random.shuffle(mask)
     return mask
+
 
 def createRebuttal(member, group, priv):
     T = group.T
@@ -197,32 +156,30 @@ class Member(object):
     note - the member's latest note. Update only with setNote.
     cert - the member's certificate. Does not change.
     id/serial - the serial number of the member's certificate.
-    view - The view the member is in.
     """
 
-    def __init__(self, mcert, group, note = None, initLRate=INITIAL_LRATE):
+    note = None
+
+    def __init__(self, mcert, group, initLRate=INITIAL_LRATE):
 
         #assert isinstance(mcert, cert.MemberCertificate), type(mcert)
         #assert isinstance(view, fireflies.view.View)
-        if note: assert isinstance(note, Note)
+
+        if not isinstance(group, fireflies.group.BaseGroup): raise ValueError
         
         self.cert = self.mcert = self._cert = mcert
         self.id = mcert.serial
         self.serial = self.mcert.serial
         self.group = group
-        self.view = group.view
-        self.note = note
-        self.note = None    
-        if note:
-            self.setNote(note)
-            assert isinstance(self.note, Note)
+        self.view = group.view       
+            
         self.logger = logging.getLogger(mcert.address)
         
         # Valid accusations. 
         self.vAccusations = {} 
 
         # Best accusation on each ring. Some might not be valid.
-        self.pAccusations = {} 
+        #self.pAccusations = {} 
 
         # At what time we received an accusation on each ring.
         self.hAccusations = {} 
@@ -250,7 +207,7 @@ class Member(object):
         self.__failed = True
 
 
-    def _setFailed(self, failed):
+    def setFailed(self, failed):
         """Set the failed status of the member."""
         
         # A member should never be set live when there's been no note.
@@ -262,65 +219,72 @@ class Member(object):
         return self.mcert.address
 
     def getEpoch(self):
-        return self.note.epoch
+        if not self.note: return 0
+        else: return self.note.epoch
     
     def getNote(self):
         return self.note
+    
+    def nextNote(self):
+        """Return a note for this member based on previous notes.
+        The returned note must be signed by this members private key before it is considered valid."""
+        
+        return Note(self.getSerial(), self.getEpoch() + 1, self.nextMask())       
+    
+    def nextMask(self): 
+        """Compute the next mask for this member."""
+    
+        # We need to disable t rings. If the member has not been
+        # accused on at least t rings, we pick disabled rings from the
+        # old mask. If the note has not been set for this member, we
+        # build a random mask.
+        
+        # p1 is a list of the ring numbers we are to disable. p1 is
+        # sorted according to which rings are to be disabled first.         
+        
+        
+        p1 = map(lambda x: (self.hAccusations[x], x), self.hAccusations.keys())
+        p1.sort()
+        p1.reverse()
+        p1 = map(lambda x: x[1], p1)
+        t = self.group.getByzantineToleranceLevel()
+        if not self.note: return createInitialMask(t)
+        assert isValidMask(self.note.mask, t)
+
+        p2 = list(self.note.mask)
+        for n, v in enumerate(p2):
+            if v == True: continue
+            if len(p1) >= t: break
+            if n not in p1: p1.append(n)
+            
+        if not len(p1) >= t:
+            raise RuntimeError("Mask computation error.")
+    
+        p1 = p1[0:t]
+            
+        mask = [True] * (2*t + 1)
+        for n in p1:
+            mask[n] = False
+            
+        assert isValidMask(mask, t)
+        return mask            
+        
     
     def getCertificate(self):
         """Return member's fireflies.crypto.MemberCertificate object."""
         return self._cert
     
+    def getAccusations(self):
+        return self.vAccusations.values()
+    
+    def getAccusation(self, rnr):
+        return self.vAccusations[rnr]
+    
     def getSerial(self):
         """Return serial number / member id."""
         return self._cert.serial
 
-    def getMask(self):
-        """Returns a mask that is based on t, nr rings, accusation history, and the old mask."""
-
-        t = self.view.getT()
-        nrr = 2*t + 1
-
-        # We need to disable t rings. If the member has not been
-        # accused on at least t rings, we pick disabled rings from the
-        # old mask. If the note has not been set for this member, we
-        # build a random mask.
-
-
-        # p1 is a list of the ring numbers we are to disable. p1 is
-        # sorted according to which rings are to be disabled first.         
-
-        p1 = map(lambda x: (self.hAccusations[x], x), self.hAccusations.keys())
-        p1.sort()
-        p1.reverse()
-        p1 = map(lambda x: x[1], p1)
-
-        if self.note and isValidMask(self.note.mask, t):
-            p2 = list(self.note.mask)
-        else:
-            p2 = ([False] * t) + ([True] * (t+ 1))
-            random.shuffle(p2)
-            
-        for n, v in enumerate(p2):
-            if v == True: continue
-            if len(p1) >= t: break
-            if n not in p1: p1.append(n)
-        
-        if not len(p1) >= t:
-            self.logger.error("mask computation error. len(p1) = %d, not %d", len(p1), t)
-            return p2
-
-        p1 = p1[0:t]
-        
-        mask = [True] * (2*t + 1)
-        for n in p1:
-            mask[n] = False
-        
-        if not isValidMask(mask, t):
-            self.logger.error("computed invalid mask %s. Assigning random mask", mask)
-            return p2
-        
-        return mask            
+          
 
     def isFailed(self):
         """Returns True if the member is failed."""
@@ -363,72 +327,67 @@ class Member(object):
         
         if self.note:
             if self.note.epoch >= note.epoch:
-                raise ValueError("Lifeline must be larger.")
+                raise ValueError("Epoch must be larger.")
 
-        self.view.nSet.append(note)
         if self.note:
-            self.view.nSet.remove(self.note)
+            #self.view.nSet.remove(self.note)
+            self.group.notify("data.note", self.note, False)
+            
+ 
         self.note = note
+        #self.view.nSet.append(note)
+        self.group.notify("data.note", note, True)
+
         
     def setAccusation(self, accusation):
         """Keep the given accusation. This will invalidate and
         overwrite an existing accusation on the particular ring.""" 
 
+        if not isinstance(accusation, Accusation): raise ValueError, accusation
         nr = accusation.nr
         assert accusation.epoch == self.note.epoch
         assert accusation.accused == self.serial
         assert self.note.mask[nr]
 
-        oldA = self.pAccusations.get(nr, None)
-        if oldA:
-            self.view.aSet.remove(oldA)
-        self.pAccusations[nr] = accusation
-        self.view.aSet.append(accusation)
-        
-        try: del self.vAccusations[nr]
-        except KeyError: pass
+        if self.vAccusations.has_key(nr):
+            a = self.vAccusations.pop(nr)
+            self.group.notify("data.accusation", a, False)
+            #self.view.aSet.remove(a)
 
+        self.hAccusations[nr] = fireflies.time.time()
+        self.vAccusations[nr] = accusation
+        #self.view.aSet.append(accusation)
+        self.group.notify("data.accusation", accusation, True)
+
+    def invalidateAccusation(self, accusation):
+        if not isinstance(accusation, Accusation): raise ValueError
+        rnr = accusation.nr
+        if not self.vAccusations[rnr] == accusation:
+            raise ValueError, "Given accusation not valid."
+        self.vAccusations.pop(rnr)
+        self.group.notify("data.accusation", accusation, False)
+
+    def invalidateAccusationOnRing(self, rnr):
+        self.invalidateAccusation(self.vAccusations[rnr])
+        
+        
     def hasAccusations(self):
         """Returns True if there are one or more accusations on the
         member. This includes invalid accusations."""
         
-        return bool(self.pAccusations)
+        return bool(self.vAccusations)
 
     def hasAccusationOn(self, ring):
         """Returns True if there is is an accusations on the given
         ring. This includes invalid accusation."""
         
-        return self.pAccusations.has_key(ring)
-
-    def validateAccusation(self, nr):
-        """Validate the accusation on ring 'nr'.
-
-        Raises KeyError if there currently is no accusation on the ring."""
+        return self.vAccusations.has_key(ring)
         
-        if not self.pAccusations.has_key(nr): raise KeyError, "No accusation available on ring %d" % nr
-        assert self.pAccusations[nr]
-        self.vAccusations[nr] = self.pAccusations[nr]
-        self.hAccusations[nr] = fireflies.time.time()
-        
-    def invalidateAccusation(self, nr):
-        """Invalidate the accusation on ring 'nr'."""
-
-        try:
-            del self.vAccusations[nr]
-        except KeyError:
-            raise KeyError, "No vaid accusation on ring %d" % nr
-
-    def invalidateAllAccusations(self):
-        """Invalidates all accusations."""
-        
-        self.vAccusations = {}
-
     def clearAccusations(self):
         """Remove all accusations for made on this peer."""
+        for rnr, a in self.vAccusations.items():
+            self.group.notify("data.accusation", a, False)
         self.vAccusations = {}
-        for a in self.pAccusations.values():
-            self.view.aSet.remove(a)
-        self.pAccusations = {}
 
     def __repr__(self):
         #return "%x" % bytes_to_long(self.serial)
