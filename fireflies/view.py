@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2007, Håvard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.2 2007/07/09 08:58:41 haavardj Exp $
+## $Id: view.py,v 1.3 2007/07/11 08:21:17 haavardj Exp $
 ##                
 ######################################################################
 
@@ -95,18 +95,21 @@ class View:
         self._timers = {}
 
     def _startRebuttalTimer(self, member):
-        if member in self._timers: raise ValueError("Timer already started.")
+        print "--------> startRebuttaltimer", member
+        if member in self._timers.keys(): raise ValueError("Timer already started.")
         self._timers[member] = reactor.callLater(self.timeout, self._toRebuttalTimer, member)
         
     def _toRebuttalTimer(self, member):
-        assert isinstance(member, fireflies.members.Member)
+        print "--------> toRebuttaltimers", member
+        assert isinstance(member, fireflies.Member)
         self.logger.info("%s failed", member)
-        member.setFailed(True)
+        assert member.isLive()
+        assert member.isAccused()
         self._timers.pop(member)
-        self.aRing.remove(member)
-        self.fRing.insert(member)
+        self._fail(member)
         
     def _stopRebuttalTimer(self, member):
+        print "--------> stop", member
         t = self._timers.pop(member)
         t.cancel()
 
@@ -131,6 +134,7 @@ class View:
 
     def _new(self, member):
         """Transition member state from unknown to failed."""
+        print "--------> new", member
         assert member not in self.fRing
         assert member not in self.pRing
         assert member not in self.aRing
@@ -143,6 +147,7 @@ class View:
 
     def _recover(self, member):
         """Transition member state from failed to live."""
+        print "--------> recover", member
         assert member in self.fRing
         assert member in self.pRing
         assert member not in self.aRing
@@ -163,6 +168,8 @@ class View:
         
     def _fail(self, member):
         """Transition member state from live to failed."""
+        
+        print "--------> fail", member
         assert member not in self.fRing
         assert member in self.pRing
         assert member in self.aRing
@@ -238,9 +245,6 @@ class View:
         if m.getEpoch() == note.epoch:
             # We have the note. Return silently.
             return 
-
-        #self.group.notify("note", note, True)
-        #self.group.notify("note", m.getNote(), False)
  
         if not m.isFailed():
             assert m.getEpoch() > 0
@@ -284,8 +288,8 @@ class View:
                             if not q.isAccusedOn(ring.nr): continue                        
                             qa = q.getAccusation(ring.nr)
                             assert isinstance(qa, Accusation)
-                            accuser = self.getMemberBySerial(qa.accuser)
-                            accused = self.getMemberBySerial(qa.accused)
+                            accuser = self.group.getMemberBySerial(qa.accuser)
+                            accused = self.group.getMemberBySerial(qa.accused)
                             if ring.isBetween(accuser, q, accused):
                                 assert q.isAccused()
                                 assert q.isAccusedOn(ring.nr)
@@ -411,7 +415,7 @@ class View:
 
         elif accuser == ring.pred(accused, func=lambda x: (not x.isAccused()) or (x == accuser)):
             accused.setAccusation(accusation)
-            if not self.hasActiveTimer(accused):
+            if (not self.hasActiveTimer(accused)) and accused.isLive():
                 self.logger.info("%s accused by %s on ring %d (timer started)", accused, accuser, accusation.nr)
                 self._startRebuttalTimer(accused)
 

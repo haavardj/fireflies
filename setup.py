@@ -5,13 +5,12 @@
 ## Description:   Fireflies setup file.
 ## Author:        Håard Dagenborg Johansen <haavardj@cs.uit.no>
 ##                
-## $Id: setup.py,v 1.3 2007/07/09 09:02:19 haavardj Exp $
+## $Id: setup.py,v 1.4 2007/07/11 08:21:16 haavardj Exp $
 ##                
 ######################################################################
 
 from distutils.core import setup, Extension
 import glob, os.path
-#import fireflies
 
 #########################################################################
 
@@ -33,10 +32,11 @@ module1 = Extension('fireflies.setrecon._setreconbase',
 
 #'fireflies/setrecon/setreconbase.i',
 
+
 setup(name="fireflies",
-      version="0.1.0", #fireflies.version,
+      version="0.0.1",
       description="Fireflies.",
-      author="Håvard D Johansen",
+      author="Haavard D Johansen",
       author_email="haavardj@cs.uit.no",
       url="http://sourceforge.net/projects/fireflies",
       scripts=['scripts/ffcakey', 'scripts/fireflyd',
@@ -44,7 +44,7 @@ setup(name="fireflies",
       packages=['fireflies', 'fireflies.web', 'fireflies.setrecon'],
       license="GPL",
       ext_modules = [module1],
-      data_files=[ ("lib/python2.3/site-packages/fireflies/web", wf),
-                   ("lib/python2.3/site-packages/fireflies/web/css", cf)
+      data_files=[ ("lib/python2.5/site-packages/fireflies/web", wf),
+                   ("lib/python2.5/site-packages/fireflies/web/css", cf)
                    ]
       )

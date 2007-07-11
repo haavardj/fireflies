@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip.py,v 1.7 2007/07/09 08:58:41 haavardj Exp $
+## $Id: gossip.py,v 1.8 2007/07/11 08:21:16 haavardj Exp $
 ##                
 ######################################################################
 
@@ -633,8 +633,8 @@ class ServerProtocol(GossipBase):
             self.sendCommand("authenticate", self.factory.service.me.cert, self.factory.service.me.note)
 
     def redirect(self, peer):
-        self.factory.peer.view.stats.redirect += 1
-        pprint = self.factory.peer.view.pprint
+        #self.factory.peer.view.stats.redirect += 1
+        pprint = self.factory.service.group.view.pprint
         self.logger.debug("redirect-> %s to %s", self, pprint(peer.cert))
         self.setTimeout()
         self.sendCommand("redirect", peer.cert, peer.note)

@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, University of Tromso, Norway)
 ##                
-## $Id: web.py,v 1.3 2007/07/09 09:00:00 haavardj Exp $
+## $Id: web.py,v 1.4 2007/07/11 08:21:17 haavardj Exp $
 ##                
 ######################################################################
 
@@ -107,6 +107,7 @@ class Grapher:
         Gnuplot.gp.GnuplotOpts.default_term = "png"
         g = Gnuplot.Gnuplot(debug=0)
         g("set terminal png transparent size 780,340")
+        #g("set terminal png transparent large")
         g("set xdata time")
         g("set timefmt '%s'")
         #g("set size 1.34,1")
@@ -313,7 +314,7 @@ class MasterPage(rend.Page):
         elif peer in self.peer.view.fRing:
             return t[ T.span[""](_class="failedbox", style="margin-right: 8px"), "Failed"]
         else:
-            if not peer.fdTimer:
+            if not peer.group.view.hasActiveTimer():
                 return t["???"]
             else:
                 to = datetime.datetime.fromtimestamp(peer.fdTimer.time)
@@ -457,7 +458,8 @@ class PeerPage(MasterPage):
 
         t = context.tag.clear()
         l = peer.vAccusations
-        nrRings = 2 * peer.view.getT() + 1
+        isinstance(peer, fireflies.Member)
+        nrRings = 2 * peer.group.getByzantineToleranceLevel() + 1
         
         rows = [
                  T.tr[ T.th["#"], T.th["S"], T.th["B"], T.th["Address"], T.th["LL"]]]
@@ -489,48 +491,11 @@ class PeerPage(MasterPage):
             rows.append( T.tr[ T.td[x](width="1" ), st, bt, a, T.td[enabled](width="1") ])
         return t[T.table[rows](_class="peerlist")]
 
-    def render_paccusations(self, context, peer):
+
+
+    def render_accusationList(self, context, l):
 
         t = context.tag.clear()
-        l = peer.pAccusations
-        nrRings = 2 * peer.view.getT() + 1
-        
-        rows = [T.tr[ T.th["#"], T.th["S"], T.th["B"], T.th["Address"], T.th["LL"]]]
-        for x in range(nrRings):
-            accus = l.get(x, None)
-            if peer.note.mask[x]: enabled = "Y"
-            else: enabled = "N"
-
-            if accus != None:
-                assert peer == self.peer.view.sn2peer[accus.accused]
-                p = self.peer.view.sn2peer[accus.accuser]
-                if p in self.peer.view.fRing:
-                    st = T.td[""](_class="failedbox")
-                elif p.isAccused():
-                    st = T.td[""](_class="accusedbox")
-                else:
-                    st = T.td[""](_class="livebox")
-                if p.note.badness == 0:
-                    bt = T.td[""](_class="correctbox")
-                elif p.note.badness == 1:
-                    bt = T.td[""](_class="passivebox")
-                elif p.note.badness == 2:
-                    bt = T.td[""](_class="activebox")
-
-                a = T.td[T.a[""](href="/%x" % bytes_to_long(p.id), _class="address", data=p, render=self.render_address)]
-            else:
-                st = bt = T.td[""](_class="nabox")
-                a = T.td[""](_class="address", width="100")
-                
-            rows.append( T.tr[ T.td[x](width="1" ), st, bt, a, T.td[enabled](width="1") ])
-        return t[T.table[rows](_class="peerlist")]
-
-
-
-
-    def render_accusationsHistory(self, context, peer):
-        t = context.tag.clear()
-        l = peer.allAccusations
         rows = [T.caption["Total %d" %len(l)],
             T.tr[ T.th["#"], T.th["S"], T.th["B"], T.th["Address"]]]
         for x in range(len(l)):

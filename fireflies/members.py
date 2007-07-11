@@ -1,21 +1,18 @@
-# -*- coding: iso-8859-1 -*-
 ######################################################################
 ## Filename:      members.py
 ## Description:   Fireflies member structures.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Haavard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Tue Jan 24 10:39:41 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Haavard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright© 2007, Håvard D Johansen (Norway)
+##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: members.py,v 1.12 2007/07/09 08:59:59 haavardj Exp $
+## $Id: members.py,v 1.13 2007/07/11 08:21:17 haavardj Exp $
 ##                
 ######################################################################
 
 
-
-from Crypto.Hash import SHA
 from Crypto.Util.number import long_to_bytes, bytes_to_long
 from math import *
 from twisted.internet import reactor

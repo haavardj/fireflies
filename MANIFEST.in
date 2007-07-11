@@ -1,1 +1,2 @@
 recursive-include fireflies/web *.html *.css
+recursive-include fireflies/setrecon *.h

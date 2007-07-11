@@ -9,7 +9,7 @@
 ## Licence: GPL (see LICENCE file).
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: setrecon.py,v 1.5 2007/07/09 08:59:34 haavardj Exp $
+## $Id: setrecon.py,v 1.6 2007/07/11 08:21:17 haavardj Exp $
 ##                
 ######################################################################
 
@@ -69,7 +69,7 @@ class ReconSet:
     def append(self, elm):
 
         zz_p = self.elmToZZp(elm)
-        print "----------> add", elm, zz_p
+        #print "----------> add", elm, zz_p
         if elm in self._data:
             assert zz_p in self._recon
             raise ValueError("Element in set.")
@@ -81,7 +81,7 @@ class ReconSet:
         
     def remove(self, elm):
         
-        print "--------_> remove", elm 
+        #print "--------_> remove", elm 
         if isinstance(elm, ZZ_p):
             zz_p = elm
         else:
