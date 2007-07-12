@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip.py,v 1.8 2007/07/11 08:21:16 haavardj Exp $
+## $Id: gossip.py,v 1.9 2007/07/12 06:48:02 haavardj Exp $
 ##                
 ######################################################################
 
@@ -809,7 +809,7 @@ class ClientProtocol(GossipBase):
     def handle_redirect(self, crt, note):
         self.cancelTimeout()
         self.logger.debug("redirect<- %s to %s", self, crt.address)
-        self.factory.view.addCerts(crt)
+        self.factory.view.addCertificate(crt)
         self.factory.view.addNote(note)
         self.hangup()
 
