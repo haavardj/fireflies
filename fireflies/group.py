@@ -9,14 +9,21 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: group.py,v 1.11 2007/07/09 08:59:59 haavardj Exp $
+## $Id: group.py,v 1.12 2007/07/12 08:59:32 haavardj Exp $
 ##                
 ######################################################################
 
 import logging
-import gossip, fd, members
+
+from fireflies.members import Accusation, Note, Member
+from fireflies.members import createInitialNote
+from fireflies.view import View
+from fd import FailureDetector
+from gossip import Gossip
+
 import fireflies.stats
-from twisted.internet import reactor    
+from twisted.internet import reactor
+
 
 class BaseGroup(object):
     """A basic Fireflies group object.
@@ -40,10 +47,10 @@ class BaseGroup(object):
         self.logger = logging.getLogger(mcert.address)
         self.cacert, self.mkey, self.mcert = cacert, mkey, mcert
 
-        self.view = fireflies.view.View(self, byzantineToleranceNumber=cacert.config["T"])
+        self.view = View(self, byzantineToleranceNumber=cacert.config["T"])
         
         if not mnote:
-            self.mnote = members.createInitialNote(mcert.serial, cacert.config["T"])
+            self.mnote = createInitialNote(mcert.serial, cacert.config["T"])
             self.view.stats.notesCreated += 1
         else: 
             self.mnote = mnote
@@ -60,10 +67,7 @@ class BaseGroup(object):
         t = self._eventSinkRegistry.get(name, [])
         t.append((func, args, kwargs))
         self._eventSinkRegistry[name] = t
-    
-    def getMemberBySerial(self, serial):
-        return self.view.sn2peer[serial]
-    
+        
     def getEventNames(self):
         return self._eventSinkRegistry.keys()
 
@@ -115,18 +119,15 @@ class BaseGroup(object):
         return self.cacert
 
     def getView(self):
+        """Return the group's view object."""
         return self.view
 
-    def getMembers(self):
-        """Returns a list of all members."""
-        return self.view.pRing
-
     def getGroupID(self):
-        """Returns the unique identifier if the group."""        
+        """Return the unique group identifier."""        
         return self.cacert.serial
 
     def getGroupName(self):
-        """Returns the group name."""
+        """Return the group name."""
         return self.cacert.name
     
     def getByzantineToleranceLevel(self):
@@ -150,9 +151,9 @@ class BaseGroup(object):
         peer = self.view.sn2peer[mcert.serial]
         self.view.addNote(self.mnote)
         self.peer = self.me = peer
-        isinstance(self.peer, members.Member)
-        self.pinger = fd.FailureDetector(peer, self.mkey)
-        self.gossiper = gossip.Gossip(self, peer)
+        isinstance(self.peer, Member)
+        self.pinger = FailureDetector(peer, self.mkey)
+        self.gossiper = Gossip(self, peer)
         
         for c, n in bootnodes:
             self.view.addCertificate(c)
@@ -165,9 +166,6 @@ class BaseGroup(object):
         self.gossiper.start()
         self.pinger.start()
         self.joined = True
-
-        
-
 
     def _failback(self, reason):
         self.logger.exception(reason)

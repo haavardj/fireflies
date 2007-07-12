@@ -9,7 +9,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: __init__.py,v 1.12 2007/07/09 09:20:37 haavardj Exp $
+## $Id: __init__.py,v 1.13 2007/07/12 08:59:31 haavardj Exp $
 ##                
 ######################################################################
 
@@ -90,7 +90,7 @@ defaultConfig = {
     }
 
 
-from members import Member, Note, Accusation
-from crypto import MemberCertificate, CACertificate
-from group import BaseGroup
-from view import View
+#from members import Member, Note, Accusation
+#from crypto import MemberCertificate, CACertificate
+#from group import BaseGroup
+#from view import View

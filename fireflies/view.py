@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.4 2007/07/12 06:48:02 haavardj Exp $
+## $Id: view.py,v 1.5 2007/07/12 08:59:32 haavardj Exp $
 ##                
 ######################################################################
 
@@ -16,28 +16,18 @@ from Crypto.Hash import SHA
 from Crypto.Util.number import bytes_to_long
 from math import *
 from twisted.internet import reactor
-import fireflies.crypto
 import logging
-import random
 import fireflies
+from fireflies.members import Note, Accusation, Member
+from fireflies.crypto import MemberCertificate
+
+from fireflies import ring
 import fireflies.stats
-import fireflies.ring
-
-from fireflies import Member, Note, Accusation
-import fireflies.members
-from fireflies.members import isValidMask
-
-HISTORYSIZE = 100
-
-EV_RECOVER_REBUTTAL = 1
-
-
 
 _mRingIDCache = {}
 def _mRingID(member, ringNr):
-    """Return a members's identifier on a ring nr."""
+    """Return the hash of member's identifier concatenated with ringNr."""
     
-    if False: isinstance(member, Member)    
     try:
         return _mRingIDCache[member.getSerial()][ringNr]
     except KeyError:
@@ -47,21 +37,19 @@ def _mRingID(member, ringNr):
         ids[ringNr] = idOnRing
         _mRingIDCache[memberId] = ids
         return idOnRing
-   
     
-class SerialRing(fireflies.ring.Ring):
-    """A ring of Peer object. The ring is sorted according to the peer
-    id attribute."""
+class SerialRing(ring.Ring):
+    """A ring of member object. The ring is sorted according to the members' identites."""
 
     def _sortKey(self, item):
         return item.id
      
-class MemberRing(fireflies.ring.NumberedRing):
+class MemberRing(ring.NumberedRing):
      
     def _sortKey(self, item):
         return _mRingID(item, self.nr)
 
-class MemberRings(fireflies.ring.NumberedSetOfRings):    
+class MemberRings(ring.NumberedSetOfRings):    
     ringClass = MemberRing
 
 
@@ -88,7 +76,6 @@ class View:
         self.mRings = MemberRings(self.numberOfRings)
 
         self.logger = logging.getLogger(self.group.getGroupName())
-        self._dirty = False
         self._timers = {}
 
     def _startRebuttalTimer(self, member):
@@ -96,7 +83,7 @@ class View:
         self._timers[member] = reactor.callLater(self.timeout, self._toRebuttalTimer, member)
         
     def _toRebuttalTimer(self, member):
-        assert isinstance(member, fireflies.Member)
+        assert isinstance(member, Member)
         self.logger.info("%s failed", member)
         assert member.isLive()
         assert member.isAccused()
@@ -109,9 +96,21 @@ class View:
 
     def hasActiveTimer(self, member):
         return member in self._timers
+    
+    def getMembers(self):
+        """Return a list of live members."""
+        return self.aRing
 
-    def getMember(self, serial):
-        return self.sn2peer[serial]
+    def getFailedMembers(self):
+        """Return a list of failed members."""
+        return self.fRing
+
+    def getAllMembers(self):
+        """Return a list of all (live + failed) members."""
+        return self.pRing
+
+    def getMemberByIdentity(self, id):
+        return self.sn2peer[id]
 
     def getMembersByAddress(self, address):
         return filter(lambda x: x.cert.address == address, self.pRing)
@@ -180,7 +179,7 @@ class View:
              -TypeError: elm is not a MemberCertificate object.
              -ValueError: The certificate already exists."""
         
-        if not isinstance(elm, fireflies.crypto.MemberCertificate): raise TypeError, type(elm)
+        if not isinstance(elm, MemberCertificate): raise TypeError, type(elm)
         self.stats.certsTotal += 1
             
         if not self.group.getGroupCertificate().verify(elm): 
@@ -188,7 +187,7 @@ class View:
             #self.logger.warning("discard %s invalid CA signature.", c)
             raise ValueError("Certificate not correctly signed %s." % str(elm))
         try:
-            m = self.group.getMemberBySerial(elm.serial)
+            m = self.getMemberByIdentity(elm.serial)
         except KeyError:
             m = None
             
@@ -196,7 +195,7 @@ class View:
             m.stats.certsRedundant += 1
             self.logger.debug("discard %s redundant", elm)
         else:                
-            m = fireflies.members.Member(elm, self.group)
+            m = Member(elm, self.group)
             m.group = self.group
             self._new(m)
             self.group.notify("data.certificate", elm, True)
@@ -212,7 +211,7 @@ class View:
            - TypeError: note is not a Note object.
            - ByzantineError: Invalid mask. Note must have disabled exactly t rings."""
         
-        if not isinstance(note, fireflies.members.Note): raise TypeError
+        if not isinstance(note, Note): raise TypeError
         
         #self.stats.notesTotal +=1 
         if not note.serial in self.sn2peer:
@@ -220,15 +219,15 @@ class View:
             self.logger.warning("discard %s unknown peer", note)
             raise ValueError
         
-        m = self.group.getMemberBySerial(note.serial)
+        m = self.getMemberByIdentity(note.serial)
     
-        assert isinstance(m, fireflies.members.Member)
+        assert isinstance(m, Member)
         if m.note: assert m.note.serial == note.serial
                 
         if not m.getCertificate().verify(note):
             raise ValueError("Invalid Signature")
         
-        if not isValidMask(note.mask, self.group.getByzantineToleranceLevel()): 
+        if not fireflies.members.isValidMask(note.mask, self.group.getByzantineToleranceLevel()): 
             #self.logger.warning("discard %s invalid mask", self.pprint(note))
             raise fireflies.members.ByzantineError("Invalid mask %s from %s" % (str(note.mask), note))
         
@@ -281,8 +280,8 @@ class View:
                             if not q.isAccusedOn(ring.nr): continue                        
                             qa = q.getAccusation(ring.nr)
                             assert isinstance(qa, Accusation)
-                            accuser = self.group.getMemberBySerial(qa.accuser)
-                            accused = self.group.getMemberBySerial(qa.accused)
+                            accuser = self.getMemberByIdentity(qa.accuser)
+                            accused = self.getMemberByIdentity(qa.accused)
                             if ring.isBetween(accuser, q, accused):
                                 assert q.isAccused()
                                 assert q.isAccusedOn(ring.nr)
@@ -318,7 +317,7 @@ class View:
                  - the accused has disabled the ring, or
                  - the accused epoch is larger than in the current held note. """        
         
-        if not isinstance(accusation, fireflies.members.Accusation): raise TypeError            
+        if not isinstance(accusation, Accusation): raise TypeError            
         #self.stats.accusationsTotal += 1        
         
         accusedID = accusation.accused
@@ -333,7 +332,7 @@ class View:
             raise ValueError
 
         accused = self.sn2peer[accusedID]
-        assert isinstance(accused, fireflies.Member)            
+        assert isinstance(accused, Member)            
         # Ditto for the accuser
         if not accuserID in self.sn2peer:
             #self.stats.accusationsInvalid += 1
@@ -341,7 +340,7 @@ class View:
             raise ValueError
         
         accuser = self.sn2peer[accuserID]
-        assert isinstance(accuser, fireflies.members.Member)  
+        assert isinstance(accuser, Member)  
         
         if not accuser.getCertificate().verify(accusation):
             #    accuser.stats.accuseByzantine += 1
@@ -398,9 +397,9 @@ class View:
         if accused.hasAccusationOn(rnr):
             assert accused.isAccused()
             currentAccusation = accused.getAccusation(rnr)
-            currentAccuser = self.group.getMemberBySerial(currentAccusation.accuser)
+            currentAccuser = self.getMemberByIdentity(currentAccusation.accuser)
             assert isinstance(currentAccusation, Accusation)
-            assert isinstance(currentAccuser, fireflies.member.Member)
+            assert isinstance(currentAccuser, Member)
             
             if ring.isBetween(currentAccuser, accuser, accused):
                 accused.setAccusation(accusation)
@@ -733,7 +732,7 @@ class View:
                     #assert not peer.fdTimer
                     #self.logger.warning("%s invalidated accusations reviving", self.pprint(peer))
                     #self.revive(peer)
-                    #self.group.notify("member.recover", peer, fireflies.EV_RECOVER_INVALIDATED)
+                    #self.group.notify("member.recover", peer, EV_RECOVER_INVALIDATED)
                     #continue
                 #else:
                     #pass

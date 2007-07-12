@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.9 2007/07/09 08:59:59 haavardj Exp $
+## $Id: fd.py,v 1.10 2007/07/12 08:59:32 haavardj Exp $
 ##                
 ######################################################################
 
@@ -25,6 +25,7 @@ import new, random
 
 from packer import FirefliesPacker, FirefliesUnpacker
 from Crypto.Util.number import long_to_bytes, bytes_to_long
+
 
 ROUNDTIME = 15
 PMISTAKE = 0.001

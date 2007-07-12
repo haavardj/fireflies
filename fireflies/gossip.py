@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip.py,v 1.9 2007/07/12 06:48:02 haavardj Exp $
+## $Id: gossip.py,v 1.10 2007/07/12 08:59:32 haavardj Exp $
 ##                
 ######################################################################
 
@@ -22,10 +22,15 @@ from twisted.protocols.basic import Int32StringReceiver
 from twisted.internet import reactor, task, defer
 from Crypto.Hash import MD5
 import sha
-import fireflies, members, time, cert, setrecon
-from cert import TimestampMixin
-import copy, sys, setrecon
+import copy, sys
+import fireflies
+from fireflies import setrecon
+from fireflies.view import MemberRings
+from fireflies.members import Note, Accusation, Member
+from fireflies.crypto import MemberCertificate
+
 setrecon.init(fireflies.defaultConfig['BITSIZE'], fireflies.defaultConfig['MBAR'])
+
 
 PARTITION_FACTOR = 3
 RECON_EXTRA = 5
@@ -75,21 +80,20 @@ class Gossip:
         self.group = group
         self.me = me
         self.byzantineToleranceNumber = byzantineToleranceNumber
-        self.rings = fireflies.view.MemberRings(byzantineToleranceNumber)
+        self.rings = MemberRings(byzantineToleranceNumber)
         self.logger = logging.getLogger()        
         self.sFactory = GossipServerFactory(self, TCPTimeout)
         self.cFactory = GossipClientFactory(self, rate, TCPTimeout)    
         
         self.group.registerEventHandler("member.crash", self.evMemberNew)
-        for m in group.getMembers():
+        for m in group.view.getMembers():
             self.rings.insert(m)
       
         self.cSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
         self.nSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
         self.aSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
 
-        print "init data sets"
-        for m in self.group.getMembers():
+        for m in self.group.view.getMembers():
             self.cSet.append(m.getCertificate())
             if m.getNote(): self.nSet.append(m.getNote())
             for a in m.getAccusations(): self.aSet.append(a)
@@ -212,13 +216,13 @@ class GossipBase(Int32StringReceiver):
 
             elif cmd == "reconcile_data":
                 data, = args
-                if isinstance(data, fireflies.Accusation):
+                if isinstance(data, Accusation):
                     p.pack_uint(DATA_ACCUSATION_ID)
                     p.pack_accusation(data)
-                elif isinstance(data, fireflies.Note):
+                elif isinstance(data, Note):
                     p.pack_uint(DATA_NOTE_ID)
                     p.pack_note(data)
-                elif isinstance(data, fireflies.MemberCertificate):
+                elif isinstance(data, MemberCertificate):
                     p.pack_uint(DATA_CERTIFICATE_ID)
                     p.pack_cert(data)
                 else:

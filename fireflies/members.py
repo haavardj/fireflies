@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: members.py,v 1.13 2007/07/11 08:21:17 haavardj Exp $
+## $Id: members.py,v 1.14 2007/07/12 08:59:32 haavardj Exp $
 ##                
 ######################################################################
 
@@ -16,8 +16,15 @@
 from Crypto.Util.number import long_to_bytes, bytes_to_long
 from math import *
 from twisted.internet import reactor
-import bisect, fireflies, cert, logging, setrecon
+from fireflies.stats import Stats
+import bisect, cert, logging, setrecon
 import random
+import stats
+
+
+class ByzantineError(Exception):
+    """Raised when byzantine behaviour is detected."""
+
 
 
 INITIAL_LRATE = 0.10
@@ -36,7 +43,6 @@ def createInitialMask(t):
     mask = [False] * t + ([True] * (rings - t))
     random.shuffle(mask)
     return mask
-
 
 def createRebuttal(member, group, priv):
     T = group.T
@@ -161,15 +167,12 @@ class Member(object):
 
         #assert isinstance(mcert, cert.MemberCertificate), type(mcert)
         #assert isinstance(view, fireflies.view.View)
-
-        if not isinstance(group, fireflies.group.BaseGroup): raise ValueError
         
         self.cert = self.mcert = self._cert = mcert
         self.id = mcert.serial
         self.serial = self.mcert.serial
         self.group = group
         self.view = group.view       
-            
         self.logger = logging.getLogger(mcert.address)
         
         # Valid accusations. 
@@ -200,7 +203,7 @@ class Member(object):
         # Used by the web status displayer        
         self.allAccusations = []
 
-        self.stats = fireflies.stats.Stats()
+        self.stats = Stats()
         self.__failed = True
 
 
@@ -266,7 +269,6 @@ class Member(object):
         assert isValidMask(mask, t)
         return mask            
         
-    
     def getCertificate(self):
         """Return member's fireflies.crypto.MemberCertificate object."""
         return self._cert
@@ -280,8 +282,6 @@ class Member(object):
     def getSerial(self):
         """Return serial number / member id."""
         return self._cert.serial
-
-          
 
     def isFailed(self):
         """Returns True if the member is failed."""
@@ -306,7 +306,6 @@ class Member(object):
 
         return self.vAccusations.has_key(ring)
 
-
     def setNote(self, note):
         """Update the note of this member.
 
@@ -330,7 +329,6 @@ class Member(object):
             #self.view.nSet.remove(self.note)
             self.group.notify("data.note", self.note, False)
             
- 
         self.note = note
         #self.view.nSet.append(note)
         self.group.notify("data.note", note, True)
@@ -366,7 +364,6 @@ class Member(object):
 
     def invalidateAccusationOnRing(self, rnr):
         self.invalidateAccusation(self.vAccusations[rnr])
-        
         
     def hasAccusations(self):
         """Returns True if there are one or more accusations on the
