@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip5.py,v 1.1 2007/06/21 06:37:50 haavardj Exp $
+## $Id: gossip5.py,v 1.2 2007/07/13 14:00:00 haavardj Exp $
 ##                
 ######################################################################
 
@@ -419,7 +419,7 @@ class FirefliesProtocol(fireflies.mesh.MeshBaseProtocol):
 
                 if badness == 2 and self.setName == "nSet":
                     # If active attack, forward only our own notes.
-                    if d.serial != self.factory.peer.serial:
+                    if d.identity != self.factory.peer.identity:
                         continue                
                 self.sendCommand("reconcile_data", d)
 

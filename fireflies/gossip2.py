@@ -272,14 +272,14 @@ class GossipMessagingProtocol(XDRMessagingProtocol):
         view = self.factory.peer.view
         pprint = view.pprint
 
-        if note.serial != crt.serial:
-            self.logger.warning("authenticate<- %s Error. Note and crt serial do not match.", self)
+        if note.identity != crt.identity:
+            self.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
             self.hangup()
         else:
             self.logger.debug("authenticate<- %s %s", self, pprint(crt))
             view.addCerts(crt)
             view.addNotes(note)
-            self.peer = view.sn2peer[note.serial]
+            self.peer = view.sn2peer[note.identity]
             self.setTimeout()
             self.sendCommand("authenticate", self.factory.peer.cert, self.factory.peer.note)
 
@@ -523,13 +523,13 @@ class ClientProtocol(GossipBase):
         pprint = self.factory.peer.view.pprint
         self.cancelTimeout()
         
-        if crt.serial != self.peer.id:
+        if crt.identity != self.peer.id:
             self.logger.warning("authenticate<- %s Error. Expected %s. Got  %s.", self, pprint(self.peer.cert), pprint(crt))
             self.hangup()
             return
 
-        if  note.serial != self.peer.id:
-            self.logger.warning("authenticate<- %s Error. Note and crt serial do not match.", self)
+        if  note.identity != self.peer.id:
+            self.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
             self.hangup()
             return
 

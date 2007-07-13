@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip.py,v 1.10 2007/07/12 08:59:32 haavardj Exp $
+## $Id: gossip.py,v 1.11 2007/07/13 14:00:26 haavardj Exp $
 ##                
 ######################################################################
 
@@ -347,7 +347,7 @@ class GossipBase(Int32StringReceiver):
 
     def __repr__(self):
         if self.other:
-            return "%s,%s" % (self.factory.service.group.view.pprint(self.other.note), self.state) 
+            return "%s,%s" % (self.factory.service.group.view.pprint(self.other.getNote()), self.state) 
         elif self.transport:
             addr = self.transport.getPeer()
             return "%s:%d,%s" % (addr.host, addr.port, self.state)
@@ -568,7 +568,7 @@ class GossipBase(Int32StringReceiver):
 
                 if badness == 2 and self.setName == "nSet":
                     # If active attack, forward only our own notes.
-                    if d.serial != self.factory.service.me.getSerial():
+                    if d.identity != self.factory.service.me.getSerial():
                         continue                
                 self.sendCommand("reconcile_data", d)
                 self.logger.debug("reconcile_data->%s %s", self, d)
@@ -625,23 +625,23 @@ class ServerProtocol(GossipBase):
         view = self.factory.service.group.view
         pprint = view.pprint
 
-        if note.serial != crt.serial:
-            self.logger.warning("authenticate<- %s Error. Note and crt serial do not match.", self)
+        if note.identity != crt.identity:
+            self.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
             self.hangup()
         else:
             self.logger.debug("authenticate<- %s %s", self, pprint(crt))
             view.addCertificate(crt)
             view.addNote(note)
-            self.other = view.sn2peer[crt.serial]
+            self.other = view.sn2peer[crt.identity]
             self.setTimeout()
-            self.sendCommand("authenticate", self.factory.service.me.cert, self.factory.service.me.note)
+            self.sendCommand("authenticate", self.factory.service.me.cert, self.factory.service.me.getNote())
 
     def redirect(self, peer):
         #self.factory.peer.view.stats.redirect += 1
         pprint = self.factory.service.group.view.pprint
         self.logger.debug("redirect-> %s to %s", self, pprint(peer.cert))
         self.setTimeout()
-        self.sendCommand("redirect", peer.cert, peer.note)
+        self.sendCommand("redirect", peer.cert, peer.getNote())
 
     def accept(self):
         self.logger.debug("accepted-> %s", self)
@@ -784,13 +784,13 @@ class ClientProtocol(GossipBase):
         pprint = self.factory.peer.view.pprint
         self.cancelTimeout()
         
-        if crt.serial != self.other.id:
+        if crt.identity != self.other.id:
             self.logger.warning("authenticate<- %s Error. Expected %s. Got  %s.", self, pprint(self.other.cert), pprint(crt))
             self.hangup()
             return
 
-        if  note.serial != self.other.id:
-            self.logger.warning("authenticate<- %s Error. Note and crt serial do not match.", self)
+        if  note.identity != self.other.id:
+            self.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
             self.hangup()
             return
 
@@ -1024,7 +1024,7 @@ class GossipClientFactory(ClientFactory):
     #def startedConnecting(self, connector):
         
     def getCredentials(self):
-        return (self.peer.cert, self.peer.note)
+        return (self.peer.cert, self.peer.getNote())
         
     def connect(self, peer, ringNr):
         if peer.cert.address in self._initializing:
@@ -1053,7 +1053,7 @@ class GossipClientFactory(ClientFactory):
             d.addErrback(_f)
 
             for m in self.peer.view.pRing:
-                assert m.note
+                assert m.getNote()
             
         def _1(result):
             d = protocol.reconcile("nSet", self.service.nSet, lambda x: map(self.peer.view.addNote, x))
@@ -1094,7 +1094,7 @@ class GossipClientFactory(ClientFactory):
             if partnerOnX.id == self.peer.id:
                 break
 
-        if partnerOnX.serial == self.peer.serial:
+        if partnerOnX.identity == self.peer.identity:
             # No other peers in ring. Leave things as they are.
             pass
         else:
@@ -1102,7 +1102,7 @@ class GossipClientFactory(ClientFactory):
                 # We do not have an active connection on this ring, so
                 # make one.
                 ids = map(lambda t: t.other.id, filter(None, self.connections[0:x]))
-                if (DUBLICATEPARTNERS) or (partnerOnX.serial not in ids):
+                if (DUBLICATEPARTNERS) or (partnerOnX.identity not in ids):
                     if not partnerOnX.cert.address in self._initializing:
                         self.connect(partnerOnX, x)
                 else:

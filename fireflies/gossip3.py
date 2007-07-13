@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip3.py,v 1.3 2006/01/31 13:53:41 haavardj Exp $
+## $Id: gossip3.py,v 1.4 2007/07/13 13:59:27 haavardj Exp $
 ##                
 ######################################################################
 
@@ -384,14 +384,14 @@ class ServerProtocol(GossipBase):
         view = self.factory.peer.view
         pprint = view.pprint
 
-        if note.serial != crt.serial:
-            self.logger.warning("authenticate<- %s Error. Note and crt serial do not match.", self)
+        if note.identity != crt.identity:
+            self.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
             self.hangup()
         else:
             self.logger.debug("authenticate<- %s %s", self, pprint(crt))
             view.addCerts(crt)
             view.addNotes(note)
-            self.other = view.sn2peer[crt.serial]
+            self.other = view.sn2peer[crt.identity]
             self.setTimeout()
             self.sendCommand("authenticate", self.factory.peer.cert, self.factory.peer.note)
 
@@ -680,13 +680,13 @@ class ClientProtocol(GossipBase):
         pprint = self.factory.peer.view.pprint
         self.cancelTimeout()
         
-        if crt.serial != self.other.id:
+        if crt.identity != self.other.id:
             self.logger.warning("authenticate<- %s Error. Expected %s. Got  %s.", self, pprint(self.other.cert), pprint(crt))
             self.hangup()
             return
 
-        if  note.serial != self.other.id:
-            self.logger.warning("authenticate<- %s Error. Note and crt serial do not match.", self)
+        if  note.identity != self.other.id:
+            self.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
             self.hangup()
             return
 
@@ -1260,7 +1260,7 @@ class GossipClientFactory(ClientFactory):
             if partnerOnX.id == self.peer.id:
                 break
 
-        if partnerOnX.serial == self.peer.serial:
+        if partnerOnX.identity == self.peer.identity:
             # No other peers in ring. Leave things as they are.
             pass
         else:
@@ -1268,7 +1268,7 @@ class GossipClientFactory(ClientFactory):
                 # We do not have an active connection on this ring, so
                 # make one.
                 ids = map(lambda t: t.other.id, filter(None, self.connections[0:x]))
-                if (DUBLICATEPARTNERS) or (partnerOnX.serial not in ids):
+                if (DUBLICATEPARTNERS) or (partnerOnX.identity not in ids):
                     if not partnerOnX.cert.address in self._initializing:
                         self.connect(partnerOnX, x)
                 else:
