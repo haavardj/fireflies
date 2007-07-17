@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: gossip.py,v 1.11 2007/07/13 14:00:26 haavardj Exp $
+## $Id: gossip.py,v 1.12 2007/07/17 13:42:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -26,8 +26,7 @@ import copy, sys
 import fireflies
 from fireflies import setrecon
 from fireflies.view import MemberRings
-from fireflies.members import Note, Accusation, Member
-from fireflies.crypto import MemberCertificate
+from fireflies.state import Note, Accusation, Member, MemberCertificate
 
 setrecon.init(fireflies.defaultConfig['BITSIZE'], fireflies.defaultConfig['MBAR'])
 
@@ -568,7 +567,7 @@ class GossipBase(Int32StringReceiver):
 
                 if badness == 2 and self.setName == "nSet":
                     # If active attack, forward only our own notes.
-                    if d.identity != self.factory.service.me.getSerial():
+                    if d.identity != self.factory.service.me.getIdentity():
                         continue                
                 self.sendCommand("reconcile_data", d)
                 self.logger.debug("reconcile_data->%s %s", self, d)
@@ -634,14 +633,14 @@ class ServerProtocol(GossipBase):
             view.addNote(note)
             self.other = view.sn2peer[crt.identity]
             self.setTimeout()
-            self.sendCommand("authenticate", self.factory.service.me.cert, self.factory.service.me.getNote())
+            self.sendCommand("authenticate", self.factory.service.me.getCertificate(), self.factory.service.me.getNote())
 
     def redirect(self, peer):
         #self.factory.peer.view.stats.redirect += 1
         pprint = self.factory.service.group.view.pprint
-        self.logger.debug("redirect-> %s to %s", self, pprint(peer.cert))
+        self.logger.debug("redirect-> %s to %s", self, pprint(peer.getCertificate()))
         self.setTimeout()
-        self.sendCommand("redirect", peer.cert, peer.getNote())
+        self.sendCommand("redirect", peer.getCertificate(), peer.getNote())
 
     def accept(self):
         self.logger.debug("accepted-> %s", self)
@@ -784,12 +783,12 @@ class ClientProtocol(GossipBase):
         pprint = self.factory.peer.view.pprint
         self.cancelTimeout()
         
-        if crt.identity != self.other.id:
-            self.logger.warning("authenticate<- %s Error. Expected %s. Got  %s.", self, pprint(self.other.cert), pprint(crt))
+        if crt.identity != self.other.getIdentity():
+            self.logger.warning("authenticate<- %s Error. Expected %s. Got  %s.", self, pprint(self.other.getCertificate()), pprint(crt))
             self.hangup()
             return
 
-        if  note.identity != self.other.id:
+        if  note.identity != self.other.getIdentity():
             self.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
             self.hangup()
             return
@@ -940,7 +939,7 @@ class GossipServerFactory(ServerFactory):
             hisPartner = self.service.rings[rnr].succ(hisPartner)
 
         cp = self.cons[rnr]
-        if hisPartner.id != me.id:
+        if hisPartner.getIdentity() != me.getIdentity():
             # The connecting client is not my partner, we therefore
             # redirect him to whom he should talk to.
             protocol.redirect(hisPartner)
@@ -1024,17 +1023,17 @@ class GossipClientFactory(ClientFactory):
     #def startedConnecting(self, connector):
         
     def getCredentials(self):
-        return (self.peer.cert, self.peer.getNote())
+        return (self.peer.getCertificate(), self.peer.getNote())
         
     def connect(self, peer, ringNr):
-        if peer.cert.address in self._initializing:
+        if peer.getAddress() in self._initializing:
             raise Exception, "Allready connecting to this guy"
         
-        host, port = peer.cert.address.split(":")
+        host, port = peer.getAddress().split(":")
         port = int(port)
         prot = ClientProtocol(peer, ringNr)
         prot.logger = self.logger
-        self._initializing[peer.cert.address] = prot
+        self._initializing[peer.getAddress()] = prot
         
         cc = self.connections[ringNr]
         if cc and cc.state != cc.STATE_TERMINATED:
@@ -1094,16 +1093,16 @@ class GossipClientFactory(ClientFactory):
             if partnerOnX.id == self.peer.id:
                 break
 
-        if partnerOnX.identity == self.peer.identity:
+        if partnerOnX.getIdentity() == self.peer.getIdentity():
             # No other peers in ring. Leave things as they are.
             pass
         else:
             if (not cg) or (cg.state == cg.STATE_TERMINATED):
                 # We do not have an active connection on this ring, so
                 # make one.
-                ids = map(lambda t: t.other.id, filter(None, self.connections[0:x]))
-                if (DUBLICATEPARTNERS) or (partnerOnX.identity not in ids):
-                    if not partnerOnX.cert.address in self._initializing:
+                ids = map(lambda t: t.other.getIdentity(), filter(None, self.connections[0:x]))
+                if (DUBLICATEPARTNERS) or (partnerOnX.getIdentity() not in ids):
+                    if not partnerOnX.getAddress() in self._initializing:
                         self.connect(partnerOnX, x)
                 else:
                     self.connections[x] = None
@@ -1114,7 +1113,7 @@ class GossipClientFactory(ClientFactory):
 
                 if partnerOnX != cg.other:
                     cg.hangup()
-                    if not partnerOnX.cert.address in self._initializing:
+                    if not partnerOnX.getAddress() in self._initializing:
                         self.connect(partnerOnX, x)
                 elif cg.state == cg.STATE_IDLE:
                     self.reconcile(cg)

@@ -168,8 +168,8 @@ class FirefliesProtocol(twisted.protocols.basic.Int32StringReceiver, TimeoutMixi
         isinstance(group, fireflies.group.Group) 
         self.factory.logger.debug("authenticate<- %s %s %s server=%s", self, crt, note, str(self.server))
 
-        if note.serial != crt.serial:
-            self.mesh.logger.warning("authenticate<- %s Error. Note and crt serial do not match.", self)
+        if note.identity != crt.identity:
+            self.mesh.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
             self.hangup()
             return
 

@@ -9,14 +9,14 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: group.py,v 1.12 2007/07/12 08:59:32 haavardj Exp $
+## $Id: group.py,v 1.13 2007/07/17 13:42:52 haavardj Exp $
 ##                
 ######################################################################
 
 import logging
 
-from fireflies.members import Accusation, Note, Member
-from fireflies.members import createInitialNote
+from fireflies.state import Accusation, Note, Member
+from fireflies.state import createInitialNote
 from fireflies.view import View
 from fd import FailureDetector
 from gossip import Gossip
@@ -50,7 +50,7 @@ class BaseGroup(object):
         self.view = View(self, byzantineToleranceNumber=cacert.config["T"])
         
         if not mnote:
-            self.mnote = createInitialNote(mcert.serial, cacert.config["T"])
+            self.mnote = createInitialNote(mcert.identity, cacert.config["T"])
             self.view.stats.notesCreated += 1
         else: 
             self.mnote = mnote
@@ -105,8 +105,8 @@ class BaseGroup(object):
     def __len__(self):
         return len(self.view.aRing)
 
-    def __contains__(self, serial):
-        return serial in self.view.aRing
+    def __contains__(self, identity):
+        return identity in self.view.aRing
     
     def size(self):
         """Return the number of live members."""
@@ -124,7 +124,7 @@ class BaseGroup(object):
 
     def getGroupID(self):
         """Return the unique group identifier."""        
-        return self.cacert.serial
+        return self.cacert.identity
 
     def getGroupName(self):
         """Return the group name."""
@@ -148,7 +148,7 @@ class BaseGroup(object):
         self.mnote.badness = self.badness
 
         self.view.addCertificate(mcert)
-        peer = self.view.sn2peer[mcert.serial]
+        peer = self.view.sn2peer[mcert.identity]
         self.view.addNote(self.mnote)
         self.peer = self.me = peer
         isinstance(self.peer, Member)

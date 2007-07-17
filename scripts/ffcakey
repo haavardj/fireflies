@@ -2,7 +2,7 @@
 
 """Script for generating Fireflies CA keys."""
 
-from fireflies import members, crypto
+from fireflies import state, crypto
 from optparse import OptionParser
 import os.path, sys, pickle, socket
 from Crypto.PublicKey import RSA
@@ -80,7 +80,7 @@ if len(args) != 1:
     
 
 cakey = None
-cakey = crypto.CAKey(args[0], defaultConfig, options.rsasize)
+cakey = state.CAKey(args[0], defaultConfig, options.rsasize)
 cacert = cakey.getCertificate()
 pickle.dump(cakey, file(os.path.join(options.path, args[0]+"CA.key" ), "w"))
 pickle.dump(cacert, file(os.path.join(options.path, args[0]+"CA.crt"), "w"))

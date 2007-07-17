@@ -8,22 +8,22 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.8 2007/07/09 09:20:56 haavardj Exp $
+## $Id: packer.py,v 1.9 2007/07/17 13:42:52 haavardj Exp $
 ##                
 ######################################################################
 
 
 
-from fireflies.members import Note, Accusation
-from fireflies.crypto import CACertificate, MemberCertificate, serialSize
+from fireflies.state import Note, Accusation, GroupCertificate, MemberCertificate
+from fireflies.crypto import identitySize
 
 import xdrlib, new, socket
 from Crypto.PublicKey import RSA
 from Crypto.Util.number import long_to_bytes, bytes_to_long
 import setrecon
 
-SERIAL_LENGTH = serialSize()
-HASH_LENGTH = serialSize()
+SERIAL_LENGTH = identitySize()
+HASH_LENGTH = identitySize()
 
 class FirefliesPacker(xdrlib.Packer):
 
@@ -59,8 +59,8 @@ class FirefliesPacker(xdrlib.Packer):
         self.pack_int(node.node_type)
         self.pack_int(node.setsize)
         
-    def pack_serial(self, serial):
-        self.pack_fstring(SERIAL_LENGTH, serial)
+    def pack_identity(self, identity):
+        self.pack_fstring(SERIAL_LENGTH, identity)
 
     def pack_address(self, address):
         ip, port = address.split(":")
@@ -113,14 +113,14 @@ class FirefliesPacker(xdrlib.Packer):
     def pack_note(self, note):
         """
         Format of packed notes:
-          - serial (size, string)
+          - identity (size, string)
           - epoch (uint)
           - mask (size, string)
           - signature (size, string)
           - badness
           """
         
-        self.pack_serial(note.serial)    
+        self.pack_identity(note.identity)    
         self.pack_uint(note.epoch)
         self.pack_mask(note.mask)
         self.pack_signature(note.signature)
@@ -135,10 +135,10 @@ class FirefliesPacker(xdrlib.Packer):
         signature (size, string)
         """
         
-        self.pack_serial(accusation.accused)    
+        self.pack_identity(accusation.accused)    
         self.pack_uint(accusation.epoch)
         self.pack_uint(accusation.nr)    
-        self.pack_serial(accusation.accuser)
+        self.pack_identity(accusation.accuser)
         self.pack_signature(accusation.signature)
 
 
@@ -180,7 +180,7 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         node.setsize = self.unpack_int()
         return node
 
-    def unpack_serial(self):
+    def unpack_identity(self):
         return self.unpack_fstring(SERIAL_LENGTH)
 
     def unpack_address(self):
@@ -226,14 +226,14 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         return c
 
     def unpack_note(self):
-        serial = self.unpack_serial()
+        identity = self.unpack_identity()
         epoch = self.unpack_uint()
         mask = self.unpack_mask()
         signature = self.unpack_signature()
         badness = self.unpack_uint()
         
         d = {
-            'serial': serial,
+            'identity': identity,
             'epoch': epoch,
             'mask': mask,
             'signature': signature,
@@ -246,10 +246,10 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         return c
 
     def unpack_accusation(self):
-        accused = self.unpack_serial()
+        accused = self.unpack_identity()
         epoch = self.unpack_uint()
         nr = self.unpack_uint()
-        accuser = self.unpack_serial()
+        accuser = self.unpack_identity()
         signature = self.unpack_signature()
 
         state = {

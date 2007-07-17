@@ -8,7 +8,7 @@ from twisted.internet import reactor, task
 import random, sys, os.path, logging, socket, pickle, os, glob
 import logging.handlers
 import fireflies
-from fireflies import gossip, members, fd, crypto, group, stats
+from fireflies import gossip, state, fd, crypto, group, stats
 
 from Crypto.Util.number import long_to_bytes, bytes_to_long
 
@@ -71,10 +71,10 @@ if __name__ == "__main__":
     cakey = cacert = None
     try:
         ca = pickle.load(file(args[0]))
-        if isinstance(ca, crypto.CAKey):
+        if isinstance(ca, state.CAKey):
             cakey = ca
             cacert = ca.getCertificate()
-        elif isinstance(ca, crypto.CACertificate):
+        elif isinstance(ca, state.GroupCertificate):
             cacert = ca
         else:
             print ca
@@ -169,10 +169,10 @@ if __name__ == "__main__":
         if not cakey:
             logger.error("-n option invalid as %s is not a CA Key" % args[0])
             sys.exit(0)
-        mkey = crypto.MemberKey(options.address)
+        mkey = state.MemberKey(options.address)
         mcert = mkey.getCertificate()
         cakey.sign(mcert)
-        mnote = members.createInitialNote(mcert.serial, cacert.config['T'])
+        mnote = state.createInitialNote(mcert.identity, cacert.config['T'])
         mnote.badness = byzantine
         mkey.sign(mnote)
     else:
@@ -180,7 +180,7 @@ if __name__ == "__main__":
             path = os.path.join(options.keydir, "%s:%d.priv" % (options.address, options.port))
             mkey, mcert, mnote = pickle.load(file(path))
             if not mnote:
-                mnote = members.createInitialNote(mcert.serial, cacert.config['T'])
+                mnote = state.createInitialNote(mcert.identity, cacert.config['T'])
                 mnote.badness = byzantine
                 mkey.sign(mnote)
             else:
@@ -189,7 +189,7 @@ if __name__ == "__main__":
                 if (len(filter(lambda x: x==True, mnote.mask)) != rings-t or
                     len(filter(lambda x: x==False, mnote.mask)) != t):
                     logging.warning("loaded note has invalid mask")
-                    n = members.createInitialNote(mcert.serial, t)
+                    n = state.createInitialNote(mcert.identity, t)
                     n.badness = byzantine
                     n.lifeline = mnote.lifeline
                     mnote = n 
@@ -201,14 +201,14 @@ if __name__ == "__main__":
                 
         except (pickle.UnpicklingError, IOError):
             if not cakey: raise IOError("Unable to load or create private data.")
-            mkey = crypto.MemberKey("%s:%d" %(options.address, options.port))
+            mkey = state.MemberKey("%s:%d" %(options.address, options.port))
             mcert = mkey.getCertificate()
             cakey.sign(mcert)
-            mnote = members.createInitialNote(mcert.serial, cacert.config['T'])
+            mnote = state.createInitialNote(mcert.identity, cacert.config['T'])
             mnote.badness = byzantine
             mkey.sign(mnote)
 
-    logging.info("Me = %s on %s (badness=%d)", bytes_to_long(mcert.serial), mcert.address, mnote.badness)
+    logging.info("Me = %s on %s (badness=%d)", bytes_to_long(mcert.identity), mcert.address, mnote.badness)
     # Load boot nodes from the cache.
     
     bootnodes = []
@@ -230,16 +230,16 @@ if __name__ == "__main__":
             logging.warning("Member cache: Error loading cert/note from %s.", path)
             continue
 
-        if not (isinstance(ocert, crypto.MemberCertificate) and isinstance(onote, members.Note)):
+        if not (isinstance(ocert, state.MemberCertificate) and isinstance(onote, state.Note)):
             continue
         
-        if not members.isValidMask(onote.mask, cacert.config['T']):
+        if not state.isValidMask(onote.mask, cacert.config['T']):
             continue        
-        if ocert.serial == mcert.serial:
+        if ocert.identity == mcert.identity:
             logging.info("Member cache: Member in %s is me. Skipping", path)
             continue                
         if not ( (cacert.verify(ocert)) and
-                 (ocert.serial == onote.serial) and
+                 (ocert.identity == onote.identity) and
                  (ocert.verify(onote))):
             logging.warning("Member cache: Skipping invalid cert/note in %s.", path)
             continue

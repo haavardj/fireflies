@@ -9,7 +9,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: __init__.py,v 1.13 2007/07/12 08:59:31 haavardj Exp $
+## $Id: __init__.py,v 1.14 2007/07/17 13:42:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -88,6 +88,9 @@ defaultConfig = {
     # How often a monitor should ping (seconds).
     'PING_ROUNDTIME': 30
     }
+
+class ByzantineError(Exception):
+    """Raised when Byzantine behavior is detected."""
 
 
 #from members import Member, Note, Accusation
