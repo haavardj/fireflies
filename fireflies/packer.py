@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.9 2007/07/17 13:42:52 haavardj Exp $
+## $Id: packer.py,v 1.10 2007/07/18 12:44:40 haavardj Exp $
 ##                
 ######################################################################
 
@@ -102,9 +102,9 @@ class FirefliesPacker(xdrlib.Packer):
     def pack_cert(self, cert):
         """
         Format of packed certificate:
-         address
-         rsa key
-         sign
+         - address
+         - rsa key
+         - sign
          """
         self.pack_address(cert.address)
         self.pack_rsapubkey(cert.key)

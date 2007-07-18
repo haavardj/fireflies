@@ -1,35 +1,32 @@
-# -*- coding: iso-8859-1 -*-
 ######################################################################
-## Filename:      gossip4.py
+## Filename:      gossip.py
 ## Description:   Fireflies set-recon based gossip protocol 
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Haavard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Wed Feb  1 18:12:09 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Haavard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright© 2006, University of Tromsø (Norway)
+##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.12 2007/07/17 13:42:52 haavardj Exp $
+## $Id: gossip.py,v 1.13 2007/07/18 12:44:40 haavardj Exp $
 ##                
 ######################################################################
 
-
 import logging
-from packer import FirefliesPacker, FirefliesUnpacker
-
 from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFactory
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.internet import reactor, task, defer
 from Crypto.Hash import MD5
 import sha
 import copy, sys
+
 import fireflies
+from fireflies.packer import FirefliesPacker, FirefliesUnpacker
 from fireflies import setrecon
 from fireflies.view import MemberRings
 from fireflies.state import Note, Accusation, Member, MemberCertificate
 
 setrecon.init(fireflies.defaultConfig['BITSIZE'], fireflies.defaultConfig['MBAR'])
-
 
 PARTITION_FACTOR = 3
 RECON_EXTRA = 5
@@ -74,11 +71,14 @@ class FFReconSet(setrecon.ReconSet):
         return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.shash()))
 
 class Gossip:
-    def __init__(self, group, me, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
+    def __init__(self, group, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
+        
+        isinstance(group, fireflies.group.Group)
         self.rate = rate
         self.group = group
-        self.me = me
+        self.me = group.getMe()
         self.byzantineToleranceNumber = byzantineToleranceNumber
+        
         self.rings = MemberRings(byzantineToleranceNumber)
         self.logger = logging.getLogger()        
         self.sFactory = GossipServerFactory(self, TCPTimeout)

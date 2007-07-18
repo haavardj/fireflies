@@ -9,9 +9,11 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.11 2007/07/17 13:42:52 haavardj Exp $
+## $Id: fd.py,v 1.12 2007/07/18 12:44:40 haavardj Exp $
 ##                
 ######################################################################
+
+"""Failure detection protocol using adaptive pinging.""" 
 
 import logging, pickle
 from twisted.internet.protocol import Factory, DatagramProtocol, Protocol, ClientFactory

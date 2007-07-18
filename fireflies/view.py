@@ -8,9 +8,13 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.6 2007/07/17 13:42:53 haavardj Exp $
+## $Id: view.py,v 1.7 2007/07/18 12:44:40 haavardj Exp $
 ##                
 ######################################################################
+
+"""This module provides the classes and functions that implements the rules for membership changes
+as specified by the Fireflies protocol.
+"""
 
 from Crypto.Hash import SHA
 from Crypto.Util.number import bytes_to_long
@@ -19,8 +23,6 @@ from twisted.internet import reactor
 import logging
 import fireflies
 from fireflies.state import Note, Accusation, Member, MemberCertificate
-
-from fireflies import ring
 import fireflies.stats
 
 _mRingIDCache = {}
@@ -36,28 +38,40 @@ def _mRingID(member, ringNr):
         ids[ringNr] = idOnRing
         _mRingIDCache[memberId] = ids
         return idOnRing
-    
-class IdentityRing(ring.Ring):
-    """A ring of member object. The ring is sorted according to the members' identites."""
+
+from fireflies.ring import Ring, NumberedRing, NumberedSetOfRings
+class IdentityRing(Ring):
+    """A ring of member object sorted according to the members' identities."""
 
     def _sortKey(self, item):
         return item.getIdentity()
      
-class MemberRing(ring.NumberedRing):
-     
+class MemberRing(NumberedRing):
+    """A name ring of member object sorted according to the members' identities concatenated with a ring number."""
     def _sortKey(self, item):
         return _mRingID(item, self.nr)
 
-class MemberRings(ring.NumberedSetOfRings):    
+class MemberRings(NumberedSetOfRings):    
+    """A set of MemberRings."""
     ringClass = MemberRing
 
 
 class View:
+    """
+    A member's view of a process group.  
+    """
 
     timeout = 2
     
     def __init__(self, group, rebuttalTimeout=5, byzantineToleranceNumber=7):
-        """Create a new view with cacert as authority."""
+        """
+        @param group: The group to wich this view belongs.
+        @type group: fireflies.group.Group
+        @param rebuttalTimeout: How many seconds to delay before an accused member is condisered as failed.
+        @type rebuttalTimeout: int
+        @param byzantineToleranceNumber: How tolerant the view is to attack.
+        @type byzantineToleranceNumber: int
+        """
 
         self.rebuttalTimeout = rebuttalTimeout
         self.byzantineToleranceNumber = byzantineToleranceNumber
@@ -78,6 +92,10 @@ class View:
         self._timers = {}
 
     def _startRebuttalTimer(self, member):
+        """Start crash timout timer.
+        @param member: The member suspected of having failed.
+        @type member: fireflies.state.Member
+        """
         if member in self._timers.keys(): raise ValueError("Timer already started.")
         self._timers[member] = reactor.callLater(self.timeout, self._toRebuttalTimer, member)
         
@@ -90,22 +108,33 @@ class View:
         self._fail(member)
         
     def _stopRebuttalTimer(self, member):
+        """Stop crash timout timer.
+        @param member: The member that is no longer of having failed.
+        @type member: fireflies.state.Member
+        """
+
         t = self._timers.pop(member)
         t.cancel()
 
     def hasActiveTimer(self, member):
+        """Check if a timer is actove for a member.
+        @param member: The member
+        @type member: fireflies.state.Member
+        @return: True if a timer is active for the spesified member.
+        @rtype: bool
+        """
         return member in self._timers
     
     def getMembers(self):
-        """Return a list of live members."""
+        """@return: Return an iterable object of all currently live members."""
         return self.aRing
 
     def getFailedMembers(self):
-        """Return a list of failed members."""
+        """@return: Return an iterable object of all currently failed members."""
         return self.fRing
 
     def getAllMembers(self):
-        """Return a list of all (live + failed) members."""
+        """@return: Return an iterable object of of all (live + failed) members."""
         return self.pRing
 
     def getMemberByIdentity(self, id):
@@ -172,11 +201,15 @@ class View:
         member.setFailed(True)
 
     def addCertificate(self, elm):
-        """Adds cert to the view.
+        """Adds a member certificate to a view.
         
-        Exceptions:
-             -TypeError: elm is not a MemberCertificate object.
-             -ValueError: The certificate already exists."""
+        @param elm: Certificate to be added.
+        @type elm: MemberCertificate
+        
+        @raise e: 
+          - TypeError if elm is not a MemberCertificate object.Exceptions:
+           -ValueError: The certificate already exists.
+        """
         
         if not isinstance(elm, MemberCertificate): raise TypeError, type(elm)
         self.stats.certsTotal += 1
@@ -205,10 +238,15 @@ class View:
 
     def addNote(self, note):
         """Add a note.
-        
-        Exceptions:
-           - TypeError: note is not a Note object.
-           - ByzantineError: Invalid mask. Note must have disabled exactly t rings."""
+        @param note: Note to be added.
+        @type note: L{fireflies.state.Note}
+        @raise e:
+          - TypeError: not is not a Note object.
+          - ValueError: 
+              - Invalid signature.
+              - Unknown member. 
+          - ByzantineErroe: Mask is not valid.
+        """  
         
         if not isinstance(note, Note): raise TypeError
         
@@ -298,23 +336,22 @@ class View:
   
 
     def addAccusation(self, accusation): 
-        """Adds accusations.
+        """Add an accusations.
 
-        Return a deferred that triggers when all callbacks have run.
-        
-        Exceptions:
+        @param accusation: Accusation to be added.
+        @type accusation: L{fireflies.stats.Accusation}
+        @raise e:
             - TypeErrror: If accusation is not a Accusation object.
-
             - ValueError: If accuser or accused is not known. This would
             typical happen if certificates, notes, and accusations are not
             added in the correct order. These error could also indicate
-            malicous behaviour.
-            
+            malicous behaviour.            
             - ByzantineError: If accusation prepresents malicious behaviour.
             This happens if:
-                 - the accusation is not correctly signed,
-                 - the accused has disabled the ring, or
-                 - the accused epoch is larger than in the current held note. """        
+              - the accusation is not correctly signed,
+              - the accused has disabled the ring, or
+              - the accused epoch is larger than in the current held note.
+        """        
         
         if not isinstance(accusation, Accusation): raise TypeError            
         #self.stats.accusationsTotal += 1        
@@ -421,10 +458,10 @@ class View:
             
         elif type(data) == Accusation:
             if data.accused in self.sn2peer:
-                accused = self.sn2peer[data.accused].cert.address
+                accused = self.sn2peer[data.accused].getAddress()
             else: accused = "%x" % bytes_to_long(data.accused)
             if data.accuser in self.sn2peer:
-                accuser = self.sn2peer[data.accuser].cert.address
+                accuser = self.sn2peer[data.accuser].getAddress()
             else: accuser = "%x" % bytes_to_long(data.accuser)
 
             return "A:%s-%d,%d,%s" % (accused,

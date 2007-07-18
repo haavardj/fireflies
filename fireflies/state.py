@@ -8,11 +8,11 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.1 2007/07/17 13:42:52 haavardj Exp $
+## $Id: state.py,v 1.2 2007/07/18 12:44:40 haavardj Exp $
 ##                
 ######################################################################
 
-"""This module provides classes that captures the state of a group."""
+"""This module provides classes that are used to represent the state of members in a group."""
 
 
 from Crypto.Util.number import long_to_bytes, bytes_to_long
@@ -80,7 +80,7 @@ def createInitialNote(identity, t):
 
 class Accusation(object, crypto.RSASignable):
     """
-    Accusations are used by Fireflies to signal failure suspicions. 
+    Members issue Accusations to signal to other members failure suspicion. 
     Whenever a member suspects that one of its monitored members has failed, 
     it will issue an accusation for that member. 
     This accusation it then distributed to all other members and, if not rebutted, 
@@ -89,7 +89,7 @@ class Accusation(object, crypto.RSASignable):
     @ivar accused: The identity of the accused member.
     @type accused: str
     @ivar accuser: The identity of the member who issued the accusation.
-    @type accused: str
+    @type accuser: str
     @ivar nr: The ring number on which the accusation is made.
     @type nr: int
     @ivar epoch: The epoch of the accused note.
@@ -370,8 +370,8 @@ class Member(object):
         """
         Update the failed/liveness status of the member.
         
-        @param failed: The new status of the member.
-        @type failed: bool
+        @param status: The new status of the member.
+        @type status: bool
         """
         
         # A member should never be set live when there's been no note.
@@ -491,7 +491,8 @@ class Member(object):
         return self._cert.identity
 
     def getSerial(self):
-        """@deprecated: Use getIdentity instead."""
+        """"
+        Deprecated: Use getIdentity instead."""
         
         self.logger.warning("DEPRECATED: getSerial")
         return self.getIdentity()

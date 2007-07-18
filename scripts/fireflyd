@@ -246,7 +246,7 @@ if __name__ == "__main__":
 
         bootnodes.append((ocert, onote))
 
-    mgroup = group.BaseGroup(cacert, mkey, mcert, mnote)
+    mgroup = group.Group(cacert, mkey, mcert, mnote)
     mgroup.badness = mnote.badness
     mgroup.join(bootnodes)
 
