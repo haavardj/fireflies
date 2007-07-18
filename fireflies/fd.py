@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.12 2007/07/18 12:44:40 haavardj Exp $
+## $Id: fd.py,v 1.13 2007/07/18 14:06:10 haavardj Exp $
 ##                
 ######################################################################
 
@@ -18,6 +18,7 @@
 import logging, pickle
 from twisted.internet.protocol import Factory, DatagramProtocol, Protocol, ClientFactory
 from twisted.internet import reactor, task
+from twisted.application.service import Service
 from fireflies.state import Accusation, Note, Member
 import socket
 from math import *
@@ -133,28 +134,35 @@ class FDMsgUnpacker(FirefliesUnpacker):
             raise Exception
 
 
-class FailureDetector:
+class FailureDetector(Service):
 
-    def __init__(self, peer, mkey,
+    def __init__(self, group,
                  roundtime=ROUNDTIME,
                  pmistake=PMISTAKE,
                  smoothing=SMOOTHING,
                  tmin=TMIN):
 
-        self.peer = peer
+
+        isinstance(group, fireflies.group.Group)
+        self.peer = group.getMe()
+        self.setServiceParent(group) 
+        
         self.roundtime = roundtime
         self.pmistake = pmistake
         self.smoothing = smoothing
         self.tmin = tmin        
-        self.mkey = mkey
-        self.view = peer.view
-        self.logger = logging.getLogger(mkey.address)
+        self.mkey = group.getMyKey()
+        self.view = group.getView()
+        self.logger = logging.getLogger(group.getMe().getAddress())
          
         nrRings = self.view.getNumberOfRings()
         self.last = -1 % nrRings
         self._pinglist = [None] * nrRings
+        isinstance(self.parent, fireflies.group.Group)
 
-    def start(self):
+    def startService(self):
+        Service.startService(self)
+        
         self.protocol = PingPong()
         self.protocol.logger = self.logger
         self.protocol.factory = self
@@ -171,7 +179,9 @@ class FailureDetector:
     def _failback(self, reason):
         self.logger.exception(reason)
         
-    def stop(self):
+    def stopService(self):
+        Service.stopService(self)
+        
         if self._task:
             self._task.stop()
             self._task = None

@@ -8,12 +8,13 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.14 2007/07/18 12:44:40 haavardj Exp $
+## $Id: group.py,v 1.15 2007/07/18 14:06:10 haavardj Exp $
 ##                
 ######################################################################
 
 import logging
 from twisted.internet import reactor
+from twisted.application.service import MultiService
 from fireflies.state import Accusation, Note, Member, GroupCertificate, MemberCertificate, MemberKey
 from fireflies.state import createInitialNote
 from fireflies.view import View
@@ -23,12 +24,11 @@ from fireflies.gossip import Gossip
 import fireflies.stats
 
 
-class Group(object):
-    """A Fireflies group.
-
-    mnote --- The member's note.     
+class Group(MultiService):
+    """A Fireflies group.   
     """
-    peer = None
+
+    name = "group"
     
     def __init__(self, groupCertificate, myKey, myCertificate, myNote=None):
         """
@@ -48,6 +48,8 @@ class Group(object):
         will be learned from the group.    
         @type myNote: L{fireflies.state.Note}
         """
+
+        MultiService.__init__(self)
         
         if not isinstance(groupCertificate,  GroupCertificate): raise ValueError, groupCertificate
         self._groupCertificate = groupCertificate

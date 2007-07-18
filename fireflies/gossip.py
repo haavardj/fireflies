@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.13 2007/07/18 12:44:40 haavardj Exp $
+## $Id: gossip.py,v 1.14 2007/07/18 14:06:10 haavardj Exp $
 ##                
 ######################################################################
 
@@ -20,6 +20,7 @@ from Crypto.Hash import MD5
 import sha
 import copy, sys
 
+from twisted.application.service import Service
 import fireflies
 from fireflies.packer import FirefliesPacker, FirefliesUnpacker
 from fireflies import setrecon
@@ -70,13 +71,14 @@ class FFReconSet(setrecon.ReconSet):
     def elmToZZp(self, elm):
         return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.shash()))
 
-class Gossip:
+class Gossip(Service):
     def __init__(self, group, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
         
+        self.setServiceParent(group)
         isinstance(group, fireflies.group.Group)
+        isinstance(self.parent, fireflies.group.Group)
+
         self.rate = rate
-        self.group = group
-        self.me = group.getMe()
         self.byzantineToleranceNumber = byzantineToleranceNumber
         
         self.rings = MemberRings(byzantineToleranceNumber)
@@ -84,22 +86,11 @@ class Gossip:
         self.sFactory = GossipServerFactory(self, TCPTimeout)
         self.cFactory = GossipClientFactory(self, rate, TCPTimeout)    
         
-        self.group.registerEventHandler("member.crash", self.evMemberNew)
-        for m in group.view.getMembers():
-            self.rings.insert(m)
       
         self.cSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
         self.nSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
         self.aSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
 
-        for m in self.group.view.getMembers():
-            self.cSet.append(m.getCertificate())
-            if m.getNote(): self.nSet.append(m.getNote())
-            for a in m.getAccusations(): self.aSet.append(a)
-            
-        self.group.registerEventHandler("data.accusation", self.evDataAccusation)
-        self.group.registerEventHandler("data.note", self.evDataAccusation)
-        self.group.registerEventHandler("data.certificate", self.evDataAccusation)
 
     def evDataAccusation(self, name, itm, status):
         if name == "data.accusation": set = self.aSet
@@ -117,8 +108,26 @@ class Gossip:
             self.rings.insert(member)
             self.logger.debug("adding %s to gossip rings", member)
 
-    def start(self):
-        host, port = self.me.getAddress().split(":")
+    def startService(self):
+        Service.startService(self)
+
+        # Register all member in the gossip mesh
+        for m in self.parent.getView().getMembers():
+            self.rings.insert(m)
+
+        # Add all certificates, notes, and accusations to our data sets.
+        for m in self.parent.getView().getMembers():
+            self.cSet.append(m.getCertificate())
+            if m.getNote(): self.nSet.append(m.getNote())
+            for a in m.getAccusations(): self.aSet.append(a)
+
+        #register to receive notification on group updates.
+        self.parent.registerEventHandler("member.crash", self.evMemberNew)        
+        self.parent.registerEventHandler("data.accusation", self.evDataAccusation)
+        self.parent.registerEventHandler("data.note", self.evDataAccusation)
+        self.parent.registerEventHandler("data.certificate", self.evDataAccusation)
+                
+        host, port = self.parent.getMe().getAddress().split(":")
         port = int(port)
         self.logger.info("Binding gossip to tcp %s:%d", host, port)
         self._port = reactor.listenTCP(port, self.sFactory, interface=host)
@@ -131,7 +140,8 @@ class Gossip:
                              
         reactor.callLater(0.1, _d)
         
-    def stop(self):
+    def stopService(self):
+        Service.stopService(self)
         self._task.stop()
         self._port.stopListening()
         self.sFactory.doStop()
@@ -153,14 +163,14 @@ class GossipBase(Int32StringReceiver):
         if self.state == self.STATE_TERMINATED:
             self.logger.warning("traffic after hangup.")
             return
-        self.factory.service.group.view.stats.tcpR += len(recd)
+        self.factory.service.parent.view.stats.tcpR += len(recd)
         return Int32StringReceiver.dataReceived(self, recd)
 
     def sendString(self, data):
         if self.state == self.STATE_TERMINATED:
             self.logger.warning("traffic after hangup.")
             return        
-        self.factory.service.group.view.stats.tcpW += (len(data) + 4)
+        self.factory.service.parent.view.stats.tcpW += (len(data) + 4)
         return Int32StringReceiver.sendString(self, data)
 
     def sendCommand(self, cmd, *args):
@@ -346,7 +356,7 @@ class GossipBase(Int32StringReceiver):
 
     def __repr__(self):
         if self.other:
-            return "%s,%s" % (self.factory.service.group.view.pprint(self.other.getNote()), self.state) 
+            return "%s,%s" % (self.factory.service.parent.view.pprint(self.other.getNote()), self.state) 
         elif self.transport:
             addr = self.transport.getPeer()
             return "%s:%d,%s" % (addr.host, addr.port, self.state)
@@ -551,7 +561,7 @@ class GossipBase(Int32StringReceiver):
             assert not x in self.outBuff
             self.outBuff.append(x)
 
-        badness = self.factory.service.group.badness
+        badness = self.factory.service.parent.badness
         while self.outBuff:
             x = self.outBuff.pop()
             
@@ -567,7 +577,7 @@ class GossipBase(Int32StringReceiver):
 
                 if badness == 2 and self.setName == "nSet":
                     # If active attack, forward only our own notes.
-                    if d.identity != self.factory.service.me.getIdentity():
+                    if d.identity != self.factory.service.parent.getMe().getIdentity():
                         continue                
                 self.sendCommand("reconcile_data", d)
                 self.logger.debug("reconcile_data->%s %s", self, d)
@@ -621,7 +631,7 @@ class ServerProtocol(GossipBase):
         self.sendCommand("version", *fireflies.protocol_version)
 
     def handle_authenticate(self, crt, note):
-        view = self.factory.service.group.view
+        view = self.factory.service.parent.view
         pprint = view.pprint
 
         if note.identity != crt.identity:
@@ -633,11 +643,11 @@ class ServerProtocol(GossipBase):
             view.addNote(note)
             self.other = view.sn2peer[crt.identity]
             self.setTimeout()
-            self.sendCommand("authenticate", self.factory.service.me.getCertificate(), self.factory.service.me.getNote())
+            self.sendCommand("authenticate", self.factory.service.parent.getMe().getCertificate(), self.factory.service.parent.getMe().getNote())
 
     def redirect(self, peer):
         #self.factory.peer.view.stats.redirect += 1
-        pprint = self.factory.service.group.view.pprint
+        pprint = self.factory.service.parent.view.pprint
         self.logger.debug("redirect-> %s to %s", self, pprint(peer.getCertificate()))
         self.setTimeout()
         self.sendCommand("redirect", peer.getCertificate(), peer.getNote())
@@ -649,7 +659,7 @@ class ServerProtocol(GossipBase):
         
     def handle_partner(self, ringNr):
         self.cancelTimeout()
-        view = self.factory.service.group.view
+        view = self.factory.service.parent.view
         pprint = view.pprint
         self.logger.debug("partner<- %s on %d", self, ringNr)
         self.ringNr = ringNr
@@ -901,7 +911,7 @@ class GossipServerFactory(ServerFactory):
         if not isinstance(service, Gossip): raise ValueError
         self._timeout = timeout
         self.service = service
-        self.logger = logging.getLogger(service.me.getAddress())
+        self.logger = logging.getLogger(service.parent.getMe().getAddress())
         self.cons = [None] * service.byzantineToleranceNumber
 
     def startFactory(self):
@@ -916,14 +926,14 @@ class GossipServerFactory(ServerFactory):
     def getSet(self, name):
         if name == "cSet":
             s = self.service.cSet
-            f = lambda x: map(self.service.group.view.addCertificate, x)
+            f = lambda x: map(self.service.parent.view.addCertificate, x)
         elif name == "nSet":
             s = self.service.nSet
-            f = lambda x: map(self.service.group.view.addNote, x)
+            f = lambda x: map(self.service.parent.view.addNote, x)
 
         elif name == "aSet":
             s = self.service.aSet
-            f = lambda x: map(self.service.group.view.addAccusation, x)
+            f = lambda x: map(self.service.parent.view.addAccusation, x)
         else:
             raise ValueError("No such set.")
         return s, f
@@ -932,7 +942,7 @@ class GossipServerFactory(ServerFactory):
     def clientConnected(self, protocol, rnr):
         """Client connected."""
 
-        me = self.service.me
+        me = self.service.parent.getMe()
         him = protocol.other
         hisPartner = self.service.rings[rnr].succ(him)
         while hisPartner.isFailed():
@@ -979,13 +989,13 @@ class GossipClientFactory(ClientFactory):
         self._roundtime = roundtime
         if not isinstance(service, Gossip): raise ValueError
         self.service = service
-        self.peer = service.me 
-        self.view = service.group.view
+        self.peer = service.parent.getMe() 
+        self.view = service.parent.view
         
         self.connections = [None] * service.byzantineToleranceNumber
         self._initializing= {}        
 
-        self.logger = logging.getLogger(service.me.getAddress())
+        self.logger = logging.getLogger(service.parent.getMe().getAddress())
         self._last = -1 % service.byzantineToleranceNumber
         self._task = None
 
