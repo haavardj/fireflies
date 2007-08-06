@@ -9,16 +9,21 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: __init__.py,v 1.14 2007/07/17 13:42:52 haavardj Exp $
+## $Id: __init__.py,v 1.15 2007/08/06 12:43:47 haavardj Exp $
 ##                
 ######################################################################
 
-
-
-"""Fireflies is a scalable and intrusion tolerant group membership
-service.
-
 """
+Fireflies is a toolkit for building scalable intrusion-tolerant
+peer-to-peer overlay-network services.  The key component of Fireflies
+is a weakly consistent group membership protocol that provides to each
+member an up-to-date view of all group members. The membership
+protocol use redundancy to mask Byzantine fault such that malicious
+members cannot wrongly claim that live members have crashed, nor that
+crashed members are alive. These properties on the views are provided
+with eventual probabilistic guarantees.
+"""
+
 
 protocol_version = (0,0,1)
 
@@ -43,13 +48,13 @@ EV_DATA_INVALID = False
 
 defaultConfig = {
 
-    'MBAR': 10,
-    'BITSIZE': 160,
+    #'MBAR': 10,
+    #'BITSIZE': 160,
 
     # Length of encryption keys.
     'RSA_SIZE': 1024,
 
-    'MAX_GROUP_SIZE': 400, 
+    'maxGroupSize': 10000, 
 
     # NOMGOSSIPRINGS and T reflects how many Byzantine members the
     # protocol can handle. Their values depend on the probability that
@@ -62,31 +67,31 @@ defaultConfig = {
     # Byzantine. There gossip mesh is connected with a probability of
     # 0.999.
     
-    'NUM_GOSSIPRINGS': 8,
+    #'NUM_GOSSIPRINGS': 8,
     #'NUMMONRINGS': 13,
-    'T': 12,
+    'pByz': 0.20,
 
     # The probability of accusing a live member due to packet
     # loss. Lower number is better but increases the time it takes to
     # detect a failed member.
-    'PMISTAKE': 0.00001,
+    #'PMISTAKE': 0.00001,
 
     # Do not accuse a member unless it has been pinged this many times.    
-    'TMIN': 3,
+    #'TMIN': 3,
 
     # What factor the pinging protocol will use to smooth the expected
     # average loss rate.
-    'SMOOTHING': 0.999,
+    #'SMOOTHING': 0.999,
 
     # Time to wait between receiving an accusation and failing the
     # accused member. 
-    'REBUTTAL_TIME': 600,
+    #'REBUTTAL_TIME': 600,
 
     # How often gossip partner should exchange state (seconds).
-    'GOSSIP_ROUNDTIME': 60,
+    #'GOSSIP_ROUNDTIME': 60,
 
     # How often a monitor should ping (seconds).
-    'PING_ROUNDTIME': 30
+    #'PING_ROUNDTIME': 30
     }
 
 class ByzantineError(Exception):

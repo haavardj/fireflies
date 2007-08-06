@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.2 2007/07/18 12:44:40 haavardj Exp $
+## $Id: state.py,v 1.3 2007/08/06 12:43:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -17,6 +17,7 @@
 
 from Crypto.Util.number import long_to_bytes, bytes_to_long
 from twisted.internet import reactor
+import fireflies
 from fireflies.stats import Stats
 from fireflies import crypto
 import bisect, logging, setrecon, random, stats
@@ -58,7 +59,7 @@ def createInitialMask(t):
     random.shuffle(mask)
     return mask
 
-def createInitialNote(identity, t):
+def createInitialNote(member):
     """
     Create a note with the specified identity, initial epoch of 1,
     and a 2t+1 length mask with t disabled rings.
@@ -71,10 +72,12 @@ def createInitialNote(identity, t):
     @rtype: L{Note}
     """
 
+    isinstance(member, Member)
+    t = member.group.view.toleranceLevel
     rings = 2*t + 1
     mask = [False] * t + ([True] * (rings - t))
     random.shuffle(mask)
-    return Note(identity, 1, mask)
+    return Note(member.getIdentity(), 1, mask)
 
 
 
@@ -152,7 +155,7 @@ class Note(object, crypto.RSASignable):
         self.identity = identity
         self.epoch = epoch
         self.mask = mask
-        self.signature = 0
+        self.signature = 0L
         self.badness = 0
 
     def __repr__(self):        
@@ -243,22 +246,39 @@ class GroupCertificate(object, crypto.RSASignable, crypto.RSAVerifyingKey):
     @ivar name: The group's textual name.
     @type name: string
     @ivar key: The group's public key.
-    @ivar config: Default configuration options set by the group's CA.
+    @ivar pByz: Byzantine tolerance factor.
+    @type pByz: float
+    @ivar maxGroupSize: Max number of members in group.
+    @type maxGroupSize: 10000
+    @ivar config: Configuration options set by the group's CA.
     @type config: dict    
     """
     
-    def __init__(self, key, name, config, signature=0):        
-        self.name, self.key, self.config, self.signature = name, key, config, signature
+    def __init__(self, key, name, pByz=0.20, maxGroupSize=10000, e=1.0, **options):        
+        self.name = name
+        self.key = key.publickey()
+        self.pByz = pByz
+        self.maxGroupSize = maxGroupSize
+        self.options = options
         self.identity = crypto.keyToIdentity(self.key)
+        self.e = e
+        self.epoch = 1
+        self._uid = "GroupCertificate-%s-%s-%d-%f-%d-%f-%s" % (str(self.identity),
+                                                                  str(self.name),
+                                                                  self.epoch,
+                                                                  self.pByz,
+                                                                  self.maxGroupSize,
+                                                                  self.e,
+                                                                  str(crypto.sHashDict(self.options)))
 
-    def uidstr(self):        
-        return "GroupCertificate-%s-%s%s" %(str(self.identity),
-                                         str(self.name),
-                                         str(crypto.sHashDict(self.config)))
-                                         
+        self.signature = 0
+       
+    def uidstr(self):
+        return self._uid
+        
     def __cmp__(self, other):
         try:
-            return cmp(self.identity, other.identity)
+            return cmp(self.uidstr(), other.uidstr())
         except AttributeError:
             return -1
 
@@ -266,17 +286,16 @@ class GroupCertificate(object, crypto.RSASignable, crypto.RSAVerifyingKey):
         return "GroupCertificate:%s" % (self.name)
 
 
-class MemberKey(object, crypto.RSASigningKey, crypto.RSAVerifyingKey):
+class Key(object, crypto.RSASigningKey, crypto.RSAVerifyingKey):
     """The private key of a Fireflies members."""
 
-    def __init__(self, address, size=1024):
+    def __init__(self, size=1024):
         self.size = size
-        self.address = address
         self.key = crypto.generateKey(size)
         self.identity = crypto.keyToIdentity(self.key)
 
     def __str__(self):
-        return "MemberKey:%s@%s" % (self.address, self.identity)
+        return "Key:%s" % self.identity
         
     def __cmp__(self, other):
         try:
@@ -284,36 +303,8 @@ class MemberKey(object, crypto.RSASigningKey, crypto.RSAVerifyingKey):
         except AttributeError:
             return -1
 
-    def getCertificate(self):
-        c = MemberCertificate(self.key.publickey(), self.address)
-        return c
-
-
-class CAKey(object, crypto.RSASigningKey, crypto.RSAVerifyingKey):
-    """Private key of a certificate authority (CA)."""
-    
-    def __init__(self, name, config, size=1024):
-        self.name, self.config = name, config
-        self.key = crypto.generateKey(size)
-        self.identity = crypto.keyToIdentity(self.key)
-
-    def __str__(self):
-        return "CAKey:%s@%s" % (self.name, self.identity)
-        
-    def __cmp__(self, other):
-        try:
-            return cmp(self.identity, other.identity)
-        except AttributeError:
-            return -1
-
-    def getCertificate(self):
-        """
-        @return: A group certificate that embeds the corresponding public key.
-        @rtype: GroupCertificate
-        """
-        c = GroupCertificate(self.key.publickey(), self.name, self.config)
-        self.sign(c)
-        return c
+    def publicKey(self):
+        return self.key.publickey()
 
 
 
@@ -327,9 +318,9 @@ class Member(object):
 
     def __init__(self, cert, group, initLRate=INITIAL_LRATE):
 
-        if 0: isinstance(group, fireflies.group.Group)
-        if 0: isinstance(cert, fireflies.crypto.MemberCertificate)
-        
+        isinstance(group, fireflies.group.Group)
+        isinstance(cert, MemberCertificate)
+    
         self._cert = cert
         self._note = None
         
@@ -365,6 +356,10 @@ class Member(object):
         self.stats = Stats()
         self._failed = True
 
+
+    def verify(self, obj):
+        """Verify that obj is correctly signed by this member."""
+        return self._cert.verify(obj)
 
     def setFailed(self, status):
         """
@@ -654,9 +649,6 @@ class Member(object):
         return  "P:%s,%d" % (self.getAddress(), len(filter(None, self.vAccusations)))
 
     def __cmp__(self, other):
-        try:
-            return cmp(self.identity, other.identity)
-        except AttributeError, why:
-            return -1
+        return cmp(self.getIdentity(), other.getIdentity())
 
 #  LocalWords:  param

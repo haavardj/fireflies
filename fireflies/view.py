@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.7 2007/07/18 12:44:40 haavardj Exp $
+## $Id: view.py,v 1.8 2007/08/06 12:43:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -24,6 +24,7 @@ import logging
 import fireflies
 from fireflies.state import Note, Accusation, Member, MemberCertificate
 import fireflies.stats
+from fireflies.util import minMajority
 
 _mRingIDCache = {}
 def _mRingID(member, ringNr):
@@ -40,19 +41,25 @@ def _mRingID(member, ringNr):
         return idOnRing
 
 from fireflies.ring import Ring, NumberedRing, NumberedSetOfRings
+
+
 class IdentityRing(Ring):
     """A ring of member object sorted according to the members' identities."""
-
+    
     def _sortKey(self, item):
         return item.getIdentity()
-     
+   
+    
 class MemberRing(NumberedRing):
     """A name ring of member object sorted according to the members' identities concatenated with a ring number."""
+
     def _sortKey(self, item):
         return _mRingID(item, self.nr)
 
+
 class MemberRings(NumberedSetOfRings):    
     """A set of MemberRings."""
+
     ringClass = MemberRing
 
 
@@ -63,7 +70,7 @@ class View:
 
     timeout = 2
     
-    def __init__(self, group, rebuttalTimeout=5, byzantineToleranceNumber=7):
+    def __init__(self, group, rebuttalTimeout=5):
         """
         @param group: The group to wich this view belongs.
         @type group: fireflies.group.Group
@@ -73,9 +80,13 @@ class View:
         @type byzantineToleranceNumber: int
         """
 
+        isinstance(group, fireflies.group.Group)
         self.rebuttalTimeout = rebuttalTimeout
-        self.byzantineToleranceNumber = byzantineToleranceNumber
-        self.numberOfRings = byzantineToleranceNumber * 2 + 1
+
+        gc = group.getGroupCertificate()
+        
+        self.toleranceLevel = minMajority(gc.pByz, gc.maxGroupSize, gc.e)
+        self.numberOfRings = self.toleranceLevel* 2 + 1
         
         self.group = group
         self.sn2peer = {} # Maps identity nr's to peer objects.
@@ -125,7 +136,7 @@ class View:
         """
         return member in self._timers
     
-    def getMembers(self):
+    def getLiveMembers(self):
         """@return: Return an iterable object of all currently live members."""
         return self.aRing
 

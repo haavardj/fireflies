@@ -1,18 +1,20 @@
 ######################################################################
 ## Filename:      crypto.py
 ## Description:   Utility functions and classes.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Haavard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Mon Jan 23 20:29:49 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Haavard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright© 2006, Håvard Johansen (Norway)
+##         Copyright 2006, Haavard Johansen (Norway)
 ##                
-## $Id: util.py,v 1.1 2007/07/17 13:42:53 haavardj Exp $
+## $Id: util.py,v 1.2 2007/08/06 12:43:47 haavardj Exp $
 ##                
 ######################################################################
 
 """Utility functions and classes."""
+
+from scipy.stats import binom
 
 class TimestampMixin:
     """Provides time-stamping functionality to an object."""
@@ -30,3 +32,19 @@ class TimestampMixin:
         fireflies.time.time."""
         self._timestamp = fireflies.time.time()
 
+
+def minMajority(pByz, size, e=1.0):
+    """Compute the minimum t such that the probability of more than t out of
+    2t+1 monitors are correct with probability e/size given the uniform
+    probability pByz that a monitor is Byzantine.
+    
+    @return: t
+    @raise e: ValueError if t cannot be computed with the given parameters.
+    """
+    
+    pTarget = float(e) / float(size)
+    for t in range(1, 10000):
+        pf = 1.0 - binom(2*t+1,pByz).cdf(t)
+        if pTarget >= pf: return t
+
+    raise ValueError, "Cannot compute number if rings from pByz=%f" % pByz

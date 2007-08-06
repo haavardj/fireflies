@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.14 2007/07/18 14:06:10 haavardj Exp $
+## $Id: gossip.py,v 1.15 2007/08/06 12:43:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -27,10 +27,14 @@ from fireflies import setrecon
 from fireflies.view import MemberRings
 from fireflies.state import Note, Accusation, Member, MemberCertificate
 
-setrecon.init(fireflies.defaultConfig['BITSIZE'], fireflies.defaultConfig['MBAR'])
 
 PARTITION_FACTOR = 3
 RECON_EXTRA = 5
+MBAR=10
+BITSIZE=160
+
+setrecon.init(BITSIZE, MBAR)
+
 
 NODE_STATUS_EMPTY = 0
 NODE_STATUS_TERMINAL = 1
@@ -85,12 +89,10 @@ class Gossip(Service):
         self.logger = logging.getLogger()        
         self.sFactory = GossipServerFactory(self, TCPTimeout)
         self.cFactory = GossipClientFactory(self, rate, TCPTimeout)    
-        
-      
+
         self.cSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
         self.nSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
         self.aSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
-
 
     def evDataAccusation(self, name, itm, status):
         if name == "data.accusation": set = self.aSet
@@ -112,11 +114,11 @@ class Gossip(Service):
         Service.startService(self)
 
         # Register all member in the gossip mesh
-        for m in self.parent.getView().getMembers():
+        for m in self.parent.view.getAllMembers():
             self.rings.insert(m)
 
         # Add all certificates, notes, and accusations to our data sets.
-        for m in self.parent.getView().getMembers():
+        for m in self.parent.view.getAllMembers():
             self.cSet.append(m.getCertificate())
             if m.getNote(): self.nSet.append(m.getNote())
             for a in m.getAccusations(): self.aSet.append(a)
@@ -157,7 +159,6 @@ class GossipBase(Int32StringReceiver):
     STATE_GOSSIPING = "gossip"
     STATE_TERMINATED = "term"
     MAX_LENGTH = 100000000
-
 
     def dataReceived(self, recd):
         if self.state == self.STATE_TERMINATED:
@@ -1087,7 +1088,9 @@ class GossipClientFactory(ClientFactory):
 
                 
     def update(self):
-        x = self._last = (self._last + 1) % self.service.byzantineToleranceNumber
+
+        nrRings = len(self.service.rings)
+        x = self._last = (self._last + 1) % nrRings
         
         # Purge initializing protocols that terminated.
         for k,v in self._initializing.items():
@@ -1096,14 +1099,14 @@ class GossipClientFactory(ClientFactory):
 
         cg = self.connections[x]
 
-        ring = self.view.mRings[x]
+        ring = self.service.rings[x]
         partnerOnX = ring.succ(self.peer)
         while partnerOnX.isFailed():
             partnerOnX = ring.succ(partnerOnX)
-            if partnerOnX.id == self.peer.id:
+            if partnerOnX == self.service.parent.getMe():
                 break
 
-        if partnerOnX.getIdentity() == self.peer.getIdentity():
+        if partnerOnX == self.service.parent.getMe():
             # No other peers in ring. Leave things as they are.
             pass
         else:

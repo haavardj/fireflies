@@ -8,24 +8,21 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.15 2007/07/18 14:06:10 haavardj Exp $
+## $Id: group.py,v 1.16 2007/08/06 12:43:47 haavardj Exp $
 ##                
 ######################################################################
 
 import logging
 from twisted.internet import reactor
 from twisted.application.service import MultiService
-from fireflies.state import Accusation, Note, Member, GroupCertificate, MemberCertificate, MemberKey
-from fireflies.state import createInitialNote
+from fireflies.state import Accusation, Note, Member, GroupCertificate, MemberCertificate, Key, createInitialNote
 from fireflies.view import View
-from fireflies.fd import FailureDetector
-from fireflies.gossip import Gossip
-
 import fireflies.stats
 
+           
 
 class Group(MultiService):
-    """A Fireflies group.   
+    """A Fireflies group. This class is the main interface to the Firelifes runtime. 
     """
 
     name = "group"
@@ -38,7 +35,7 @@ class Group(MultiService):
         @param groupCertificate: The public certificate of the group CA.
         @type groupCertificate: L{fireflies.state.GroupCertificate}
         @param myKey: Your private key. 
-        @type myKey: L{fireflies.state.MemberKey}
+        @type myKey: L{fireflies.state.Key}
         @param myCertificate: Your member certificate, signed by the CA's private key,
         @type myCertificate: L{fireflies.state.MemberCertificate}
         @param myNote: Your most up-to-date note. When re-joning a group
@@ -54,26 +51,27 @@ class Group(MultiService):
         if not isinstance(groupCertificate,  GroupCertificate): raise ValueError, groupCertificate
         self._groupCertificate = groupCertificate
         
-        if not isinstance(myKey, MemberKey): raise ValueError, myKey
+        if not isinstance(myKey, Key): raise ValueError, myKey
         self._myKey = myKey
         
         if not isinstance(myCertificate, MemberCertificate): raise ValueError, myCertificate
         self.logger = logging.getLogger(myCertificate.address)
         
-        if not myNote: myNote = createInitialNote(myCertificate.identity, groupCertificate.config["T"])
-        if not isinstance(myNote, Note): raise ValueError, myNote 
-        
-        self.view = View(self, byzantineToleranceNumber=groupCertificate.config["T"])
+        self.view = View(self)
         self.view.logger = self.logger
 
         self._eventSinkRegistry = {}
         self.registerEventHandler("data.accusation", self.evSelfRebuttal)        
         
         self.view.addCertificate(myCertificate)
-        self.view.addNote(myNote)
-        
         self._me = self.view.getMemberByIdentity(myCertificate.identity)
-        assert isinstance(self._me, Member)
+        isinstance(self._me, Member)
+
+        if myNote: self.view.addNote(myNote)
+        else:
+            myNote = createInitialNote(self._me)
+            self.getMyKey().sign(myNote)
+            self.view.addNote(myNote)
 
         self.joined = False        
         self.badness = 0
@@ -140,21 +138,13 @@ class Group(MultiService):
             pass
             #self.logger.debug("notify %s but no subscribers", name)
                         
-    def leave(self):
-        """Leave the group."""
-        self.logger.warning("leave %s", self._groupCertificate.name)
-        assert self.joined
-        self.stats.leave += 1
-        self.pinger.stop()
-        self.gossiper.stop()
-        self.view.unregisterListener(self)
-        self.joined = False
 
     def evSelfRebuttal(self, name, elm, status):
+        """@todo: Check that the accusation is still valid when receiving this event."""
         assert name == "data.accusation"
-        if elm.accused == self.me.getSerial() and status == True:
+        if status == True and elm.accused == self.getMe().getIdentity():
             self.logger.info("rebutting false accusation %s", elm)
-            n = self.me.nextNote()
+            n = self.getMe().nextNote()
             self._myKey.sign(n)
             reactor.callLater(0, self.view.addNote, n)
 
@@ -172,7 +162,8 @@ class Group(MultiService):
         return len(self)
 
     def isSignedByCA(self, itm):
-        """Check if an object is correctly signed by the group CA.
+        """
+        Check if an object is correctly signed by the group CA.
         @param itm: Object that is to be checked.
         @type itm: Subclass of L{fireflies.crypto.RSASignable}
         @return: Return true if itm is signed by the group CA.
@@ -202,7 +193,7 @@ class Group(MultiService):
     def getMyKey(self):
         """
         @return: Return your private key.
-        @rtype: L{fireflies.state.MemberKey}
+        @rtype: L{fireflies.state.Key}
         """
         return self._myKey
 
@@ -216,30 +207,12 @@ class Group(MultiService):
     
     def getByzantineToleranceLevel(self):
         """@return: Return the Byzantine tolerance level set by the group's CA."""        
-        return self._groupCertificate.config['T']
+        return self.view.toleranceLevel
         
-    def join(self, bootnodes=[]):
-        """Join the group."""
-        
-        assert not self.joined
-        self.logger.warning("join %s", self.getGroupName())
-        self.stats.join += 1
-        
-    
-        self.pinger = FailureDetector(self.getMe(), self.getMyKey())
-        self.gossiper = Gossip(self)
-        
-        for c, n in bootnodes:
-            self.view.addCertificate(c)
-            self.view.addNote(n)
-                    
-        def failback(failure):
-            self.logger.critical("%s failure", str(failure))
-            return failure
+    def startService(self):
+        MultiService.startService(self)        
+        self.logger.info("join group %s", self.getGroupName())
 
-        self.gossiper.start()
-        self.pinger.start()
-        self.joined = True
-
-    def _failback(self, reason):
-        self.logger.exception(reason)
+    def stopService(self):
+        MultiService.stopService(self)
+        self.logger.info("leave group %s", self.getGroupName())

@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.13 2007/07/18 14:06:10 haavardj Exp $
+## $Id: fd.py,v 1.14 2007/08/06 12:43:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -166,7 +166,7 @@ class FailureDetector(Service):
         self.protocol = PingPong()
         self.protocol.logger = self.logger
         self.protocol.factory = self
-        address, port = self.mkey.address.split(":")
+        address, port = self.parent.getMe().getAddress().split(":")
         port = int(port)
         self.logger.info("Binding fd to udp %s:%d", address, port)
         self._udpport = reactor.listenUDP(port, self.protocol, interface=address)

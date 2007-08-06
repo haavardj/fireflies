@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.5 2007/07/17 13:42:52 haavardj Exp $
+## $Id: crypto.py,v 1.6 2007/08/06 12:43:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -38,7 +38,16 @@ IDMAGIC = "idmagic"
 RSASIZE = 1024
 
 def sHashDict(d):
-    """Make a hash of the dictionary d. Returns the digest."""
+    """Compute a deterministic secure hash from a dictionary.
+    Because dictinaries elements are unordered, a deterministic hash cannot be computed directly.
+    This function will produce a hash of a dictionary by sorting the keys. 
+
+    @param d: Dictionary to be hashed.
+    @type d: dict
+    @return: Hash value
+    @rtype: str
+    @raise e: TypeError if d is not a dictionary.
+    """
 
     if not isinstance(d, dict):
         raise TypeError
