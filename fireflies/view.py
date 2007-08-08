@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.8 2007/08/06 12:43:47 haavardj Exp $
+## $Id: view.py,v 1.9 2007/08/08 14:17:08 haavardj Exp $
 ##                
 ######################################################################
 
@@ -74,10 +74,6 @@ class View:
         """
         @param group: The group to wich this view belongs.
         @type group: fireflies.group.Group
-        @param rebuttalTimeout: How many seconds to delay before an accused member is condisered as failed.
-        @type rebuttalTimeout: int
-        @param byzantineToleranceNumber: How tolerant the view is to attack.
-        @type byzantineToleranceNumber: int
         """
 
         isinstance(group, fireflies.group.Group)

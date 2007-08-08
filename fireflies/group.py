@@ -8,9 +8,11 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.16 2007/08/06 12:43:47 haavardj Exp $
+## $Id: group.py,v 1.17 2007/08/08 14:17:08 haavardj Exp $
 ##                
 ######################################################################
+
+"""Fireflies group interface."""
 
 import logging
 from twisted.internet import reactor
@@ -86,20 +88,20 @@ class Group(MultiService):
         callback will receive the arguments given by the event publisher. In
         addition, it will receive any arguments spesified when registering the
         callback. The semantics for the arguments in the callback is the
-        following:
+        following::
         
           name, publisher's arguments + provided arguments, publishers kwargs + provided kwargs
         
         For instance, consider the function f regisered to receive events in
-        the following manner:
+        the following manner::
 
           registerEventHandler("foo", f, "bar1", "bar2")
         
-        Later, a "foo" event is published in the following manner:
+        Later, a "foo" event is published in the following manner::
 
           notify("foo", "bar3")
 
-        then, f will be called with the following:
+        then, f will be called with the following::
         
           foo("foo", "bar3", "bar1", "bar2")
           

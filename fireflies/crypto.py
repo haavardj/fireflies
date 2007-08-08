@@ -9,21 +9,12 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.6 2007/08/06 12:43:47 haavardj Exp $
+## $Id: crypto.py,v 1.7 2007/08/08 14:17:08 haavardj Exp $
 ##                
 ######################################################################
 
 
-"""Cryptographic stuff.
-
-Each member that participates in the group is represented by a
-PublicCertificate.
-
-Use the generateKey function to create a CA key. This key can then be
-used in the createCertificate function to make the member's
-PublicCertificates.
-
-"""
+"""Cryptographic stuff."""
 
 from Crypto.Hash import SHA
 from Crypto.PublicKey import RSA

@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.3 2007/08/06 12:43:47 haavardj Exp $
+## $Id: state.py,v 1.4 2007/08/08 14:17:08 haavardj Exp $
 ##                
 ######################################################################
 
@@ -60,14 +60,10 @@ def createInitialMask(t):
     return mask
 
 def createInitialNote(member):
-    """
-    Create a note with the specified identity, initial epoch of 1,
+    """Create a note with the specified identity, initial epoch of 1,
     and a 2t+1 length mask with t disabled rings.
     
-    @param identity: Member's identity
-    @type identity: str
-    @param t: Byzantine tolerance factor.
-    @type t: int
+    @param member: Member object
     @return: A new note
     @rtype: L{Note}
     """
