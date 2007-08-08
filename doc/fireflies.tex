@@ -2,13 +2,13 @@
 
 
 
-\title{Fireflies: Intrusion Tolerant and Scalable Membership}
+\title{Fireflies: A Toolkit for Intrusion Tolerant Peer-to-Peer Overlay Network Services}
 
-\release{0.27.2}
+\release{0.1.0}
 
 \newcommand{\Fireflies}{\emph{Fireflies}}
-\newcommand{\firefliesdist}{\emph{fireflies-0.27.1}}
-\newcommand{\firefliestar}{\emph{fireflies-0.27.1.tar.gz}}
+\newcommand{\firefliesdist}{\emph{fireflies-0.1.0}}
+\newcommand{\firefliestar}{\emph{fireflies-0.1.0.tar.gz}}
 
 
 \author{H\aa vard Johansen}
@@ -30,21 +30,16 @@
 %======================================================================
 \section{Introduction}
 
-Fireflies is a framework for building intrusion tolerant overlay
-networks. Currently the framework consist of a membership protocol
-that provides satisfactory scalability for most applications. 
-
-Fireflies is implemented in Python, and uses Twisted as a
-communication layer.
-
-
+Fireflies is a toolkit for building scalable intrusion-tolerant
+peer-to-peer overlay-network services. The core component of Fireflies
+is a weakly consistent group membership protocol that provides to each
+member an up-to-date view of all group members. The membership
+protocol use redundancy to mask Byzantine fault such that malicious
+members cannot wrongly claim that live members have crashed, nor that
+crashed members are alive. 
 
 
 \section{Requirements}
-
-Fireflies is being developed on an Intel based Debian-Linux
-system. Compatibility with other system has not yet received
-priority. 
 
 The software required by Fireflies are listed below. The given version
 numbers are for those Fireflies is known to work. Other versions may
@@ -52,21 +47,23 @@ or may not work.
 
 Required software:
 \begin{description}
-\item[Python 2.3.5] (\url{http://www.python.org/2.3.5/})
-\item[Twisted Core 2.0.1] (\url{http://twistedmatrix.com/projects/core}) 
+\item[Python 2.5] (\url{http://www.python.org})
+\item[Twisted Core 2.2] (\url{http://twistedmatrix.com}) 
 \item[Python Cryptography Toolkit 2.0.1] (\url{http://www.amk.ca/python/code/crypto})
-\item[NTL: A Library for doing Number Theory 5.4] (\url{http://www.shoup.net/ntl/ntl-5.4.tar.gz})
-\item[GMP: GNU Multiple Precision Arithmetic Library 4.1.4] (\url{http://ftp.sunet.se/pub/gnu/gmp/gmp-4.1.4.tar.bz2})
+\item[NTL: A Library for doing Number Theory 5.4] (\url{http://www.shoup.net/ntl})
+\item[GMP: GNU Multiple Precision Arithmetic Library 4.1.4] (\url{http://gmplib.org/})
 \end{description}
 
 Optional software for the \refmodule{fireflies.web} module:
 \begin{description}
 \item[Nevow 0.4.1] (\url{http://nevow.com/})
-\item[Twisted Web 0.5.0] (\url{http://twistedmatrix.com/projects/web/})
+\item[Twisted Web 0.7.0] (\url{http://twistedmatrix.com/})
 \item[Gnuplot 4.0] (\url{http://www.gnuplot.info/}) with build-in support for new-type PNG output. 
 \item[Gnuplot.py 1.7] (\url{http://gnuplot-py.sourceforge.net/})
 \end{description}
 
+Also, certain parts of Fireflies are implemented in a C++ extension.
+For this, you need the Python development headers and a C++ compiler. 
 
 
 \section{Installation}
@@ -85,217 +82,85 @@ path. You can specify a \programopt{--prefix=PATH} options to the
 \code{setup.py} script to install it in a different path.
 
 
-
 \section{Usage}
 
+\subsection{Keys and Certificates}
 
+Each Fireflies group is associated with a group certificate. 
+The group certificate embeds a public key and is self-signed with the corresponding private key.
+The holder of this key is the group's Certificate Authority (CA). 
+To join a Fireflies group, a process must first obtain the group certificate and generate 
+a private/public key pair and a member certificate.
+The process must have its MemberCertificate signed by the CA's private key.
+The following illustrates these operations:
 
-
-\subsection{Setting up a group}
-
-A group is defined by a Certificate Authority's (CA's) public key. This key
-must be available to all members. Each member is represented in a
-group by a \code{PublicCertificate} that is signed by the CA's private
-key. The \code{PublicCertificate} binds the member's network address
-to his public key. 
-
-
-\subsubsection{Generating CA keys}
-
-To generate the CA's private key, use the
-\code{generateKey} method in the \code{fireflies.cert} module. The
-public key can be extracted by using the private key's
-\code{public_key} method. 
-
-Running the included \program{ffcert} without any parameters will
-generate a private and public key pair, pickled to files.
-
-
-\subsubsection{Generating PublicCertificates}
-
-The \code{createCertificate} in the \code{fireflies.cert} module will
-create new private key \code{PublicCertificate} tuples. The name
-parameter to this function should be an ip-address:port string.
-
-The included \program{ffcert} can produce pickled
-\code{PublicCertificate} objects. For example
 \begin{verbatim}
-#> ffcert -c ca.priv 192.168.2.1:12131
+from fireflies.state import Key, GroupCertificate, MemberCertificate
+
+#At CA
+caKey = Key() # Create Private key
+caPublic = caKey.publicKey()  # Get public key
+gc = GroupCertificate("foo", caPublic, ...)
+caKey.sign(gc)
+
+# At Member
+myPrivateKey = Key()
+myPublicKey = myPrivateKey.publicKey()
+myCertificate = MemberCertificate(myPublicKey, myNetworkAddress)
+
+# At CA
+caKey.sign(myCertificate)
+\end{verbatim}
+
+In addition to the above library functions, 
+the included program \program{ffcekey} implements the basic CA functions.
+
+\subsection{The Group Object}
+
+Once in possession of a valid GroupCertificate and a
+MemberCertificate, a process may join the Fireflies group.
+The main interface to Fireflies is through the \program{fireflies.group.Group} class.
+Each group object has an attribute \program{view}, which points to a \program{fireflies.view.View} object.
+The view can be used to query and modify the group's state.
+The view holds references to \program{fireflies.state.Member} instances, one for each member.
+Fireflies implement strict rules regarding view changes. In particular, members can only be added indirectly by adding
+MemberCertificates. Also, a member can only be moved from a crashed state to a live state by adding a valid Note and a
+ member can only be moved from a live state to a crashed state by adding a valid Accusation.
+
+
+\subsection{Basic Network Services}
+
+Fireflies members maintain up-to-date membership information by monitoring one-another and by
+exchanging MemberCertificates, Notes, and Accusations. Two network services are included: 
+a failure detection mechanism based on UDP pinging, and a gossip service for exchange of membership events.
+To initialize these services the following must be executed:
+
+\begin{verbatim}
+from fireflies.group import Group
+from fireflies.fd import FailureDetection
+from fireflies.gossip import Gossip
+
+group = Group(gc, myCertificate, myPrivateKey)
+FailureDetection(group)
+Gossip(group)
+group.startService()
 \end{verbatim}
 
 
+\subsection{Twisted}
 
-\subsection{Using Groups}
+Fireflies is built on top of the Twisted toolkit.  
+Having some prior knowledge of Twisted is advisable before using Fireflies.
+At minimum, you must run the Twisted event loop in order to activate
+the Fireflies networking services. This is done in the following manner:
+%
+\begin{verbatim}
+from twisted.internet import reactor
 
+reactor.run()
+\end{verbatim}
+%
+Note that this command will block your main thread of execution. 
 
-
-
-
-\subsection{Subclassing BaseGroup}
-
-By subclassing the \code{fireflies.BaseGroup} class, your get access
-to group events like joins and leaves. 
-
-
-
-\section{Modules}
-
-
-%%%%%%%%%%% Members
-\subsection{\module{fireflies.member.} --- Membership classes.}
-\declaremodule{standard}{fireflies.members}
-\modulesynopsis{Membership classes.}
-
-%%%%%%%%%%%% Accusation
-\begin{classdesc}{Accusation}{accused, epoch, ringnr,
-accuser\optional{, signature}}
-
-A Fireflies accusation. The \var{accused} and \var{accuser} parameters
-must be some members's serial number.
-
-
-\begin{memberdesc}{accused}
-The serial number of the member who is accused. 
-\note{Read only.}
-\end{memberdesc}
-
-\begin{memberdesc}{accuser}
-The serial number of the member who is accusing. 
-\note{Read only.}
-\end{memberdesc}
-
-\begin{memberdesc}{nr}
-The ring that the accusation is made on.
-\note{Read only.}
-\end{memberdesc}
-
-\begin{memberdesc}{lifeline}
-The accused's lifeline.
-\note{Read only.}
-\end{memberdesc}
-
-\begin{memberdesc}{signature}
-Objects signature.
-\end{memberdesc}
-
-
-%\begin{methoddesc}{setTimestamp}{}
-%Timestamps the accusation with the time as returned by
-%\code{fireflies.time()}.
-%\end{methoddesc}
-
-%\begin{methoddesc}{getTimestamp}{}
-%Returns the latest timestamp, or 0 if \code{setTimestamp} has not yet
-%been called.
-%\end{methoddesc}
-
-
-\begin{methoddesc}{sing}{key}
-Sign the object using the \code{Crypto.RSA} private \var{key}. 
-\end{methoddesc}
-
-\begin{methoddesc}{verify}{key}
-Returns \code{True} if the object is signed by \var{key}'s matching
-private key. \var{key} must be either a \code{Crypto.RSA}
-object, or a \code{PublicCertificate} object.
-\end{methoddesc}
-
-\begin{methoddesc}{uidstr}{}
-Returns an unique string representation of the object.
-\end{methoddesc}
-
-\begin{methoddesc}{shash}{}
-Returns a secure-hash integer of the object.
-\end{methoddesc}
-\end{classdesc}
-
-
-
-
-%%%%%%%%%%%% Note
-\begin{classdesc}{Note}{serial\optional{, lifeline\optional{,
-mask\optional{, signature\optional{, data}}}}}
-
-A Fireflies note. 
-
-\begin{memberdesc}{serial}
-The member's serial number.
-\note{Read only.}
-\end{memberdesc}
-
-\begin{memberdesc}{lifeline}
-The members lifeline.
-\note{Read only.}
-\end{memberdesc}
-
-\begin{memberdesc}{mask}
-The mask is an array of \code{True} or \code{False} values. A
-\code{True} value means that the corresponding monitoring ring is
-enabled. \note{Read only.}
-\end{memberdesc}
-
-\begin{memberdesc}{data}
-Data
-\note{Read only.}
-\end{memberdesc}
-
-\begin{memberdesc}{signature}
-Objects signature.
-\end{memberdesc}
-
-\begin{methoddesc}{setTimestamp}{}
-Timestamps the accusation with the time as returned by
-\code{fireflies.time()}.
-\end{methoddesc}
-
-\begin{methoddesc}{getTimestamp}{}
-Returns the latest timestamp, or 0 if \code{setTimestamp} has not yet
-been called.
-\end{methoddesc}
-
-\begin{methoddesc}{sing}{key}
-Sign the object using the \code{Crypto.RSA} private \var{key}. 
-\end{methoddesc}
-
-\begin{methoddesc}{verify}{key}
-Returns \code{True} if the object is signed by \var{key}'s matching
-private key. \var{key} must be either a \code{Crypto.RSA}
-object, or a \code{PublicCertificate} object.
-\end{methoddesc}
-
-\begin{methoddesc}{uidstr}{}
-Returns an unique string representation of the object.
-\end{methoddesc}
-
-\begin{methoddesc}{shash}{}
-Returns a secure-hash integer of the object.
-\end{methoddesc}
-
-\end{classdesc}
-
-
-
-
-%%%%%%%%%%%%
-\subsection{\module{fireflies.web} --- Web Status}
-\declaremodule{standard}{fireflies.web}
-\modulesynopsis{A web based node status display.}
-
-This module provides a web based node status display. 
-
-\begin{classdesc} {NodeViewer}{group\optional{, port\optional{, interface}}}
-
-Display the status of a \class{firefles.group.BaseGroup} derivate as
-given by the \var{group} parameter. The optional \var{port} and
-\var{interface} can be used to bind the server to a specific port and
-host. If these are not supplied, the server will bind to the interface
-as and port + 1000 as given in \code{group.peer.cert.address}.
-
-
-\begin{methoddesc}{start}{}
-Starts listening for incoming http requests. 
-\end{methoddesc}
-
-\end{classdesc}
 
 \end{document}
