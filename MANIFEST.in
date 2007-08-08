@@ -1,2 +1,5 @@
 recursive-include fireflies/web *.html *.css
+recursive-include doc/api *.html *.css
 recursive-include fireflies/setrecon *.h
+include doc/fireflies.pdf
+include README setup.py LICENCE
