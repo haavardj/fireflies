@@ -18,6 +18,30 @@ from twisted.python import threadable
 threadable.init()
 del threadable
 
+
+def savePrivateData(grp, path):
+    isinstance(grp, fireflies.group.Group)    
+    key = grp.getMyKey()
+    note = grp.getMe().getNote()
+    crt = grp.getMe().getCertificate()
+    pickle.dump( (key, crt, note), file(path, "w"))
+
+def loadPrivateData(path):
+    key, crt, note = pickle.load(file(path))
+    return key, crt, note
+
+def savePublicData(grp, path):
+    isinstance(grp, fireflies.group.Group)    
+    note = grp.getMe().getNote()
+    crt = grp.getMe().getCertificate()
+    pickle.dump( (crt, note), file(path, "w"))
+
+def loadPublicData(path):
+    crt, note = pickle.load(file(path))
+    return crt, note
+
+
+
 if __name__ == "__main__":
     
     from optparse import OptionParser
@@ -27,8 +51,6 @@ if __name__ == "__main__":
                       help="Bind to ADDRESS. Defaults to %s." % hostaddr, default=hostaddr )
     parser.add_option("-p", "--port", dest="port", type="int",
                       help="Bind PORT. Defaults to 14377", default=14377)
-    parser.add_option("-n", "--new", dest="new", default=False,
-                      help="Create a new certificate even if one exist.", action="store_true")
     parser.add_option("-k", "--key", dest="keydir", 
                       help="Store and load private keys and note from KEYDIR.", default="./")
     parser.add_option("-r", "--rundir",
@@ -70,16 +92,10 @@ if __name__ == "__main__":
     # Key. If given the key, we can make our own member certificats. 
     cakey = cacert = None
     try:
-        ca = pickle.load(file(args[0]))
-        if isinstance(ca, state.CAKey):
-            cakey = ca
-            cacert = ca.getCertificate()
-        elif isinstance(ca, state.GroupCertificate):
-            cacert = ca
-        else:
-            print ca
-            raise TypeError
-
+        cacert, cakey = pickle.load(file(args[0]))
+        if not cacert: raise ValueError, "No caCert found."
+        isinstance(cacert, state.GroupCertificate)
+        
         if not cacert.verify(cacert):
             raise RuntimeError("CA certificate not valid")
 
@@ -163,60 +179,33 @@ if __name__ == "__main__":
     #
     
     mkey = mcert = mnote = None
+    myAddress = "%s:%d" % (options.address, options.port)
+    myPrivateDataPath = os.path.join(options.keydir, myAddress + ".priv")
+    myPublicDataPath = os.path.join(options.keydir, myAddress + ".pub")
 
-    # Create or load member key and certificate
-    if options.new:
-        if not cakey:
-            logger.error("-n option invalid as %s is not a CA Key" % args[0])
-            sys.exit(0)
-        mkey = state.MemberKey(options.address)
-        mcert = mkey.getCertificate()
+    try:
+        mkey, mcert, mnote = loadPrivateData(myPrivateDataPath)
+    except (pickle.UnpicklingError, IOError):
+        if not cakey: raise IOError("Unable to load or create private data.")
+        mkey = state.Key()
+        mcert = state.MemberCertificate(mkey.publicKey(), myAddress)
         cakey.sign(mcert)
-        mnote = state.createInitialNote(mcert.identity, cacert.config['T'])
-        mnote.badness = byzantine
-        mkey.sign(mnote)
-    else:
-        try:
-            path = os.path.join(options.keydir, "%s:%d.priv" % (options.address, options.port))
-            mkey, mcert, mnote = pickle.load(file(path))
-            if not mnote:
-                mnote = state.createInitialNote(mcert.identity, cacert.config['T'])
-                mnote.badness = byzantine
-                mkey.sign(mnote)
-            else:
-                t = cacert.config['T']
-                rings = 2*t+1
-                if (len(filter(lambda x: x==True, mnote.mask)) != rings-t or
-                    len(filter(lambda x: x==False, mnote.mask)) != t):
-                    logging.warning("loaded note has invalid mask")
-                    n = state.createInitialNote(mcert.identity, t)
-                    n.badness = byzantine
-                    n.lifeline = mnote.lifeline
-                    mnote = n 
-                    mkey.sign(mnote)                    
-                elif mnote.badness != byzantine:
-                    mnote.badness = byzantine
-                    mnote.lifeline += 1
-                    mkey.sign(mnote)
-                
-        except (pickle.UnpicklingError, IOError):
-            if not cakey: raise IOError("Unable to load or create private data.")
-            mkey = state.MemberKey("%s:%d" %(options.address, options.port))
-            mcert = mkey.getCertificate()
-            cakey.sign(mcert)
-            mnote = state.createInitialNote(mcert.identity, cacert.config['T'])
-            mnote.badness = byzantine
-            mkey.sign(mnote)
+      
 
-    logging.info("Me = %s on %s (badness=%d)", bytes_to_long(mcert.identity), mcert.address, mnote.badness)
+    logging.info("Me = %s on %s)", bytes_to_long(mcert.identity), mcert.address)
     # Load boot nodes from the cache.
     
     bootnodes = []
 
+    mgroup = group.Group(cacert, mkey, mcert, mnote)
+    fd = fireflies.fd.FailureDetector(mgroup)
+    gossip = fireflies.gossip.Gossip(mgroup)
+    mgroup.startService()
+
+
     #
     # Load other certificates and notes.
     #
-
     pubfiles = []
     if options.cachedir:
         pubfiles = glob.glob(os.path.join(options.cachedir, "*.pub"))
@@ -225,37 +214,28 @@ if __name__ == "__main__":
     m = min(len(pubfiles), options.max)
     for path in pubfiles[0:m]:
         try:
-            ocert, onote = pickle.load(file(path))
+            ocert, onote = loadPublicData(path)
         except (EOFError, pickle.UnpicklingError, IOError):
             logging.warning("Member cache: Error loading cert/note from %s.", path)
             continue
 
         if not (isinstance(ocert, state.MemberCertificate) and isinstance(onote, state.Note)):
+            print ocert, onote
             continue
         
-        if not state.isValidMask(onote.mask, cacert.config['T']):
-            continue        
         if ocert.identity == mcert.identity:
             logging.info("Member cache: Member in %s is me. Skipping", path)
             continue                
-        if not ( (cacert.verify(ocert)) and
-                 (ocert.identity == onote.identity) and
-                 (ocert.verify(onote))):
-            logging.warning("Member cache: Skipping invalid cert/note in %s.", path)
-            continue
-
-        bootnodes.append((ocert, onote))
-
-    mgroup = group.Group(cacert, mkey, mcert, mnote)
-    mgroup.badness = mnote.badness
-    mgroup.join(bootnodes)
+        
+        print "adding", ocert
+        mgroup.view.addCertificate(ocert)
+        mgroup.view.addNote(onote)
 
     if options.rundir:
         statefile = os.path.join(options.rundir, "%s.dat" % mcert.address)
         if os.path.exists(statefile):
             try:
-                cstate, nstate, astate = pickle.load(file(statefile))
-                
+                cstate, nstate, astate = pickle.load(file(statefile))                
                 for t in cstate: mgroup.view.addCertificate(t)
                 for t in nstate: mgroup.view.addNote(t)
                 for t in astate: mgroup.view.addAccusation(t)
@@ -267,11 +247,9 @@ if __name__ == "__main__":
     
     # Save state. We need to do it here to make shure we do not lose
     # the data if the program crashes.
-    path = os.path.join(options.keydir, "%s.priv" % mcert.address)
-    pickle.dump( (mkey, mcert, mnote), file(path, "w"))
-    path = os.path.join(options.keydir, "%s.pub" % mcert.address)
-    pickle.dump( (mcert, mnote), file(path, "w"))
 
+    savePrivateData(mgroup, myPrivateDataPath)
+    savePublicData(mgroup, myPublicDataPath)
 
     # Start the web-stat server. The web-stat server modifies
     # checkpoints the stats to the log. If it's not running, we need
@@ -357,8 +335,9 @@ if __name__ == "__main__":
     # Save the note. It might been updated since our last save.
     if options.keydir != None:
         try:
-            path = os.path.join(options.keydir, "%s.pub" % mcert.address)
-            pickle.dump( (mcert, mgroup.mnote), file(path, "w"))
+            savePrivateData(mgroup, myPrivateDataPath)
+            savePublicData(mgroup, myPublicDataPath)
+
         except Exception, why:
             logging.error("Failed saving %s", path)
         else:
