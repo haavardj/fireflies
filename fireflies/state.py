@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.4 2007/08/08 14:17:08 haavardj Exp $
+## $Id: state.py,v 1.5 2007/08/14 07:47:12 haavardj Exp $
 ##                
 ######################################################################
 
@@ -21,7 +21,7 @@ import fireflies
 from fireflies.stats import Stats
 from fireflies import crypto
 import bisect, logging, setrecon, random, stats
-
+import M2Crypto
 
 
 INITIAL_LRATE = 0.10
@@ -77,7 +77,7 @@ def createInitialNote(member):
 
 
 
-class Accusation(object, crypto.RSASignable):
+class Accusation(object, crypto.Signable):
     """
     Members issue Accusations to signal to other members failure suspicion. 
     Whenever a member suspects that one of its monitored members has failed, 
@@ -117,11 +117,11 @@ class Accusation(object, crypto.RSASignable):
             setattr(self, k, v)
         
     def __cmp__(self, other):
-        try: return cmp(self.shash(), other.shash())
+        try: return cmp(self.get_fingerprint(), other.get_fingerprint())
         except AttributeError: return -1
 
     def __hash__(self):
-        return hash(self.shash())
+        return hash(self.get_fingerprint())
 
     def __repr__(self):        
             return "%s" % (self.uidstr())
@@ -132,7 +132,7 @@ class Accusation(object, crypto.RSASignable):
 
         
 
-class Note(object, crypto.RSASignable):
+class Note(object, crypto.Signable):
     """Members issue notes to signal to other members that they are alive. In
     particular, a member will issue a new note as a rebuttal to a false
     accusation. Notes should be considered immutable after they are signed.
@@ -147,18 +147,19 @@ class Note(object, crypto.RSASignable):
     @type signature: str
     """
 
+    signature = "0"
+
     def __init__(self, identity, epoch, mask):        
         self.identity = identity
         self.epoch = epoch
         self.mask = mask
-        self.signature = 0L
         self.badness = 0
 
     def __repr__(self):        
         return "N:%x-%d" % (bytes_to_long(self.identity), self.epoch)
 
     def __hash__(self):
-        return hash(self.shash())
+        return hash(self.get_fingerprint())
 
     def __getstate__(self):
         return {"identity": self.identity,
@@ -178,132 +179,9 @@ class Note(object, crypto.RSASignable):
 
     def uidstr(self):
         return "Note:%d-%d-%s" % (bytes_to_long(self.identity), self.epoch,
-                                     str(self.mask))
+                                  str(self.mask))
 
-
-class MemberCertificate(object, crypto.RSASignable, crypto.RSAVerifyingKey):
-    """Each member is represented in a group by a MemberCertificate.
-    A MemberCertificate binds a member's public key to a Internet
-    network address. To be valid, a MemberCertificate must be signed
-    with the group CA's private key.
-    
-    @ivar key: The member's public RSA key.
-    @ivar address: Network address (IP:port)
-    @type address: string
-    @ivar identity: A member's identity is the secure hash of its public key.
-    @type identity: string
-    @ivar signature: Signed by the corresponding private key.
-    @type signature: string
-    """
-    
-    def __init__(self, key, address, signature=0):
-        """
-        @param key: The member's public key.
-        @param address: The member's network address (IP:port)
-        @type address: string
-        @param signature: Group CA's signature.
-        @type signature: string
-        """
-        self.key = key
-        self.address = address
-        self.signature = signature
-        self.identity = crypto.keyToIdentity(self.key)
-
-    def __str__(self):
-        return "MemberCertificate:%s" % (self.address)
         
-    def __cmp__(self, other):
-        try:
-            return cmp(self.shash(), other.shash())
-        except AttributeError:
-            return -1
-
-    def uidstr(self):
-        return "MemberCertificate:%s-%s" % (self.address,
-                                            self.identity)
-    
-    def __getstate__(self):
-        return {"key": self.key,
-                "address": self.address,
-                "signature": self.signature
-                }
-    
-    def __setstate__(self, data):
-        for k,v in data.items():
-            setattr(self, k, v)
-        self.identity = crypto.keyToIdentity(self.key)
-
-class GroupCertificate(object, crypto.RSASignable, crypto.RSAVerifyingKey):
-    """A Fireflies group certificate.  The group certificate can be
-    used to verify received MemberCertificate objects.  It also holds
-    the textual group name and certain configuration options that
-    members should abide to.
-
-    @ivar name: The group's textual name.
-    @type name: string
-    @ivar key: The group's public key.
-    @ivar pByz: Byzantine tolerance factor.
-    @type pByz: float
-    @ivar maxGroupSize: Max number of members in group.
-    @type maxGroupSize: 10000
-    @ivar config: Configuration options set by the group's CA.
-    @type config: dict    
-    """
-    
-    def __init__(self, key, name, pByz=0.20, maxGroupSize=10000, e=1.0, **options):        
-        self.name = name
-        self.key = key.publickey()
-        self.pByz = pByz
-        self.maxGroupSize = maxGroupSize
-        self.options = options
-        self.identity = crypto.keyToIdentity(self.key)
-        self.e = e
-        self.epoch = 1
-        self._uid = "GroupCertificate-%s-%s-%d-%f-%d-%f-%s" % (str(self.identity),
-                                                                  str(self.name),
-                                                                  self.epoch,
-                                                                  self.pByz,
-                                                                  self.maxGroupSize,
-                                                                  self.e,
-                                                                  str(crypto.sHashDict(self.options)))
-
-        self.signature = 0
-       
-    def uidstr(self):
-        return self._uid
-        
-    def __cmp__(self, other):
-        try:
-            return cmp(self.uidstr(), other.uidstr())
-        except AttributeError:
-            return -1
-
-    def __str__(self):
-        return "GroupCertificate:%s" % (self.name)
-
-
-class Key(object, crypto.RSASigningKey, crypto.RSAVerifyingKey):
-    """The private key of a Fireflies members."""
-
-    def __init__(self, size=1024):
-        self.size = size
-        self.key = crypto.generateKey(size)
-        self.identity = crypto.keyToIdentity(self.key)
-
-    def __str__(self):
-        return "Key:%s" % self.identity
-        
-    def __cmp__(self, other):
-        try:
-            return cmp(self.identity, other.identity)
-        except AttributeError:
-            return -1
-
-    def publicKey(self):
-        return self.key.publickey()
-
-
-
 
 class Member(object):
     """Encapsulates known state of a group member.
@@ -315,15 +193,15 @@ class Member(object):
     def __init__(self, cert, group, initLRate=INITIAL_LRATE):
 
         isinstance(group, fireflies.group.Group)
-        isinstance(cert, MemberCertificate)
+        isinstance(cert, M2Crypto.X509.X509)
     
         self._cert = cert
         self._note = None
         
         self.group = group
         self.view = group.view       
-        self.logger = logging.getLogger(cert.address)
-        
+        self.logger = logging.getLogger()
+
         # Valid accusations. 
         self.vAccusations = {} 
 
@@ -353,9 +231,9 @@ class Member(object):
         self._failed = True
 
 
-    def verify(self, obj):
-        """Verify that obj is correctly signed by this member."""
-        return self._cert.verify(obj)
+#    def verify(self, obj):
+#        """Verify that obj is correctly signed by this member."""
+#        return self._cert.verify(obj)
 
     def setFailed(self, status):
         """
@@ -375,7 +253,13 @@ class Member(object):
         @return: The member's network address and port number. 
         @rtype: IP:port string
         """
-        return self._cert.address
+        return self._cert.get_subject().L
+    
+    def getCommonName(self):
+        return self._cert.get_subject().CN
+    
+    def getPublicKey(self):
+        return self._cert.get_pubkey()
         
     def getEpoch(self):
         """
@@ -479,14 +363,11 @@ class Member(object):
         @return: The member's identity.
         @rtype: string
         """
-        return self._cert.identity
 
-    def getSerial(self):
-        """"
-        Deprecated: Use getIdentity instead."""
-        
-        self.logger.warning("DEPRECATED: getSerial")
-        return self.getIdentity()
+        return self._cert.get_ext("subjectKeyIdentifier").get_value()
+
+    def getPublicKey(self):
+        return self._cert.get_pubkey()
 
     def isFailed(self):
         """
@@ -542,7 +423,7 @@ class Member(object):
         if self.getIdentity() != note.identity:
             raise ByzantineError("Note do not match certificate.")
 
-        if not self._cert.verify(note):
+        if not note.verify(self.getCertificate().get_pubkey()):
             raise ByzantineError("Note not signed correctly.")
         
         if self._note:

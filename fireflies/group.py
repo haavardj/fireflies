@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.17 2007/08/08 14:17:08 haavardj Exp $
+## $Id: group.py,v 1.18 2007/08/14 07:47:12 haavardj Exp $
 ##                
 ######################################################################
 
@@ -17,10 +17,10 @@
 import logging
 from twisted.internet import reactor
 from twisted.application.service import MultiService
-from fireflies.state import Accusation, Note, Member, GroupCertificate, MemberCertificate, Key, createInitialNote
+from fireflies.state import Accusation, Note, Member, createInitialNote
 from fireflies.view import View
 import fireflies.stats
-
+import M2Crypto
            
 
 class Group(MultiService):
@@ -50,14 +50,20 @@ class Group(MultiService):
 
         MultiService.__init__(self)
         
-        if not isinstance(groupCertificate,  GroupCertificate): raise ValueError, groupCertificate
+        if not isinstance(groupCertificate,  M2Crypto.X509.X509): raise ValueError, groupCertificate
         self._groupCertificate = groupCertificate
         
-        if not isinstance(myKey, Key): raise ValueError, myKey
+        maxSize, pByz, ftl = groupCertificate.get_subject().organizationName.split()
+        self.maxGroupSize = int(maxSize)
+        self.pByz = float(pByz)
+        self.faultToleranceLevel = float(ftl)
+        self.name = groupCertificate.get_subject().commonName
+
+        if not isinstance(myKey, M2Crypto.EVP.PKey): raise ValueError, myKey
         self._myKey = myKey
         
-        if not isinstance(myCertificate, MemberCertificate): raise ValueError, myCertificate
-        self.logger = logging.getLogger(myCertificate.address)
+        if not isinstance(myCertificate, M2Crypto.X509.X509): raise ValueError, myCertificate
+        self.logger = logging.getLogger()
         
         self.view = View(self)
         self.view.logger = self.logger
@@ -66,13 +72,13 @@ class Group(MultiService):
         self.registerEventHandler("data.accusation", self.evSelfRebuttal)        
         
         self.view.addCertificate(myCertificate)
-        self._me = self.view.getMemberByIdentity(myCertificate.identity)
+        self._me = self.view.getMemberByIdentity(myCertificate.get_ext("subjectKeyIdentifier").get_value())
         isinstance(self._me, Member)
 
         if myNote: self.view.addNote(myNote)
         else:
             myNote = createInitialNote(self._me)
-            self.getMyKey().sign(myNote)
+            myNote.sign(self.getMyKey())
             self.view.addNote(myNote)
 
         self.joined = False        
@@ -115,6 +121,9 @@ class Group(MultiService):
         t = self._eventSinkRegistry.get(name, [])
         t.append((func, args, kwargs))
         self._eventSinkRegistry[name] = t
+        
+    def getPublicKey(self):
+        return self.getGroupCertificate().get_pubkey()
         
     def getEventNames(self):
         """
@@ -205,7 +214,7 @@ class Group(MultiService):
 
     def getGroupName(self):
         """@return: Return the unique group name."""        
-        return self._groupCertificate.name
+        return self._groupCertificate.get_subject().commonName
     
     def getByzantineToleranceLevel(self):
         """@return: Return the Byzantine tolerance level set by the group's CA."""        

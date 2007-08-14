@@ -9,6 +9,7 @@ import random, sys, os.path, logging, socket, pickle, os, glob
 import logging.handlers
 import fireflies
 from fireflies import gossip, state, fd, crypto, group, stats
+import M2Crypto
 
 from Crypto.Util.number import long_to_bytes, bytes_to_long
 
@@ -19,47 +20,27 @@ threadable.init()
 del threadable
 
 
-def savePrivateData(grp, path):
-    isinstance(grp, fireflies.group.Group)    
-    key = grp.getMyKey()
-    note = grp.getMe().getNote()
-    crt = grp.getMe().getCertificate()
-    pickle.dump( (key, crt, note), file(path, "w"))
 
-def loadPrivateData(path):
-    key, crt, note = pickle.load(file(path))
-    return key, crt, note
-
-def savePublicData(grp, path):
-    isinstance(grp, fireflies.group.Group)    
-    note = grp.getMe().getNote()
-    crt = grp.getMe().getCertificate()
-    pickle.dump( (crt, note), file(path, "w"))
-
-def loadPublicData(path):
-    crt, note = pickle.load(file(path))
-    return crt, note
-
+  
 
 
 if __name__ == "__main__":
     
     from optparse import OptionParser
-    parser = OptionParser(usage="%prog [options] <CA key/cert>", version="%%prog %s" % fireflies.version)
+    parser = OptionParser(usage="%prog [options] <Storage path>", version="%%prog %s" % fireflies.version)
     hostaddr = socket.gethostbyname(socket.gethostname())
     parser.add_option("-a", "--address", dest="address",
                       help="Bind to ADDRESS. Defaults to %s." % hostaddr, default=hostaddr )
     parser.add_option("-p", "--port", dest="port", type="int",
                       help="Bind PORT. Defaults to 14377", default=14377)
-    parser.add_option("-k", "--key", dest="keydir", 
-                      help="Store and load private keys and note from KEYDIR.", default="./")
-    parser.add_option("-r", "--rundir",
-                      dest="rundir", default=None,
-                      help="Checkpoint notes and certificates in this directory.")    
+    parser.add_option("--public",
+                      dest="public", default=None,
+                      help="Path to public state storage.")    
+    parser.add_option("--cakey",
+                      dest="ca", default=None,
+                      help="Path to CA's private key.")        
     parser.add_option("-l", "--logdir", dest="logdir", 
                       help="When daemon, write logs to LOGDIR.", default="./")
-    parser.add_option("-c", "--cache", dest="cachedir", default="./",
-                      help="Look in the CACHEDIR for member's notes.")
     parser.add_option("-g", "--group", dest="group", default=None,
                       help="Run in group.")
     parser.add_option("-u", "--user", dest="user", default=None,
@@ -79,33 +60,11 @@ if __name__ == "__main__":
                       dest="byzantine", default=None,
                       help="Checks in this file if the member is supposed to be Byzantine.")
 
-    
     (options, args) = parser.parse_args()
-
+    
     if len(args) < 1:
         print parser.print_help()
         sys.exit()
-
-
-
-    # The first argument can either be a CA certificate, or a CA
-    # Key. If given the key, we can make our own member certificats. 
-    cakey = cacert = None
-    try:
-        cacert, cakey = pickle.load(file(args[0]))
-        if not cacert: raise ValueError, "No caCert found."
-        isinstance(cacert, state.GroupCertificate)
-        
-        if not cacert.verify(cacert):
-            raise RuntimeError("CA certificate not valid")
-
-    except Exception, why:
-        print "Unable to load CA key/cert.", why
-        sys.exit()
-
-    # Make sure address is an ipv4 address. Fireflies will only accept ip
-    # addresses.
-    options.address = socket.gethostbyname(options.address.lower())
 
     # Change user/group
     import pwd, grp
@@ -115,31 +74,14 @@ if __name__ == "__main__":
         os.seteuid(grp.getgrnam(options.group)[2])
     del pwd
     del grp
-    
-   
+       
     # Set logging verbosity
     l = logging.getLogger()
     if options.verbose:
         l.setLevel(logging.DEBUG)
     else:
         l.setLevel(logging.INFO)
-
-
-    # Create paths to save private keys, notes, and logs.
-    for path in [options.keydir, options.logdir, options.rundir,options.cachedir]:
-        if not path: continue        
-        if not os.path.exists(path):
-            os.mkdir(path)
-        elif not os.path.isdir(path):
-            print "%s is not a directory.", path
-            sys.exit(0)
-        elif not os.access(path, os.R_OK | os.W_OK):
-            print "%s access error.", path
-            sys.exit(0)
-
-    #if options.cachedir and (not os.path.exists(options.cachedir)):
-    #    os.mkdir(options.cachedir)
-
+        
     # Become a daemon?
     if options.daemon:
         if os.fork(): 
@@ -158,7 +100,7 @@ if __name__ == "__main__":
                                                         "a", 100000000, 10)
     else:
         log_hdlr = logging.StreamHandler(sys.stdout)
-        
+                
     formatter = logging.Formatter('%(asctime)s %(message)s', "%d-%m-%H:%M:%S")
     log_hdlr.setFormatter(formatter)
     logging.getLogger().addHandler(log_hdlr)
@@ -172,84 +114,64 @@ if __name__ == "__main__":
             name, behaviour = line.split()
             if name == "%s:%d" %(options.address, options.port):
                 byzantine = int(behaviour)
-            
+
+                
     
     #
     # Load own keys and notes.
     #
-    
-    mkey = mcert = mnote = None
-    myAddress = "%s:%d" % (options.address, options.port)
-    myPrivateDataPath = os.path.join(options.keydir, myAddress + ".priv")
-    myPublicDataPath = os.path.join(options.keydir, myAddress + ".pub")
+    # The first argument can either be a CA certificate, or a CA
+    # Key. If given the key, we can make our own member certificats. 
+    try:
+        store = crypto.PKIStore(args[0])
+        store.newCA()
+    except Exception, why:
+        print "Unable to initialize store.", why
+        sys.exit(0)
+
+
+    caCert = myCert = myKey = myNote = None
+    try:
+        caCert = store.loadCACertificate()
+        myCert = store.loadPrivateCertificate()
+        myKey = store.loadPrivateKey()
+    except Exception, why:
+        print "Unable to load data:", why
+        sys.exit()
 
     try:
-        mkey, mcert, mnote = loadPrivateData(myPrivateDataPath)
-    except (pickle.UnpicklingError, IOError):
-        if not cakey: raise IOError("Unable to load or create private data.")
-        mkey = state.Key()
-        mcert = state.MemberCertificate(mkey.publicKey(), myAddress)
-        cakey.sign(mcert)
+        myNote = store.loadPrivateNote()
+    except Exception, why:
+        print "Cannot find note."
+
+
+
       
 
-    logging.info("Me = %s on %s)", bytes_to_long(mcert.identity), mcert.address)
+
     # Load boot nodes from the cache.
     
-    bootnodes = []
-
-    mgroup = group.Group(cacert, mkey, mcert, mnote)
+    mgroup = group.Group(caCert, myKey, myCert, myNote)
+    logging.info("Me = %s on %s)", mgroup.getMe().getIdentity(), mgroup.getMe().getAddress())
     fd = fireflies.fd.FailureDetector(mgroup)
     gossip = fireflies.gossip.Gossip(mgroup)
     mgroup.startService()
 
 
+    store.saveGroup(mgroup)
+
     #
     # Load other certificates and notes.
     #
-    pubfiles = []
-    if options.cachedir:
-        pubfiles = glob.glob(os.path.join(options.cachedir, "*.pub"))
-        
-    random.shuffle(pubfiles)
-    m = min(len(pubfiles), options.max)
-    for path in pubfiles[0:m]:
-        try:
-            ocert, onote = loadPublicData(path)
-        except (EOFError, pickle.UnpicklingError, IOError):
-            logging.warning("Member cache: Error loading cert/note from %s.", path)
-            continue
-
-        if not (isinstance(ocert, state.MemberCertificate) and isinstance(onote, state.Note)):
-            print ocert, onote
-            continue
-        
-        if ocert.identity == mcert.identity:
-            logging.info("Member cache: Member in %s is me. Skipping", path)
-            continue                
-        
-        print "adding", ocert
-        mgroup.view.addCertificate(ocert)
-        mgroup.view.addNote(onote)
-
-    if options.rundir:
-        statefile = os.path.join(options.rundir, "%s.dat" % mcert.address)
-        if os.path.exists(statefile):
-            try:
-                cstate, nstate, astate = pickle.load(file(statefile))                
-                for t in cstate: mgroup.view.addCertificate(t)
-                for t in nstate: mgroup.view.addNote(t)
-                for t in astate: mgroup.view.addAccusation(t)
-            except IOError:
-                pass
     
-    
-
-    
-    # Save state. We need to do it here to make shure we do not lose
-    # the data if the program crashes.
-
-    savePrivateData(mgroup, myPrivateDataPath)
-    savePublicData(mgroup, myPublicDataPath)
+    for cert in store.loadMemberCertificates():
+        mgroup.view.addCertificate(cert)
+        
+    for note in store.loadNotes():
+        mgroup.view.addNote(note)
+        
+    for acc in store.loadAccusations():
+        mgroup.view.addAccusation(acc)
 
     # Start the web-stat server. The web-stat server modifies
     # checkpoints the stats to the log. If it's not running, we need
@@ -261,7 +183,17 @@ if __name__ == "__main__":
 
 
     # find bogomips speed
-
+    if options.public:
+        cacheStore = Store(options.public)
+        for cert in cacheStore.loadMemberCertificates():
+            mgroup.view.addCertificate(cert)
+            
+        for note in cacheStore.loadNotes():
+            mgroup.view.addNote(note)
+        
+        for acc in cacheStore.loadAccusations():
+            mgroup.view.addAccusation(acc)
+        
     bogomips = 0
 
     try:
@@ -298,6 +230,7 @@ if __name__ == "__main__":
 
     def doWriteState():
         assert options.rundir
+        return
         logging.info("writing state.")
         statefile = os.path.join(options.rundir, "%s.dat" % mgroup.mcert.address)
 
@@ -333,7 +266,7 @@ if __name__ == "__main__":
         logging.exception("reactor crash? %s", why)
 
     # Save the note. It might been updated since our last save.
-    if options.keydir != None:
+    if False and options.keydir != None:
         try:
             savePrivateData(mgroup, myPrivateDataPath)
             savePublicData(mgroup, myPublicDataPath)

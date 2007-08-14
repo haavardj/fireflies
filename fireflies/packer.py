@@ -8,14 +8,15 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.10 2007/07/18 12:44:40 haavardj Exp $
+## $Id: packer.py,v 1.11 2007/08/14 07:47:12 haavardj Exp $
 ##                
 ######################################################################
 
 
 
-from fireflies.state import Note, Accusation, GroupCertificate, MemberCertificate
+from fireflies.state import Note, Accusation
 from fireflies.crypto import identitySize
+import M2Crypto
 
 import xdrlib, new, socket
 from Crypto.PublicKey import RSA
@@ -60,27 +61,19 @@ class FirefliesPacker(xdrlib.Packer):
         self.pack_int(node.setsize)
         
     def pack_identity(self, identity):
-        self.pack_fstring(SERIAL_LENGTH, identity)
+        self.pack_string(identity)
 
     def pack_address(self, address):
         ip, port = address.split(":")
         port = int(port)
         self.pack_fstring(4, socket.inet_aton(ip))
-        self.pack_uint(port)
-        
-    def pack_rsapubkey(self, key):
-        state = key.__getstate__()
-        n = state['n']
-        e = state['e']
-        self.pack_string(long_to_bytes(n))
-        self.pack_string(long_to_bytes(e))
+        self.pack_uint(port)        
 
     def pack_signature(self, signature):
-        self.pack_string(long_to_bytes(signature))
+        self.pack_string(signature)
 
     def pack_short(self, short):
         self.pack_fstring(1, chr(short))
-
 
     def pack_mask(self, mask):
         masklen = len(mask)
@@ -100,15 +93,8 @@ class FirefliesPacker(xdrlib.Packer):
         self.pack_fstring(maskbytes,s)
         
     def pack_cert(self, cert):
-        """
-        Format of packed certificate:
-         - address
-         - rsa key
-         - sign
-         """
-        self.pack_address(cert.address)
-        self.pack_rsapubkey(cert.key)
-        self.pack_signature(cert.signature)
+        assert isinstance(cert, M2Crypto.X509.X509)
+        self.pack_string(cert.as_der())
         
     def pack_note(self, note):
         """
@@ -181,20 +167,15 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         return node
 
     def unpack_identity(self):
-        return self.unpack_fstring(SERIAL_LENGTH)
+        return self.unpack_string()
 
     def unpack_address(self):
         ip = socket.inet_ntoa(self.unpack_fstring(4))
         port = self.unpack_uint()
         return "%s:%d" % (ip, port)
         
-    def unpack_rsapubkey(self):
-        n = bytes_to_long(self.unpack_string())
-        e = bytes_to_long(self.unpack_string())
-        return RSA.construct((n,e))
-
     def unpack_signature(self):
-        return bytes_to_long(self.unpack_string())
+        return self.unpack_string()
 
     def unpack_short(self):
         return ord(self.unpack_fstring(1))
@@ -212,18 +193,7 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         return l
                     
     def unpack_cert(self):
-        address = self.unpack_address()
-        key = self.unpack_rsapubkey()
-        signature = self.unpack_signature()
-        d = {
-            'address': address,
-            'key': key,
-            'signature': signature
-            }
-
-        c = object.__new__(MemberCertificate)
-        c.__setstate__(d)
-        return c
+        return M2Crypto.X509.load_cert_der_string(self.unpack_string())
 
     def unpack_note(self):
         identity = self.unpack_identity()

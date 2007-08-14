@@ -3,10 +3,10 @@
 """Script for generating Fireflies CA keys."""
 
 import fireflies
-from fireflies import state, crypto
 from optparse import OptionParser
 import os.path, sys, pickle, socket
-from Crypto.PublicKey import RSA
+import M2Crypto
+
 
 defaultConfig = fireflies.defaultConfig
 
@@ -52,30 +52,10 @@ parser.add_option("-s", metavar="NUMBER", dest="maxGroupSize", type="int", defau
 
 (options, args) = parser.parse_args()
 
-#defaultConfig = {
-    #'RSA_SIZE': options.rsasize,
-    #'PMISTAKE': options.pmistake,
-    #'TMIN': options.tmin,
-    #'SMOOTHING': options.smoothing,
-    #'REBUTTAL_TIME': options.rebuttaltime,
-    #'GOSSIPROUNDTIME': options.grate,
-    #'PINGROUNDTIME': options.prate  
-    #}
+
+os.system("openssl req -new -x509")
 
 
-if len(args) != 1:
-    print parser.print_help()
-    sys.exit()
-    
-
-cakey = None
-cakey = state.Key(options.rsasize)
-cacert = state.GroupCertificate(cakey.key.publickey(), 
-                                args[0], 
-                                options.pByz,
-                                options.maxGroupSize)
-
-cakey.sign(cacert)
 
 pickle.dump( (cacert, cakey), file(os.path.join(options.path, args[0]+"CA.key" ), "w"))
 pickle.dump( (cacert, None), file(os.path.join(options.path, args[0]+"CA.crt"), "w"))

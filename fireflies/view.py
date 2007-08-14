@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.9 2007/08/08 14:17:08 haavardj Exp $
+## $Id: view.py,v 1.10 2007/08/14 07:47:12 haavardj Exp $
 ##                
 ######################################################################
 
@@ -22,9 +22,11 @@ from Crypto.Util.number import bytes_to_long
 from twisted.internet import reactor
 import logging
 import fireflies
-from fireflies.state import Note, Accusation, Member, MemberCertificate
+from fireflies.state import Note, Accusation, Member
+from fireflies.crypto import identityFromCertificate
 import fireflies.stats
 from fireflies.util import minMajority
+import M2Crypto
 
 _mRingIDCache = {}
 def _mRingID(member, ringNr):
@@ -79,9 +81,9 @@ class View:
         isinstance(group, fireflies.group.Group)
         self.rebuttalTimeout = rebuttalTimeout
 
-        gc = group.getGroupCertificate()
+ 
         
-        self.toleranceLevel = minMajority(gc.pByz, gc.maxGroupSize, gc.e)
+        self.toleranceLevel = minMajority(group.pByz, group.maxGroupSize, group.faultToleranceLevel)
         self.numberOfRings = self.toleranceLevel* 2 + 1
         
         self.group = group
@@ -218,16 +220,19 @@ class View:
            -ValueError: The certificate already exists.
         """
         
-        if not isinstance(elm, MemberCertificate): raise TypeError, type(elm)
+        if not isinstance(elm, M2Crypto.X509.X509): raise TypeError, type(elm)
         self.stats.certsTotal += 1
-            
-        if not self.group.getGroupCertificate().verify(elm): 
+
+        if not elm.verify(self.group.getPublicKey()):
             #self.stats.certsInvalid += 1
             #self.logger.warning("discard %s invalid CA signature.", c)
             raise ValueError("Certificate not correctly signed %s." % str(elm))
+
+        mId = identityFromCertificate(elm)
         try:
-            m = self.getMemberByIdentity(elm.identity)
+            m = self.getMemberByIdentity(mId)
         except KeyError:
+            print "idnot found. Cert must be new"
             m = None
             
         if m:
@@ -268,7 +273,7 @@ class View:
         assert isinstance(m, Member)
         if m.getNote(): assert m.getNote().identity == note.identity
                 
-        if not m.getCertificate().verify(note):
+        if not note.verify(m.getCertificate().get_pubkey()):
             raise ValueError("Invalid Signature")
         
         if not fireflies.state.isValidMask(note.mask, self.group.getByzantineToleranceLevel()): 
@@ -385,7 +390,7 @@ class View:
         accuser = self.sn2peer[accuserID]
         assert isinstance(accuser, Member)  
         
-        if not accuser.getCertificate().verify(accusation):
+        if not accusation.verify(accuser.getPublicKey()):
             #    accuser.stats.accuseByzantine += 1
             #    accused.stats.accusedByzantine += 1
             #    self.stats.accusationsInvalid += 1

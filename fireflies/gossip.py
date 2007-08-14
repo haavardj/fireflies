@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.15 2007/08/06 12:43:47 haavardj Exp $
+## $Id: gossip.py,v 1.16 2007/08/14 07:47:12 haavardj Exp $
 ##                
 ######################################################################
 
@@ -19,14 +19,15 @@ from twisted.internet import reactor, task, defer
 from Crypto.Hash import MD5
 import sha
 import copy, sys
-
+import M2Crypto
+from zope.interface import Interface
 from twisted.application.service import Service
 import fireflies
 from fireflies.packer import FirefliesPacker, FirefliesUnpacker
 from fireflies import setrecon
 from fireflies.view import MemberRings
-from fireflies.state import Note, Accusation, Member, MemberCertificate
-
+from fireflies.state import Note, Accusation, Member
+from fireflies.crypto import identityFromCertificate
 
 PARTITION_FACTOR = 3
 RECON_EXTRA = 5
@@ -71,9 +72,29 @@ for k, v in cmd2code.items():
     code2cmd[v] = k
 
 
-class FFReconSet(setrecon.ReconSet):
+class ISetReconItem(Interface):
+    def fingerprint(self):
+        """Return unique object fingerprint string."""
+
+    def getItem(self):
+        """Return wrapped item."""
+
+
+class NoteSet(setrecon.ReconSet):
     def elmToZZp(self, elm):
-        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.shash()))
+        if not isinstance(elm, Note): raise ValueError
+        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))
+
+class AccusationSet(setrecon.ReconSet):
+    def elmToZZp(self, elm):
+        if not isinstance(elm, Accusation): raise ValueError
+        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))
+
+class X509Set(setrecon.ReconSet):
+    def elmToZZp(self, elm):
+        if not isinstance(elm, M2Crypto.X509.X509): raise ValueError
+        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))
+
 
 class Gossip(Service):
     def __init__(self, group, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
@@ -90,9 +111,9 @@ class Gossip(Service):
         self.sFactory = GossipServerFactory(self, TCPTimeout)
         self.cFactory = GossipClientFactory(self, rate, TCPTimeout)    
 
-        self.cSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
-        self.nSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
-        self.aSet = FFReconSet(PARTITION_FACTOR, RECON_EXTRA)
+        self.cSet = X509Set(PARTITION_FACTOR, RECON_EXTRA)
+        self.nSet = NoteSet(PARTITION_FACTOR, RECON_EXTRA)
+        self.aSet = AccusationSet(PARTITION_FACTOR, RECON_EXTRA)
 
     def evDataAccusation(self, name, itm, status):
         if name == "data.accusation": set = self.aSet
@@ -232,7 +253,7 @@ class GossipBase(Int32StringReceiver):
                 elif isinstance(data, Note):
                     p.pack_uint(DATA_NOTE_ID)
                     p.pack_note(data)
-                elif isinstance(data, MemberCertificate):
+                elif isinstance(data, M2Crypto.X509.X509):
                     p.pack_uint(DATA_CERTIFICATE_ID)
                     p.pack_cert(data)
                 else:
@@ -634,15 +655,19 @@ class ServerProtocol(GossipBase):
     def handle_authenticate(self, crt, note):
         view = self.factory.service.parent.view
         pprint = view.pprint
+        assert isinstance(crt, M2Crypto.X509.X509)
+        assert isinstance(note, Note)
 
-        if note.identity != crt.identity:
+        
+
+        if note.identity != identityFromCertificate(crt):
             self.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
             self.hangup()
         else:
             self.logger.debug("authenticate<- %s %s", self, pprint(crt))
             view.addCertificate(crt)
             view.addNote(note)
-            self.other = view.sn2peer[crt.identity]
+            self.other = view.sn2peer[identityFromCertificate(crt)]
             self.setTimeout()
             self.sendCommand("authenticate", self.factory.service.parent.getMe().getCertificate(), self.factory.service.parent.getMe().getNote())
 
@@ -794,7 +819,7 @@ class ClientProtocol(GossipBase):
         pprint = self.factory.peer.view.pprint
         self.cancelTimeout()
         
-        if crt.identity != self.other.getIdentity():
+        if identityFromCertificate(crt) != self.other.getIdentity():
             self.logger.warning("authenticate<- %s Error. Expected %s. Got  %s.", self, pprint(self.other.getCertificate()), pprint(crt))
             self.hangup()
             return
@@ -1056,14 +1081,14 @@ class GossipClientFactory(ClientFactory):
     def reconcile(self, protocol):
 
         def _f(reason):
-            self.logger.error("Reconcile failed %s", error)
+            self.logger.error("Reconcile failed %s", reason)
         
         def _2(result):
             d = protocol.reconcile("aSet", self.service.aSet, lambda x: map(self.peer.view.addAccusation, x))
             d.addErrback(_f)
 
-            for m in self.peer.view.pRing:
-                assert m.getNote()
+            #for m in self.peer.view.pRing:
+            #    assert m.getNote()
             
         def _1(result):
             d = protocol.reconcile("nSet", self.service.nSet, lambda x: map(self.peer.view.addNote, x))

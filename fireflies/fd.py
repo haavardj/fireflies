@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.14 2007/08/06 12:43:47 haavardj Exp $
+## $Id: fd.py,v 1.15 2007/08/14 07:47:12 haavardj Exp $
 ##                
 ######################################################################
 
@@ -31,7 +31,7 @@ from packer import FirefliesPacker, FirefliesUnpacker
 from Crypto.Util.number import long_to_bytes, bytes_to_long
 
 
-ROUNDTIME = 15
+ROUNDTIME = 2
 PMISTAKE = 0.001
 SMOOTHING = 0.999
 TMIN = 3
@@ -39,7 +39,7 @@ TMIN = 3
 MSG_PING = 0x23
 MSG_PONG = 0x24    
 
-class PingMsg(crypto.RSASignable):
+class PingMsg(crypto.Signable):
     count = 0
     msgType = MSG_PING
     
@@ -53,7 +53,7 @@ class PingMsg(crypto.RSASignable):
     def uidstr(self):
         return "ping-%x-%x-%d" % (bytes_to_long(self.fromSn), bytes_to_long(self.toSn), self.noun)
 
-class PongMsg(crypto.RSASignable):
+class PongMsg(crypto.Signable):
     msgType = MSG_PONG
     
     def __init__(self, ping):
@@ -146,7 +146,7 @@ class FailureDetector(Service):
         isinstance(group, fireflies.group.Group)
         self.peer = group.getMe()
         self.setServiceParent(group) 
-        
+        self.group = group
         self.roundtime = roundtime
         self.pmistake = pmistake
         self.smoothing = smoothing
@@ -193,32 +193,30 @@ class FailureDetector(Service):
     def update(self):
 
         nrRings = self.view.getNumberOfRings()
-        mkey = self.mkey
-        view = self.view
-        mpeer = view.sn2peer[mkey.identity]
-        isinstance(mpeer, Member)
+        me = self.group.getMe()
+        view = self.group.view
         
-        if mpeer.getNote():
-            myBadness = mpeer.getNote().badness
-        else:
-            self.logger.warning("Mynote is empty")
-            myBadness = 0
+        #if me.getNote():
+        #    myBadness = mpeer.getNote().badness
+        #else:
+        #    self.logger.warning("Mynote is empty")
+        
+        myBadness = 0
             
         x = self.last = (self.last + 1) % nrRings
 
         if myBadness == 1: return 
-        if len(view.sn2peer) < 2:
+        if len(view.getLiveMembers()) < 2:
             return
 
-        mon = view.mRings[x].succ(mpeer)
+        mon = view.mRings[x].succ(me)
         isinstance(mon, Member)
         while mon.isFailed() or mon.isAccused():
-            if mon.getIdentity() == mpeer.getIdentity(): break
+            if mon == me: break
             mon = view.mRings[x].succ(mon)            
             
         # It's me!
-        if mon.getIdentity() == mpeer.getIdentity():
-            return 
+        if mon == me: return 
 
 
         # We can be the monitor of the same peer on more than one
@@ -236,15 +234,16 @@ class FailureDetector(Service):
         
         if myBadness == 2:
             a = mon.vAccusations.get(x, None)
-            if a and a.accuser == mpeer.getIdentity():
+            if a and a.accuser == me.getIdentity():
                 return
             
             accusation = Accusation(mon.getIdentity(),
                                             mon.getNote().epoch,
                                             x,
-                                            mpeer.getIdentity()
+                                            me.getIdentity()
                                             )
-            mkey.sign(accusation)
+            
+            accusation.sign(me.getPublicKey())
             view.stats.accusationsCreated += 1
             view.stats.accusationsCreatedByzantine += 1
             view.addAccusation(accusation)
@@ -254,10 +253,10 @@ class FailureDetector(Service):
             #Do not accuse if this node has already made an accusation
             #on this ring.
             a = mon.vAccusations.get(x, None)
-            if a and (a.accuser == mpeer.getIdentity()):
+            if a and (a.accuser == me.getIdentity()):
                 return
             a = mon.vAccusations.get(x, None)
-            if a and (a.accuser == mpeer.getIdentity()):
+            if a and (a.accuser == me.getIdentity()):
                 return
             
             p = min( 1./mon.avgLoss, 1. - self.pmistake**(1./float(max(self.tmin, 1))))
@@ -270,8 +269,8 @@ class FailureDetector(Service):
                 accusation =  Accusation(mon.getIdentity(),
                                                  mon.getNote().epoch,
                                                  x,
-                                                 mpeer.getIdentity())
-                mkey.sign(accusation)
+                                                 me.getIdentity())
+                accusation.sign(self.group.getMyKey())
                 self.logger.warning("created %s t=%.2f nPing=%d", self.peer.view.pprint(accusation), t, mon.nPing)
                 view.addAccusation(accusation)                
                 view.stats.accusationsCreated += 1
@@ -301,13 +300,14 @@ class FailureDetector(Service):
 
 class PingPong(DatagramProtocol):
 
+    factory = None
         
     def handle_PingMsg(self, msg):
         view = self.factory.view
         mkey = self.factory.mkey
         
         toSn, fromSn, noun = msg.toSn, msg.fromSn, msg.noun
-        if not toSn == mkey.identity:
+        if not toSn == self.factory.group.getMe().getIdentity():
             self.logger.warning("ping<- %x wrong receiver %x", bytes_to_long(fromSn), bytes_to_long(toSn))
             return        
         if not fromSn in view.sn2peer:
@@ -315,7 +315,8 @@ class PingPong(DatagramProtocol):
             return
 
         sender = view.sn2peer[fromSn]
-        if not sender.getCertificate().verify(msg):
+        assert isinstance(sender, Member)
+        if not msg.verify(sender.getPublicKey()):
             self.logger.warning("ping<- %s Invalid ping", fromSn)
             return
         #self.logger.debug("ping<- %s", self.factory.peer)
@@ -324,7 +325,7 @@ class PingPong(DatagramProtocol):
     def handle_PongMsg(self, msg):
         view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
         
-        if msg.toSn != mkey.identity:
+        if msg.toSn != self.factory.group.getMe().getIdentity():
             self.logger.warning("pong<- %x wrong receiver %x", bytes_to_long(msg.fromSn), bytes_to_long(msg.toSn))
             return        
         sender = view.sn2peer.get(msg.fromSn, None)
@@ -339,19 +340,23 @@ class PingPong(DatagramProtocol):
             self.logger.debug("pong<- %x Unknown peer", bytes_to_long(msg.fromSn))
             
     def ping(self, receiver):
-        view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
-        #self.logger.debug("ping-> %s", receiver.cert.address)
-        msg = PingMsg(mkey.identity, receiver.getIdentity())
-        mkey.sign(msg)
+        isinstance(self.factory, FailureDetector)
+        me = self.factory.group.getMe()
+        
+        self.logger.debug("ping-> %s", receiver.getAddress())
+        
+        msg = PingMsg(me.getIdentity(), receiver.getIdentity())
+        msg.sign(self.factory.group.getMyKey())
         self.sendCommand(receiver, msg)
         
     def pong(self, pingMsg):
         view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
         sender = view.sn2peer[pingMsg.fromSn]        
+        assert isinstance(sender, Member)
         #self.logger.debug("pong-> %s", self.factory.peer)
         
         msg = PongMsg(pingMsg)
-        mkey.sign(msg)
+        msg.sign(self.factory.group.getMyKey())
         self.sendCommand(sender, msg)
 
     def dispatch(self, msg):        
