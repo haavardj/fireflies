@@ -8,12 +8,13 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.16 2007/08/14 07:47:12 haavardj Exp $
+## $Id: gossip.py,v 1.17 2007/08/15 12:52:45 haavardj Exp $
 ##                
 ######################################################################
 
 import logging
 from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFactory
+from twisted.internet import ssl
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.internet import reactor, task, defer
 from Crypto.Hash import MD5
@@ -111,6 +112,15 @@ class Gossip(Service):
         self.sFactory = GossipServerFactory(self, TCPTimeout)
         self.cFactory = GossipClientFactory(self, rate, TCPTimeout)    
 
+        me = group.getMe()
+        myCert = me.getCertificate()
+        myKey = group.getMyKey()        
+        data = myCert.as_pem() + myKey.as_pem(cipher=None)
+        theCert = ssl.PrivateCertificate.loadPEM(data)
+        isinstance(theCert, ssl.PrivateCertificate)
+        theCA = ssl.Certificate.loadPEM(group.getGroupCertificate().as_pem())        
+        self.sslCTX = theCert.options(theCA)
+
         self.cSet = X509Set(PARTITION_FACTOR, RECON_EXTRA)
         self.nSet = NoteSet(PARTITION_FACTOR, RECON_EXTRA)
         self.aSet = AccusationSet(PARTITION_FACTOR, RECON_EXTRA)
@@ -153,7 +163,10 @@ class Gossip(Service):
         host, port = self.parent.getMe().getAddress().split(":")
         port = int(port)
         self.logger.info("Binding gossip to tcp %s:%d", host, port)
-        self._port = reactor.listenTCP(port, self.sFactory, interface=host)
+        
+        
+        self._port = reactor.listenSSL(port, self.sFactory, self.sslCTX, interface=host)
+        #self._port = reactor.listenTCP(port, self.sFactory, interface=host)
         self.sFactory.doStart()
         self.cFactory.doStart()
 
@@ -611,6 +624,7 @@ class GossipBase(Int32StringReceiver):
         self.setTimeout()
 
 
+
 class ServerProtocol(GossipBase):
 
     def __init__(self):        
@@ -653,12 +667,11 @@ class ServerProtocol(GossipBase):
         self.sendCommand("version", *fireflies.protocol_version)
 
     def handle_authenticate(self, crt, note):
+        print "-------------connection made", ssl.Certificate.peerFromTransport(self.transport)
         view = self.factory.service.parent.view
         pprint = view.pprint
         assert isinstance(crt, M2Crypto.X509.X509)
         assert isinstance(note, Note)
-
-        
 
         if note.identity != identityFromCertificate(crt):
             self.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
@@ -779,13 +792,14 @@ class ClientProtocol(GossipBase):
         self.outBuff = []
 
     def connectionMade(self):
+        
         self.factory.peer.view.stats.tcpOpen += 1
         self.sendCommand("version", *fireflies.protocol_version)
         self.setTimeout()
         #self._sendAuthenticate()
 
     def handle_version(self, major, minor, patchlevel):
-
+        print "xxxxxxxxxxxx client connection made", ssl.Certificate.peerFromTransport(self.transport)
         #
         # TODO: The node will die if it has an old version
         # number. This is VERY INSECURE and will be removed. However,
@@ -831,7 +845,7 @@ class ClientProtocol(GossipBase):
 
         self.logger.debug("authenticate<- %s OK", self)
         self.factory.view.addCertificate(crt)
-        self.factory.view.addNote(note)        
+        self.factory.view.addNote(note)
         self._sendPartner(self.ringNr)
         
     def _sendPartner(self, ringNr):
@@ -928,7 +942,11 @@ def isEmptyNode(node):
             assert node.ref_count() > 0, "refcount is %d shoud be >0. intree=%s" %(node.ref_count(), node.intree)
             
     return bool(   (node == None) or (node.setsize==0) or (node.intree == False))
-        
+
+
+from twisted.web import server
+server
+
 class GossipServerFactory(ServerFactory):
 
     protocol = ServerProtocol
@@ -1076,7 +1094,8 @@ class GossipClientFactory(ClientFactory):
             cc.hangup()
         self.connections[ringNr] = prot
         
-        reactor.connectTCP(host, port, self)
+        
+        reactor.connectSSL(host, port, self, self.service.sslCTX)
 
     def reconcile(self, protocol):
 
