@@ -20,10 +20,6 @@ threadable.init()
 del threadable
 
 
-
-  
-
-
 if __name__ == "__main__":
     
     from optparse import OptionParser
@@ -50,6 +46,10 @@ if __name__ == "__main__":
     parser.add_option("-d", "--daemon",
                       action="store_true", dest="daemon", default=False,
                       help="Run as daemon.")
+    parser.add_option("-r", "--rundir",
+                      dest="rundir", default="./",
+                      help="Rundir.")
+
     parser.add_option("-s", "--stats",
                       action="store_true", dest="stats", default=False,
                       help="Enable the web-stats.")
@@ -65,6 +65,8 @@ if __name__ == "__main__":
     if len(args) < 1:
         print parser.print_help()
         sys.exit()
+
+    myAddress = "%s:%d" % (options.address, options.port)
 
     # Change user/group
     import pwd, grp
@@ -94,10 +96,7 @@ if __name__ == "__main__":
             except OSError, e:
                 if e.errno != errno.EBADF:
                     raise
-        log_hdlr = logging.handlers.RotatingFileHandler(os.path.join(options.logdir,
-                                                                     "%s:%d.log" % (options.address,
-                                                                                    options.port)),
-                                                        "a", 100000000, 10)
+        log_hdlr = logging.handlers.RotatingFileHandler(os.path.join(options.logdir, myAddress), "a", 100000000, 10)
     else:
         log_hdlr = logging.StreamHandler(sys.stdout)
                 
@@ -112,7 +111,7 @@ if __name__ == "__main__":
             line = line.strip()
             if line == "": continue
             name, behaviour = line.split()
-            if name == "%s:%d" %(options.address, options.port):
+            if name == myAddress:
                 byzantine = int(behaviour)
 
                 
@@ -124,41 +123,47 @@ if __name__ == "__main__":
     # Key. If given the key, we can make our own member certificats. 
     try:
         store = crypto.PKIStore(args[0])
-        store.newCA()
     except Exception, why:
         print "Unable to initialize store.", why
         sys.exit(0)
 
 
-    caCert = myCert = myKey = myNote = None
+
+    groupCert = groupKey = myCert = myKey = myNote = None
+    
     try:
-        caCert = store.loadCACertificate()
-        myCert = store.loadPrivateCertificate()
-        myKey = store.loadPrivateKey()
-    except Exception, why:
-        print "Unable to load data:", why
+        groupCert = store.loadCACertificate()
+    except:
+        print "Unable to load group certificate."
+        sys.exit(0)
+    
+    if store.hasMemberCertificateWithAddress(myAddress):        
+        myCert = store.loadMemberCertificateByAddress(myAddress)
+    else:
+        if not store.hasCAKey():
+            print "Unable to find or create member certificate for address=%s" % myAddress
+            sys.exit(0)
+        else:
+            store.newMember(myAddress)
+            myCert = store.loadMemberCertificateByAddress(myAddress)
+
+    try:
+        myKey = store.loadPrivateKeyForCert(myCert)
+    except KeyError, why:
+        print "Unable to load private key.", why
         sys.exit()
 
     try:
-        myNote = store.loadPrivateNote()
-    except Exception, why:
-        print "Cannot find note."
-
-
-
-      
-
-
-    # Load boot nodes from the cache.
-    
-    mgroup = group.Group(caCert, myKey, myCert, myNote)
-    logging.info("Me = %s on %s)", mgroup.getMe().getIdentity(), mgroup.getMe().getAddress())
+        myNote = store.loadNoteFromCert(myCert)
+    except KeyError, why:
+        print "Cannot find note. Will create new one.", why
+            
+    mgroup = group.Group(groupCert, myKey, myCert, myNote)
+    logging.info("Me = %s on %s", mgroup.getMe().getIdentity(), mgroup.getMe().getAddress())
     fd = fireflies.fd.FailureDetector(mgroup)
     gossip = fireflies.gossip.Gossip(mgroup)
     mgroup.startService()
 
-
-    store.saveGroup(mgroup)
 
     #
     # Load other certificates and notes.
@@ -184,7 +189,7 @@ if __name__ == "__main__":
 
     # find bogomips speed
     if options.public:
-        cacheStore = Store(options.public)
+        cacheStore = crypto.PKIStore(options.public)
         for cert in cacheStore.loadMemberCertificates():
             mgroup.view.addCertificate(cert)
             
@@ -214,7 +219,6 @@ if __name__ == "__main__":
             logging.info("calculating load using bogomips=%f", bogomips)
             break
 
-
     global sold, snew
     sold = snew = stats.Stats()
     sold.cputime = os.times()[0] * bogomips
@@ -232,7 +236,7 @@ if __name__ == "__main__":
         assert options.rundir
         return
         logging.info("writing state.")
-        statefile = os.path.join(options.rundir, "%s.dat" % mgroup.mcert.address)
+        statefile = os.path.join(options.rundir, "%s.dat" % mgroup.getMe().getAddress())
 
         cstate = []
         nstate = []
@@ -249,31 +253,21 @@ if __name__ == "__main__":
             logging.error("Failed saving %s", path)
 
 
-        
     def failback(msg):
         logging.exception(msg)
         
     checkpointTask = task.LoopingCall(doCheckpoint)
     checkpointTask.start(10).addErrback(failback)
 
-    if options.rundir:
-        rundirTask = task.LoopingCall(doWriteState)
-        rundirTask.start(60*10).addErrback(failback)
+    #if options.rundir:
+    #    rundirTask = task.LoopingCall(doWriteState)
+    #    rundirTask.start(60*10).addErrback(failback)
 
     try:
         reactor.run()
     except Exception, why:
         logging.exception("reactor crash? %s", why)
 
-    # Save the note. It might been updated since our last save.
-    if False and options.keydir != None:
-        try:
-            savePrivateData(mgroup, myPrivateDataPath)
-            savePublicData(mgroup, myPublicDataPath)
-
-        except Exception, why:
-            logging.error("Failed saving %s", path)
-        else:
-            logging.info("Note saved in %s ", options.keydir)
+    store.saveGroup(mgroup)
 
     logging.info("Shutdown")

@@ -9,20 +9,20 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.8 2007/08/14 07:47:12 haavardj Exp $
+## $Id: crypto.py,v 1.9 2007/08/15 08:28:40 haavardj Exp $
 ##                
 ######################################################################
 
 
 """Cryptographic stuff."""
-
+import fireflies
 from Crypto.Hash import SHA
 from Crypto.PublicKey import RSA
 from Crypto.Util.randpool import RandomPool
 from Crypto.Util.number import long_to_bytes, bytes_to_long
 import random
 from zope.interface import Interface
-import M2Crypto, glob
+import M2Crypto, glob, pickle
 
 # Encrypts this with public key to make a host id.
 IDMAGIC = "idmagic" 
@@ -65,7 +65,6 @@ def generateKey(size=RSASIZE):
     """Returns a new RSA key."""
     return RSA.generate(size, __randomGen)
 
-
 def identityFromCertificate(cert):
     return cert.get_ext("subjectKeyIdentifier").get_value()
 
@@ -78,22 +77,119 @@ class ImmutableMixin:
         self.__setattr__ = self.__setattr_im__
   
 import os
+from os.path import join
 
-M2Crypto
+
+opensslConfig = """
+HOME			= .
+RANDFILE		= $ENV::HOME/.rnd
+oid_section		= new_oids
+[ new_oids ]
+
+[ ca ]
+default_ca	= CA_default		# The default ca section
+
+[ CA_default ]
+
+dir		= %s		        # Where everything is kept
+certs		= $dir/certs		# Where the issued certs are kept
+crl_dir		= $dir/crl		# Where the issued crl are kept
+database	= $dir/index.txt	# database index file.
+new_certs_dir	= $dir/newcerts		# default place for new certs.
+certificate	= $dir/cacert.pem 	# The CA certificate
+serial		= $dir/serial 		# The current serial number
+crlnumber	= $dir/crlnumber	# the current crl number
+					# must be commented out to leave a V1 CRL
+crl		= $dir/crl.pem 		# The current CRL
+private_key	= $dir/private/cakey.pem# The private key
+RANDFILE	= $dir/private/.rand	# private random number file
+
+x509_extensions	= usr_cert		# The extentions to add to the cert
+
+name_opt 	= ca_default		# Subject Name options
+cert_opt 	= ca_default		# Certificate field options
+
+default_days	= 365			# how long to certify for
+default_crl_days= 30			# how long before next CRL
+default_md	= sha1			# which md to use.
+preserve	= no			# keep passed DN ordering
+
+
+policy		= policy_anything
+
+[ policy_anything ]
+localityName		= optional
+commonName		= supplied
+organizationName	= optional
+
+[ req ]
+default_bits		= 1024
+default_keyfile 	= privkey.pem
+distinguished_name	= req_distinguished_name
+attributes		= req_attributes
+x509_extensions	        = v3_ca	   # The extentions to add to the self signed cert
+encrypt_key		= no
+
+string_mask = nombstr
+
+
+[ req_distinguished_name ] 
+
+localityName			= Network Address (IP port)
+localityName_default		= 127.0.0.1:14850
+commonName			= Common Name (eg, YOUR name)
+commonName_max			= 256
+organizationName 		= Parameters: size pByz ftL
+organizationName_default	= 1000 0.20 1.0 
+
+[ req_attributes]
+
+[ usr_cert ]
+
+basicConstraints=CA:FALSE
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
+
+[ v3_req ]
+
+basicConstraints = CA:FALSE
+
+[ v3_ca ]
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid:always,issuer:always
+basicConstraints = CA:true
+
+[ crl_ext ]
+
+# CRL extensions.
+# Only issuerAltName and authorityKeyIdentifier make any sense in a CRL.
+
+# issuerAltName=issuer:copy
+authorityKeyIdentifier=keyid:always,issuer:always
+"""
+
+
+def noteFileName(note):
+    return "%s-%d" % (note.identity, note.epoch)
+
 
 
 class PKIStore:    
-    
-    def __init__(self, path, nodsa=False):        
+  
+    def __init__(self, path):        
         self.path = path
-        self.certPath = os.path.join(path, "certs")
-        self.keyPath = os.path.join(path, "private")
-        self.notesPath = os.path.join(path, "notes")
-        self.accusationsPath = os.path.join(path, "accusations")
-        self.ensurePaths()
-        
+        self.certPath = join(path, "certs")
+        self.newcertsPath = join(path, "newcerts")
+        self.keyPath = join(path, "private")
+        self.notesPath = join(path, "notes")
+        self.accusationsPath = join(path, "accusations")
+        self.caKeyPath = join(self.keyPath, "cakey.pem") 
+        self.caCertPath = join(self.path, "cacert.pem")         
+        self.configFile = join(self.path, "config")
+        self.ensurePaths()   
+      
     def ensurePaths(self):
-        for path in [self.path, self.certPath, self.keyPath, self.notesPath, self.accusationsPath]: 
+        for path in [self.path, self.certPath, self.keyPath, self.notesPath, self.accusationsPath, self.newcertsPath]: 
             if not os.path.exists(path):
                 os.mkdir(path)
             elif not os.path.isdir(path):
@@ -101,33 +197,79 @@ class PKIStore:
             elif not os.access(path, os.R_OK | os.W_OK):
                 print "%s access error.", path
                 raise RuntimeError, "Path access error " + path                
+        if not os.path.exists(self.configFile):
+            file(self.configFile, "w").write(opensslConfig % self.path)
 
-    def newCA(self):
+    def newCA(self, name, maxGroupSize=1000, pByz=0.20,  toleranceLevel=1.0):
         self.clear()
-        p = os.path.join(self.path, "serial")
+        p = join(self.path, "serial")
         file(p, "w").write("00")
-        p = os.path.join(self.path, "index.txt")
+        p = join(self.path, "index.txt")
         file(p, "w")
+        opts = "-config " + self.configFile 
+        subj = "/CN=%s/organizationName=%d\ %f\ %f" % (name, maxGroupSize, pByz, toleranceLevel)
+        tf = os.tempnam()                
+        args = (self.configFile, subj, self.caKeyPath, tf)
+        os.system("openssl req -config %s -subj %s -new -keyout %s -out %s" % args)
+        args = (self.configFile, self.caKeyPath, self.caCertPath, tf)
+        os.system("openssl ca -config %s -selfsign -batch -keyfile %s -out %s -infiles %s" % args)
+        os.remove(tf)
         
+    def nameToKeyPath(self, name):
+        return join(self.keyPath, name + ".pem")
         
+    def newMember(self, address, name=None):
+        if not name: name=address
+        opts = "-config " + self.configFile  
+        tf = os.tempnam()
+        if not name: name = address
+        subj = "/L=%s/CN=%s" % (address, name)        
+        args = (self.configFile, subj, self.nameToKeyPath(name), tf)
+        os.system("openssl req -batch -config %s -subj %s -new -keyout %s -out %s" % args)
+        args = (self.configFile, tf)
+        os.system("openssl ca -batch -config %s -policy policy_anything -infiles %s" % args)
+        os.remove(tf)
         
-
     def loadCACertificate(self):
-        path = os.path.join(self.path, "cacert.pem")
-        
-        return M2Crypto.X509.load_cert(path)
+        return M2Crypto.X509.load_cert(self.caCertPath)
 
     def hasCAKey(self):
-        path = os.path.join(self.keyPath, "cakey.pem")
-        return os.path.exists(path)
+        return os.path.exists(self.caKeyPath)
     
     def loadCAKey(self):
-        path = os.path.join(self.keyPath, "cakey.pem")
-        return M2Crypto.EVP.load_key(path)
+        return M2Crypto.EVP.load_key(self.caKeyPath)
+
+    def hasMemberCertificateWithAddress(self, address):
+        try:
+            self.loadMemberCertificateByAddress(address)
+        except KeyError:
+            return False
+        return True
+
+    def hasKeyForCertificate(self, cert):
+        try:
+            self.loadPrivateForCert(cert)
+        except KeyError:
+            return False
+        return True
 
     def loadMemberCertificates(self):
         files = glob.glob(os.path.join(self.certPath, "*"))
         return map(lambda x: M2Crypto.X509.load_cert(x), files)
+
+    def loadMemberCertificateByAddress(self, address):
+        for f in glob.glob(os.path.join(self.newcertsPath, "*.pem")):
+            cert = M2Crypto.X509.load_cert(f)
+            if cert.get_subject().L == address:
+                return cert
+        raise KeyError, "No certificate matching L=%s found" % address  
+
+    def loadMemberCertificateByName(self, name):
+        for f in glob.glob(os.path.join(self.newcertsPath, "*.pem")):
+            cert = M2Crypto.X509.load_cert(f)
+            if cert.get_subject().CN == name:
+                return cert
+        raise KeyError, "No certificate matching L=%s found" % name 
 
     def loadNotes(self):
         files = glob.glob(os.path.join(self.notesPath, "*"))
@@ -144,12 +286,12 @@ class PKIStore:
 
     def saveNote(self, note):
         isinstance(note, fireflies.state.Note)
-        path = os.path.join(self.notesPath, note.get_fingerprint())
+        path = os.path.join(self.notesPath, noteFileName(note))
         pickle.dump(note, file(path, "w"))
 
     def saveAccusation(self, accusation):
         isinstance(accusation, fireflies.state.Accusation)
-        path = os.path.join(self.notesPath, note.get_fingerprint())
+        path = os.path.join(self.accusationsPath, accusation.get_fingerprint())
         pickle.dump(accusation, file(path, "w"))
 
     def hasPrivateKey(self):
@@ -160,31 +302,40 @@ class PKIStore:
         path = os.path.join(self.keyPath, "cert.pem")
         if not os.path.exists(path): return False        
         
-    def savePrivateKey(self, key):
-        isinstance(key, M2Crypto.EVP.PKey)
-        path = os.path.join(self.keyPath, "key.pem")
-        key.save_key(path)
     
-    def loadPrivateKey(self): 
-        path = os.path.join(self.keyPath, "key.pem")
-        return M2Crypto.EVP.load_key(path)
-    
-    def savePrivateCertificate(self, cert):
+    def loadPrivateKeyForCert(self, cert):
         isinstance(cert, M2Crypto.X509.X509)
-        path = os.path.join(self.path, "cert.pem")
-        cert.save_pem(path)
+        data = "signthis."
+
+        for f in glob.glob(os.path.join(self.keyPath, "*.pem")):            
+            # Checks that public key in cert match a private key by 
+            # signing and verifying some data. This is probably not that efficient but there seems not
+            # to be any other way of doing this. 
+            key = M2Crypto.EVP.load_key(f)
+            key.sign_init()
+        
+            key2 = cert.get_pubkey()
+            key2.verify_init()
+        
+            key.sign_update(data)
+            key2.verify_update(data)
+            
+            if key2.verify_final(key.sign_final()):
+                return key
+
+        raise KeyError, "Unable to find correct key"
     
-    def loadPrivateCertificate(self): 
-        path = os.path.join(self.path, "cert.pem")
-        return M2Crypto.X509.load_cert(path)
     
-    def savePrivateNote(self, note):
-        path = os.path.join(self.path, "note")
-        pickle.dump(note, file(path, "w"))
-    
-    def loadPrivateNote(self): 
-        path = os.path.join(self.path, "note")
-        return pickle.load(file(path))
+    def loadNoteFromCert(self, cert):
+        isinstance(cert, M2Crypto.X509.X509)
+        for f in glob.glob(os.path.join(self.notesPath, "*")):
+            note = pickle.load(file(f))
+            print f
+            if not isinstance(note, fireflies.state.Note): raise ValueError
+            if note.identity == identityFromCertificate(cert):
+                return note
+
+        raise KeyError, "No matching note found."
                 
     def clearAccusations(self):
         for f in glob.glob(os.path.join(self.accusationsPath, "*")):
@@ -204,11 +355,10 @@ class PKIStore:
         for member in group.getView().getAllMembers():
             isinstance(member, fireflies.state.Member)
             self.saveMemberCertificate(member.getCertificate())
-            self.saveNote(member.getNote())
+            n = member.getNote()
+            if n: self.saveNote(n)
             for acc in member.getAccusations():
                 self.saveAccusation(acc)
-        me = group.getMe()
-        self.savePrivateNote(me.getNote())
 
     def clear(self):
         self.clearAccusations()
