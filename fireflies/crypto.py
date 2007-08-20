@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.9 2007/08/15 08:28:40 haavardj Exp $
+## $Id: crypto.py,v 1.10 2007/08/20 07:47:57 haavardj Exp $
 ##                
 ######################################################################
 
@@ -55,9 +55,6 @@ def identitySize():
     """Returns the size (in bytes) of identity numbers."""    
     return SHA.digest_size
 
-def keyToIdentity(key):
-    """Maps a Crypto.RSA key onto a member identity number."""    
-    return SHA.new(key.encrypt(IDMAGIC, None)[0]).digest()
 
 __randomGen = RandomPool().get_bytes
 

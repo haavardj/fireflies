@@ -46,13 +46,16 @@ if __name__ == "__main__":
     parser.add_option("-d", "--daemon",
                       action="store_true", dest="daemon", default=False,
                       help="Run as daemon.")
+    parser.add_option("--readonly",
+                      action="store_true", dest="storero", default=False,
+                      help="Do not write state to store.")
     parser.add_option("-r", "--rundir",
                       dest="rundir", default="./",
                       help="Rundir.")
-
     parser.add_option("-s", "--stats",
                       action="store_true", dest="stats", default=False,
                       help="Enable the web-stats.")
+   
     parser.add_option("--verbose",
                       action="store_true", dest="verbose", default=False,
                       help="Verbose output.")
@@ -268,6 +271,6 @@ if __name__ == "__main__":
     except Exception, why:
         logging.exception("reactor crash? %s", why)
 
-    store.saveGroup(mgroup)
+    if not options.storero: store.saveGroup(mgroup)
 
     logging.info("Shutdown")

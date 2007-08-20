@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.5 2007/08/14 07:47:12 haavardj Exp $
+## $Id: state.py,v 1.6 2007/08/20 07:47:57 haavardj Exp $
 ##                
 ######################################################################
 
@@ -285,7 +285,7 @@ class Member(object):
         @rtype: L{Note}
         """
         
-        return Note(self.getSerial(), self.getEpoch() + 1, self.nextMask())       
+        return Note(self.getIdentity(), self.getEpoch() + 1, self.nextMask())       
     
     def nextMask(self): 
         """
@@ -332,7 +332,7 @@ class Member(object):
     def getCertificate(self):
         """
         @return: The member's latest member certificate.
-        @rtype: L{fireflies.crypto.MemberCertificate}
+        @rtype: L{M2Crypto.X509.X509}
         """
 
         return self._cert
@@ -356,7 +356,7 @@ class Member(object):
         @return: The requested accusation, if any.
         @rtype: L{Accusation}
         """
-        self.vAccusations[rnr]
+        self.vAccusations[nr]
     
     def getIdentity(self):
         """

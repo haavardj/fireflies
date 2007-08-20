@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.17 2007/08/15 12:52:45 haavardj Exp $
+## $Id: gossip.py,v 1.18 2007/08/20 07:47:57 haavardj Exp $
 ##                
 ######################################################################
 
@@ -36,7 +36,6 @@ MBAR=10
 BITSIZE=160
 
 setrecon.init(BITSIZE, MBAR)
-
 
 NODE_STATUS_EMPTY = 0
 NODE_STATUS_TERMINAL = 1
@@ -72,15 +71,6 @@ code2cmd = {}
 for k, v in cmd2code.items():
     code2cmd[v] = k
 
-
-class ISetReconItem(Interface):
-    def fingerprint(self):
-        """Return unique object fingerprint string."""
-
-    def getItem(self):
-        """Return wrapped item."""
-
-
 class NoteSet(setrecon.ReconSet):
     def elmToZZp(self, elm):
         if not isinstance(elm, Note): raise ValueError
@@ -97,7 +87,27 @@ class X509Set(setrecon.ReconSet):
         return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))
 
 
+def makeSSLctx(group):
+    isinstance(group, fireflies.group.Group)
+    me = group.getMe()
+    myCert = me.getCertificate()
+    myKey = group.getMyKey()        
+    data = myCert.as_pem() + myKey.as_pem(cipher=None)
+    theCert = ssl.PrivateCertificate.loadPEM(data)
+    isinstance(theCert, ssl.PrivateCertificate)
+    theCA = ssl.Certificate.loadPEM(group.getGroupCertificate().as_pem())        
+    isinstance(theCA, ssl.Certificate)    
+    ctx = theCert.options(theCA)
+    ctx.method = ssl.SSL.SSLv23_METHOD
+    ctx.verify = True
+    ctx.verifyDepth = 1
+    ctx.requireCertificate = True
+    return ctx
+
 class Gossip(Service):
+    
+    name = "gossip"
+    
     def __init__(self, group, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
         
         self.setServiceParent(group)
@@ -112,14 +122,8 @@ class Gossip(Service):
         self.sFactory = GossipServerFactory(self, TCPTimeout)
         self.cFactory = GossipClientFactory(self, rate, TCPTimeout)    
 
-        me = group.getMe()
-        myCert = me.getCertificate()
-        myKey = group.getMyKey()        
-        data = myCert.as_pem() + myKey.as_pem(cipher=None)
-        theCert = ssl.PrivateCertificate.loadPEM(data)
-        isinstance(theCert, ssl.PrivateCertificate)
-        theCA = ssl.Certificate.loadPEM(group.getGroupCertificate().as_pem())        
-        self.sslCTX = theCert.options(theCA)
+
+        self.sslCTX = makeSSLctx(group)
 
         self.cSet = X509Set(PARTITION_FACTOR, RECON_EXTRA)
         self.nSet = NoteSet(PARTITION_FACTOR, RECON_EXTRA)
@@ -215,8 +219,9 @@ class GossipBase(Int32StringReceiver):
             p.pack_fstring(1, chr(cmd2code[cmd]))
 
             if cmd == "partner":
-                nr, = args
+                nr, note = args
                 p.pack_uint(nr)
+                p.pack_note(note)
 
             elif cmd == "authenticate":
                 crt, note = args
@@ -302,7 +307,7 @@ class GossipBase(Int32StringReceiver):
             cmd = code2cmd[ord(p.unpack_fstring(1))]
             args = ()
             if cmd == "partner":
-                args = (p.unpack_uint(),)
+                args = (p.unpack_uint(), p.unpack_note())
 
             elif cmd == "authenticate":
                 args = (p.unpack_cert(), p.unpack_note())
@@ -638,8 +643,10 @@ class ServerProtocol(GossipBase):
         self.dataBuff = []
         self.reqBuff = []
         self.outBuff = []
+        
     def connectionMade(self):
-        pass
+        self.setTimeout()
+
 
     def connectionLost(self, reason):
         try:
@@ -666,24 +673,7 @@ class ServerProtocol(GossipBase):
             self.logger.warning("authenticate<- %s Version error. Other have an old version. Exiting.", self)
         self.sendCommand("version", *fireflies.protocol_version)
 
-    def handle_authenticate(self, crt, note):
-        print "-------------connection made", ssl.Certificate.peerFromTransport(self.transport)
-        view = self.factory.service.parent.view
-        pprint = view.pprint
-        assert isinstance(crt, M2Crypto.X509.X509)
-        assert isinstance(note, Note)
-
-        if note.identity != identityFromCertificate(crt):
-            self.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
-            self.hangup()
-        else:
-            self.logger.debug("authenticate<- %s %s", self, pprint(crt))
-            view.addCertificate(crt)
-            view.addNote(note)
-            self.other = view.sn2peer[identityFromCertificate(crt)]
-            self.setTimeout()
-            self.sendCommand("authenticate", self.factory.service.parent.getMe().getCertificate(), self.factory.service.parent.getMe().getNote())
-
+ 
     def redirect(self, peer):
         #self.factory.peer.view.stats.redirect += 1
         pprint = self.factory.service.parent.view.pprint
@@ -696,20 +686,21 @@ class ServerProtocol(GossipBase):
         self.sendCommand("accepted")
         self.state = self.STATE_IDLE
         
-    def handle_partner(self, ringNr):
+    def handle_partner(self, ringNr, hisNote):
         self.cancelTimeout()
-        view = self.factory.service.parent.view
-        pprint = view.pprint
+        hisCert = ssl.Certificate.peerFromTransport(self.transport)
+        isinstance(hisCert, ssl.Certificate)
+        hisCert = M2Crypto.X509.load_cert_string(hisCert.dumpPEM())        
+        hisId = identityFromCertificate(hisCert)
+
+        self.factory.service.parent.getView().addCertificate(hisCert)
+        self.factory.service.parent.getView().addNote(hisNote)
+        
+        self.other = self.factory.service.parent.getView().getMemberByIdentity(hisId)
+        
         self.logger.debug("partner<- %s on %d", self, ringNr)
         self.ringNr = ringNr
         reactor.callLater(0, self.factory.clientConnected, self, ringNr)
-
-
-    #
-    # Recon server stuff.
-    #
-
-
 
     #
     # Main protocol steps
@@ -792,11 +783,7 @@ class ClientProtocol(GossipBase):
         self.outBuff = []
 
     def connectionMade(self):
-        
-        self.factory.peer.view.stats.tcpOpen += 1
-        self.sendCommand("version", *fireflies.protocol_version)
-        self.setTimeout()
-        #self._sendAuthenticate()
+        reactor.callLater(0, self._sendPartner, self.ringNr, self.factory.service.parent.getMe().getNote())
 
     def handle_version(self, major, minor, patchlevel):
         print "xxxxxxxxxxxx client connection made", ssl.Certificate.peerFromTransport(self.transport)
@@ -821,39 +808,20 @@ class ClientProtocol(GossipBase):
         addr = self.transport.getPeer()
         if self._timer: self.cancelTimeout()
         self.state = self.STATE_TERMINATED
-                        
-    def _sendAuthenticate(self, crt, note):
-        pprint = self.factory.peer.view.pprint
-        self.logger.debug("authenticate-> %s %s-%s ", self, pprint(crt),pprint(note))
-        self.setTimeout()
-        self.sendCommand("authenticate", crt, note)
+                      
         
-    def handle_authenticate(self, crt, note):
-        view = self.factory.peer.view
-        pprint = self.factory.peer.view.pprint
-        self.cancelTimeout()
-        
-        if identityFromCertificate(crt) != self.other.getIdentity():
-            self.logger.warning("authenticate<- %s Error. Expected %s. Got  %s.", self, pprint(self.other.getCertificate()), pprint(crt))
-            self.hangup()
-            return
-
-        if  note.identity != self.other.getIdentity():
-            self.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
-            self.hangup()
-            return
-
-        self.logger.debug("authenticate<- %s OK", self)
-        self.factory.view.addCertificate(crt)
-        self.factory.view.addNote(note)
-        self._sendPartner(self.ringNr)
-        
-    def _sendPartner(self, ringNr):
+    def _sendPartner(self, ringNr, note):
         self.logger.debug("partner-> %s on %s", self, ringNr)
         self.setTimeout()
-        self.sendCommand("partner", ringNr)
+        self.sendCommand("partner", ringNr, note)
         
     def handle_accepted(self):
+        hisCert = ssl.Certificate.peerFromTransport(self.transport)
+        isinstance(hisCert, ssl.Certificate)
+        hisCert = M2Crypto.X509.load_cert_string(hisCert.dumpPEM())        
+        hisId = identityFromCertificate(hisCert)        
+        self.other = self.factory.service.parent.getView().getMemberByIdentity(hisId)
+
         self.state = self.STATE_IDLE
         self.cancelTimeout()
         self.logger.debug("accepted<- %s", self)
@@ -861,7 +829,7 @@ class ClientProtocol(GossipBase):
         
     def handle_redirect(self, crt, note):
         self.cancelTimeout()
-        self.logger.debug("redirect<- %s to %s", self, crt.address)
+        self.logger.debug("redirect<- %s to %s", self, identityFromCertificate(crt))
         self.factory.view.addCertificate(crt)
         self.factory.view.addNote(note)
         self.hangup()
@@ -1008,7 +976,7 @@ class GossipServerFactory(ServerFactory):
                 protocol.accept()
                 self.cons[rnr] = protocol
             else:                
-                if (cp.other.id == him.id) or self.service.rings[rnr].isBetween(cp.other, him, me):
+                if (cp.other == him) or self.service.rings[rnr].isBetween(cp.other, him, me):
                     cp.hangup()
                     self.cons[rnr] = protocol
                     protocol.accept()

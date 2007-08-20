@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, University of Tromso, Norway)
 ##                
-## $Id: web.py,v 1.4 2007/07/11 08:21:17 haavardj Exp $
+## $Id: web.py,v 1.5 2007/08/20 07:47:57 haavardj Exp $
 ##                
 ######################################################################
 
@@ -217,10 +217,11 @@ class Grapher:
 
 class NodeViewer:
     def __init__(self, group, port=None, interface=None):
+        isinstance(group, fireflies.group.Group)
         self.group = group
-        self.logger = logging.getLogger(group.mcert.address)
+        self.logger = logging.getLogger(group.getMe().getAddress())
 
-        h, p = group.mcert.address.split(":")
+        h, p = group.getMe().getAddress().split(":")
         p = int(p) + 1000
         
         if not port:
@@ -231,11 +232,11 @@ class NodeViewer:
             self.interface= h
         else: self.interface = interface
         
-        self.root = RootPage(self.group.me)
+        self.root = RootPage(self.group.getMe())
         ip2name[h] = socket.getfqdn(h)
         global gossipsubs, pingersubs
-        gossipsubs = group.gossiper
-        pingersubs = group.pinger
+        gossipsubs = group.getServiceNamed("gossip")
+        pingersubs = group.getServiceNamed("fd")
         self.logger.info("Binding HTTP-stat to tcp %s:%d", h, p)
         site = server.Site(self.root)
 
@@ -246,7 +247,7 @@ class NodeViewer:
         historySize = 48   # 5 * 60*1)
 
         reactor.listenTCP(self.port, appserver.NevowSite(self.root), interface=self.interface)
-        p = os.path.join("/tmp", self.group.mcert.address)
+        p = os.path.join("/tmp", self.group.getMe().getAddress())
         try:
             os.mkdir(p)
         except os.error:
@@ -259,7 +260,7 @@ class NodeViewer:
 
     def __del__(self):
         try:
-            p = os.path.join("/tmp", self.peer.cert.address)
+            p = os.path.join("/tmp", self.peer.getAddress())
             shutil.rmtree(p)
         except Exception:
             pass
@@ -279,7 +280,7 @@ class MasterPage(rend.Page):
 
     def render_badness(self, context, peer):
         t = context.tag.clear()
-        b = peer.note.badness
+        b = 0 #peer.note.badness
         if b == 0:
             return t[ T.span[" "](_class="correctbox", style="margin-right: 8px;"),  "Correct"]
         elif b == 1:
@@ -291,12 +292,12 @@ class MasterPage(rend.Page):
 
     def render_browselink(self, context, peer):
         t = context.tag()
-        h, p = peer.cert.address.split(":")
+        h, p = peer.getAddress().split(":")
         p = int(p) + 1000
         return T.a["[browse]"](href="http://%s:%d" % (h, p))
 
     def render_id(self, context, peer):        
-        return context.tag.clear()["%x" % bytes_to_long(peer.id)]
+        return context.tag.clear()["%s" % peer.getIdentity()]
     
     def render_npings(self, context, peer):        
         return context.tag.clear()[peer.nPing]
@@ -322,13 +323,13 @@ class MasterPage(rend.Page):
                 return context.tag.clear()[T.span[""]( _class="accusedbox", style="margin-right: 8px"),  "Failes in %s" % (str(to-c)) ]
 
     def render_epoch(self, context, peer):        
-        return context.tag.clear()[peer.note.epoch]
+        return context.tag.clear()[peer.getEpoch()]
 
     def render_mask(self, context, peer):
         assert isinstance(peer, fireflies.members.Member)
         t = context.tag.clear()
-        if not peer.note: return t["NA"]
-        else: return t[str(peer.note.mask)]     
+        if not peer.getNote(): return t["NA"]
+        else: return t[str(peer.getNote().mask)]     
     
     def render_accused(self, context, peer):
         if peer.isAccused():
@@ -337,7 +338,7 @@ class MasterPage(rend.Page):
             return context.tag.clear()["No"]
 
     def render_address(self, context, peer):
-        ipaddr, port = peer.cert.address.split(":")
+        ipaddr, port = peer.getAddress().split(":")
         if not ipaddr in ip2name.keys():
             def setip(ip):
                 try:
@@ -366,22 +367,22 @@ class MasterPage(rend.Page):
             st = T.span["."](_class="accusedstatus")
         else:
             st = T.span["."](_class="livestatus")
-        if peer.note.badness == 0:
+        if True or peer.note.badness == 0:
             bt = T.span["."](_class="correct")
         elif peer.note.badness == 1:
             bt = T.span["."](_class="passive")
         elif peer.note.badness == 2:
             bt = T.span["."](_class="active")
 
-        if peer.note:
-            ll = T.span[str(peer.note.epoch)]
+        if peer.getNote():
+            ll = T.span[str(peer.getEpoch())]
         else:
             ll = T,span["-"]
         s[T.span[st, bt](style="background-color: #E9E9FF;"),
           T.a["l"](style="white-space: nowrap; padding-left: 4px;",
                    data=peer,
                    render=self.render_address,
-                   href="/%x" % bytes_to_long(peer.id)),
+                   href="/%s" % peer.getIdentity()),
           ll
           ]
         return s
@@ -402,8 +403,8 @@ class MasterPage(rend.Page):
                  T.tr[ T.th["S"], T.th["B"], T.th["Address"], T.th["ll"] ] ]
         for peer in l:
 
-            if peer.note:
-                ll = T.td[str(peer.note.epoch)]
+            if peer.getNote():
+                ll = T.td[str(peer.getEpoch())]
             else:
                 ll = T.td["-"]
             
@@ -414,7 +415,7 @@ class MasterPage(rend.Page):
                 st = T.td[""](_class="accusedbox")
             else:
                 st = T.td[""](_class="livebox")
-            if not peer.note:                
+            if True or not peer.getNote():                
                 bt = T.td["-"]
             elif peer.note.badness == 0:
                 bt = T.td[""](_class="correctbox")
@@ -423,7 +424,7 @@ class MasterPage(rend.Page):
             elif peer.note.badness == 2:
                 bt = T.td[""](_class="activebox")
 
-            a = T.td[T.a[""](href="/%x" % bytes_to_long(peer.id), _class="address", data=peer, render=self.render_address)]
+            a = T.td[T.a[""](href="/%s" % peer.getIdentity(), _class="address", data=peer, render=self.render_address)]
             rows.append( T.tr[  st, bt, a, ll])
         return t[T.table[rows](_class="peerlist")]
 
@@ -465,7 +466,7 @@ class PeerPage(MasterPage):
                  T.tr[ T.th["#"], T.th["S"], T.th["B"], T.th["Address"], T.th["LL"]]]
         for x in range(nrRings):
             accus = l.get(x, None)
-            if peer.note.mask[x]: enabled = "Y"
+            if peer.getNote().mask[x]: enabled = "Y"
             else: enabled = "N"
 
             if accus != None:
@@ -477,14 +478,14 @@ class PeerPage(MasterPage):
                     st = T.td[""](_class="accusedbox")
                 else:
                     st = T.td[""](_class="livebox")
-                if p.note.badness == 0:
+                if True or p.note.badness == 0:
                     bt = T.td[""](_class="correctbox")
                 elif p.note.badness == 1:
                     bt = T.td[""](_class="passivebox")
                 elif p.note.badness == 2:
                     bt = T.td[""](_class="activebox")
 
-                a = T.td[T.a[""](href="/%x" % bytes_to_long(p.id), _class="address", data=p, render=self.render_address)]
+                a = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
             else:
                 st = bt = T.td[""](_class="nabox")
                 a = T.td[""](_class="address", width="100")                
@@ -509,14 +510,14 @@ class PeerPage(MasterPage):
                 st = T.td[""](_class="accusedbox")
             else:
                 st = T.td[""](_class="livebox")
-            if p.note.badness == 0:
+            if True or p.note.badness == 0:
                 bt = T.td[""](_class="correctbox")
             elif p.note.badness == 1:
                 bt = T.td[""](_class="passivebox")
             elif p.note.badness == 2:
                 bt = T.td[""](_class="activebox")
 
-            a = T.td[T.a[""](href="/%x" % bytes_to_long(p.id), _class="address", data=p, render=self.render_address)]
+            a = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
             rows.append( T.tr[ T.td[accus.nr], st, bt, a])
         return t[T.table[rows](_class="peerlist")]    
  
@@ -575,14 +576,14 @@ class PartnersPage(MasterPage):
                     d2 = T.td[""](_class="accusedbox")
                 else:
                     d2 = T.td[""](_class="livebox")
-                if p.note.badness == 0:
+                if True or p.note.badness == 0:
                     d3 = T.td[""](_class="correctbox")
                 elif p.note.badness == 1:
                     d3 = T.td[""](_class="passivebox")
                 elif p.note.badness == 2:
                     d3 = T.td[""](_class="activebox")
 
-                d4 = T.td[T.a[""](href="/%x" % bytes_to_long(p.id), _class="address", data=p, render=self.render_address)]
+                d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
                 d5 = T.td[y.state]
             else:
                 d2 = d3 = d4 = T.td[""]
@@ -607,14 +608,14 @@ class PartnersPage(MasterPage):
                     d2 = T.td[""](_class="accusedbox")
                 else:
                     d2 = T.td[""](_class="livebox")
-                if p.note.badness == 0:
+                if True or p.note.badness == 0:
                     d3 = T.td[""](_class="correctbox")
                 elif p.note.badness == 1:
                     d3 = T.td[""](_class="passivebox")
                 elif p.note.badness == 2:
                     d3 = T.td[""](_class="activebox")
 
-                d4 = T.td[T.a[""](href="/%x" % bytes_to_long(p.id), _class="address", data=p, render=self.render_address)]
+                d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
                 d5 = T.td[y.state]
             else:
                 d2 = d3 = d4 = T.td[""]
@@ -638,7 +639,7 @@ class PartnersPage(MasterPage):
         for x in range(len(self.peer.view.mRings)):
             mon = self.peer.view.mRings[x].succ(self.peer)
             while mon.isAccused():
-                if mon.id == self.peer.id: break
+                if mon == self.peer: break
                 mon = self.peer.view.mRings[x].succ(mon)
             mons.append(mon)
             
@@ -648,7 +649,7 @@ class PartnersPage(MasterPage):
                 
             d1 = T.td[x](align="center")
 
-            if y and y.id != self.peer.id:
+            if y and y != self.peer:
                 p = y
                 if p in self.peer.view.fRing:
                     d2 = T.td[""](_class="failedbox")
@@ -657,7 +658,7 @@ class PartnersPage(MasterPage):
                 else:
                     d2 = T.td[""](_class="livebox")
 
-                if not p.note:
+                if True or not p.getNote():
                     d3 = T.td["?"](_class="failedbox")
                 elif p.note.badness == 0:
                     d3 = T.td[""](_class="correctbox")
@@ -668,9 +669,9 @@ class PartnersPage(MasterPage):
                 else:
                     d3 = T.td["?"](_class="failedbox")
 
-                d4 = T.td[T.a[""](href="/%x" % bytes_to_long(p.id), _class="address", data=p, render=self.render_address)]
+                d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
                 
-                if y.note.mask[x] == False:
+                if y.getNote().mask[x] == False:
                     d7 = T.td["disabled"]
                     d5 = d6 = d8 = T.td[""]
                 elif y in mons[0:x]:
@@ -680,8 +681,8 @@ class PartnersPage(MasterPage):
                     d7 = T.td["mon"]
 
                 d5 = T.td[p.nPing]
-                pmist = self.peer.group.cacert.config["PMISTAKE"]
-                tmin = self.peer.group.cacert.config["TMIN"]
+                pmist = fireflies.fd.PMISTAKE
+                tmin = fireflies.fd.TMIN
                 psucc = min( 1./(p.avgLoss), 1. - pmist**(1./float(tmin)))
                 tau = log(pmist) / log(1. - psucc)
                 d6 = T.td[int(ceil(tau))]
@@ -722,14 +723,14 @@ class RingsPage(MasterPage):
                     st = T.td[""](_class="accusedbox")
                 else:
                     st = T.td[""](_class="livebox")
-                if peer.note.badness == 0:
+                if True or peer.note.badness == 0:
                     bt = T.td[""](_class="correctbox")
                 elif peer.note.badness == 1:
                     bt = T.td[""](_class="passivebox")
                 elif peer.note.badness == 2:
                     bt = T.td[""](_class="activebox")
 
-                a = T.td[T.a[""](href="/%x" % bytes_to_long(peer.id), _class="address", data=peer, render=self.render_address)]
+                a = T.td[T.a[""](href="/%s" % peer.getIdentity(), _class="address", data=peer, render=self.render_address)]
                 rows.append( T.tr[  st, bt, a])
 
                 

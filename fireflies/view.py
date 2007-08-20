@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.10 2007/08/14 07:47:12 haavardj Exp $
+## $Id: view.py,v 1.11 2007/08/20 07:47:57 haavardj Exp $
 ##                
 ######################################################################
 
@@ -232,7 +232,6 @@ class View:
         try:
             m = self.getMemberByIdentity(mId)
         except KeyError:
-            print "idnot found. Cert must be new"
             m = None
             
         if m:

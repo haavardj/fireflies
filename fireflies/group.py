@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.18 2007/08/14 07:47:12 haavardj Exp $
+## $Id: group.py,v 1.19 2007/08/20 07:47:57 haavardj Exp $
 ##                
 ######################################################################
 
@@ -73,8 +73,7 @@ class Group(MultiService):
         
         self.view.addCertificate(myCertificate)
         self._me = self.view.getMemberByIdentity(myCertificate.get_ext("subjectKeyIdentifier").get_value())
-        isinstance(self._me, Member)
-
+        assert isinstance(self._me, Member)
         if myNote: self.view.addNote(myNote)
         else:
             myNote = createInitialNote(self._me)
@@ -156,7 +155,8 @@ class Group(MultiService):
         if status == True and elm.accused == self.getMe().getIdentity():
             self.logger.info("rebutting false accusation %s", elm)
             n = self.getMe().nextNote()
-            self._myKey.sign(n)
+            isinstance(n, Note)
+            n.sign(self.getMyKey())
             reactor.callLater(0, self.view.addNote, n)
 
             

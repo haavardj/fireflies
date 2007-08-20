@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.15 2007/08/14 07:47:12 haavardj Exp $
+## $Id: fd.py,v 1.16 2007/08/20 07:47:57 haavardj Exp $
 ##                
 ######################################################################
 
@@ -135,6 +135,8 @@ class FDMsgUnpacker(FirefliesUnpacker):
 
 
 class FailureDetector(Service):
+    
+    name = "fd"
 
     def __init__(self, group,
                  roundtime=ROUNDTIME,
