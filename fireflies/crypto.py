@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.11 2007/09/11 13:51:29 haavardj Exp $
+## $Id: crypto.py,v 1.12 2007/09/11 13:53:34 haavardj Exp $
 ##                
 ######################################################################
 
@@ -356,7 +356,6 @@ class PKIStore:
         isinstance(cert, M2Crypto.X509.X509)
         for f in glob.glob(os.path.join(self.dirNote, "*")):
             note = pickle.load(file(f))
-            print f
             if not isinstance(note, fireflies.state.Note): raise ValueError
             if note.identity == identityFromCertificate(cert):
                 return note

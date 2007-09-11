@@ -144,7 +144,6 @@ if __name__ == "__main__":
     
     try:
         groupCert = store.loadCACertificate()
-        print "CA", groupCert.get_subject().O
     except:
         print "Unable to load group certificate."
         sys.exit(0)
