@@ -4,11 +4,11 @@
 
 \title{Fireflies: A Peer-to-Peer Overlay Network Toolkit}
 
-\release{0.0.1}
+\release{0.0.2}
 
 \newcommand{\Fireflies}{\emph{Fireflies}}
-\newcommand{\firefliesdist}{\emph{fireflies-0.0.1}}
-\newcommand{\firefliestar}{\emph{fireflies-0.0.1.tar.gz}}
+\newcommand{\firefliesdist}{\emph{fireflies-0.0.2}}
+\newcommand{\firefliestar}{\emph{fireflies-0.0.2.tar.gz}}
 
 
 \author{H\aa vard Johansen}
@@ -52,6 +52,7 @@ Required software:
 \item[Python Cryptography Toolkit 2.0.1] (\url{http://www.amk.ca/python/code/crypto})
 \item[NTL: A Library for doing Number Theory 5.4] (\url{http://www.shoup.net/ntl})
 \item[GMP: GNU Multiple Precision Arithmetic Library 4.1.4] (\url{http://gmplib.org/})
+\item[M2Crypto 0.18] (\url{http://chandlerproject.org/Projects/MeTooCrypto})
 \end{description}
 
 Optional software for the \refmodule{fireflies.web} module:
@@ -151,7 +152,7 @@ group.startService()
 
 Fireflies is built on top of the Twisted toolkit.  
 Having some prior knowledge of Twisted is advisable before using Fireflies.
-At minimum, you must run the Twisted event loop in order to activate
+As a minimum, you must run the Twisted event loop in order to activate
 the Fireflies networking services. This is done in the following manner:
 %
 \begin{verbatim}

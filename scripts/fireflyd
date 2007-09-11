@@ -62,6 +62,9 @@ if __name__ == "__main__":
     parser.add_option("-b", "--byzantine",
                       dest="byzantine", default=None,
                       help="Checks in this file if the member is supposed to be Byzantine.")
+    parser.add_option("--password",
+                      dest="password", default=None,
+                      help="Password to use. If not set, you will be asked for a password when loading and saving keys.")
 
     (options, args) = parser.parse_args()
     
@@ -70,6 +73,11 @@ if __name__ == "__main__":
         sys.exit()
 
     myAddress = "%s:%d" % (options.address, options.port)
+
+    if options.password:
+        passwdcb = lambda x: options.password
+    else:
+        passwdcb= M2Crypto.util.passphrase_callback
 
     # Change user/group
     import pwd, grp
@@ -136,6 +144,7 @@ if __name__ == "__main__":
     
     try:
         groupCert = store.loadCACertificate()
+        print "CA", groupCert.get_subject().O
     except:
         print "Unable to load group certificate."
         sys.exit(0)
@@ -147,11 +156,17 @@ if __name__ == "__main__":
             print "Unable to find or create member certificate for address=%s" % myAddress
             sys.exit(0)
         else:
-            store.newMember(myAddress)
-            myCert = store.loadMemberCertificateByAddress(myAddress)
+            caPKey = store.loadCAKey(passwdcb)
+            myKey = fireflies.crypto.generatePrivateKey()
+            req = fireflies.crypto.makeRequest(myAddress, myKey)
+            myCert = fireflies.crypto.makeCert(req, groupCert, caPKey)
+            
+            store.saveMemberCertificate(myCert)
+            store.savePrivateKey(myKey, myCert, passwdcb)
+
 
     try:
-        myKey = store.loadPrivateKeyForCert(myCert)
+        myKey = store.loadPrivateKeyForCert(myCert, passwdcb)
     except KeyError, why:
         print "Unable to load private key.", why
         sys.exit()

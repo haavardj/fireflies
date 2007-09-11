@@ -5,9 +5,8 @@
 import fireflies.crypto
 from optparse import OptionParser
 import os.path, sys, pickle, socket
+import M2Crypto
 
-
-defaultConfig = fireflies.defaultConfig
 
 parser = OptionParser(usage="%prog [options] <group name>")
 
@@ -20,12 +19,26 @@ parser.add_option("-p", metavar="NUMBER", dest="pByz", type="float", default=0.2
 
 parser.add_option("-s", metavar="NUMBER", dest="maxGroupSize", type="int", default=1000,
                   help="Max size of a group. Default=1000")
+parser.add_option("--password",
+                  dest="password", default=None,
+                  help="Password to use. If not set, you will be asked for a password when loading and saving keys.")
+parser.add_option("-o",
+                      action="store_true", dest="overwrite", default=False,
+                      help="Overwrite existing CA.")
 
 (options, args) = parser.parse_args()
 
-if os.path.exists(args[0]):
-    print "Path exists. Please remove."
-    sys.exit(0)
-
+if os.path.exists(args[0]) and not options.overwrite:
+ print "Path exists. Please remove."
+ sys.exit(0)
+    
+if options.password:
+ passwdcb = lambda x: options.password
+else:
+ passwdcb= M2Crypto.util.passphrase_callback
+    
 store = fireflies.crypto.PKIStore(args[0])
-store.newCA(os.path.basename(args[0]), options.maxGroupSize, options.pByz, options.tolerance)
+caCert, caPKey = fireflies.crypto.newCA(args[0], options.maxGroupSize, options.pByz, options.tolerance)
+store.saveCACert(caCert)
+store.saveCaPrivKey(caPKey, passwdcb)
+
