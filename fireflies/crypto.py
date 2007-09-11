@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.12 2007/09/11 13:53:34 haavardj Exp $
+## $Id: crypto.py,v 1.13 2007/09/11 14:11:06 haavardj Exp $
 ##                
 ######################################################################
 
@@ -110,10 +110,11 @@ def makeRequest(address, pkey, nickname=None):
     req.sign(pkey, DIGESTALG)
     return req
 
-def makeCert(req, caCert, caPkey, notBefore=0, notAfter=60*60*24*30):
+def makeCert(req, caCert, caPkey, sn=0, notBefore=0, notAfter=60*60*24*30):
     """Create a X509 member certificate.
     @param req: X509 request.
     @type req: L{M2Crypto.X509.X509Request}
+    @param sn: serial number.
     @param caCert: CA's certificate
     @type caCert: L{M2Crypto.X509.X509}
     @param caPkey: CA's private key.
@@ -128,7 +129,7 @@ def makeCert(req, caCert, caPkey, notBefore=0, notAfter=60*60*24*30):
     
     sub = req.get_subject()
     cert = M2Crypto.X509.X509()
-    cert.set_serial_number(0)
+    cert.set_serial_number(sn)
     cert.set_version(2)
     cert.set_subject(sub)
     cert.set_issuer(caCert.get_subject())
@@ -239,6 +240,16 @@ class PKIStore:
         if not os.path.exists(self.fileSerial):
             file(self.fileSerial, "w").write("0")
         
+
+    def newMemberCertificate(self, req, callback=M2Crypto.util.passphrase_callback):
+        sn = int(file(self.fileSerial, "r").readline())
+        sn += 1        
+        caCert = self.loadCACertificate()
+        caPKey = self.loadCAKey(callback)        
+        cert = makeCert(req, caCert, caPKey, sn=sn)
+        file(self.fileSerial, "w").write(str(sn))
+        self.saveMemberCertificate(cert)
+        return cert
 
     def saveCACert(self, caCert):
         isinstance(caCert, M2Crypto.X509.X509)

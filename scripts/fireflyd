@@ -158,7 +158,7 @@ if __name__ == "__main__":
             caPKey = store.loadCAKey(passwdcb)
             myKey = fireflies.crypto.generatePrivateKey()
             req = fireflies.crypto.makeRequest(myAddress, myKey)
-            myCert = fireflies.crypto.makeCert(req, groupCert, caPKey)
+            myCert = store.newMemberCertificate(req, passwdcb)
             
             store.saveMemberCertificate(myCert)
             store.savePrivateKey(myKey, myCert, passwdcb)
