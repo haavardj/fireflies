@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.6 2007/08/20 07:47:57 haavardj Exp $
+## $Id: state.py,v 1.7 2007/09/13 14:32:59 haavardj Exp $
 ##                
 ######################################################################
 
@@ -178,7 +178,7 @@ class Note(object, crypto.Signable):
         except AttributeError: return -1
 
     def uidstr(self):
-        return "Note:%d-%d-%s" % (bytes_to_long(self.identity), self.epoch,
+        return "Note:%d-%d-%s" % (self.identity, self.epoch,
                                   str(self.mask))
 
         
@@ -364,7 +364,7 @@ class Member(object):
         @rtype: string
         """
 
-        return self._cert.get_ext("subjectKeyIdentifier").get_value()
+        return crypto.identityFromCertificate(self._cert)
 
     def getPublicKey(self):
         return self._cert.get_pubkey()

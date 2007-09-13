@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.11 2007/08/14 07:47:12 haavardj Exp $
+## $Id: packer.py,v 1.12 2007/09/13 14:36:02 haavardj Exp $
 ##                
 ######################################################################
 
@@ -61,7 +61,7 @@ class FirefliesPacker(xdrlib.Packer):
         self.pack_int(node.setsize)
         
     def pack_identity(self, identity):
-        self.pack_string(identity)
+        self.pack_string(long_to_bytes(identity))
 
     def pack_address(self, address):
         ip, port = address.split(":")
@@ -167,7 +167,7 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         return node
 
     def unpack_identity(self):
-        return self.unpack_string()
+        return bytes_to_long(self.unpack_string())
 
     def unpack_address(self):
         ip = socket.inet_ntoa(self.unpack_fstring(4))

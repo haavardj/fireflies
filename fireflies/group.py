@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.19 2007/08/20 07:47:57 haavardj Exp $
+## $Id: group.py,v 1.20 2007/09/13 14:33:51 haavardj Exp $
 ##                
 ######################################################################
 
@@ -19,6 +19,7 @@ from twisted.internet import reactor
 from twisted.application.service import MultiService
 from fireflies.state import Accusation, Note, Member, createInitialNote
 from fireflies.view import View
+from fireflies.crypto import identityFromCertificate
 import fireflies.stats
 import M2Crypto
            
@@ -72,7 +73,7 @@ class Group(MultiService):
         self.registerEventHandler("data.accusation", self.evSelfRebuttal)        
         
         self.view.addCertificate(myCertificate)
-        self._me = self.view.getMemberByIdentity(myCertificate.get_ext("subjectKeyIdentifier").get_value())
+        self._me = self.view.getMemberByCertificate(myCertificate)
         assert isinstance(self._me, Member)
         if myNote: self.view.addNote(myNote)
         else:

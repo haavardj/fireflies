@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.16 2007/08/20 07:47:57 haavardj Exp $
+## $Id: fd.py,v 1.17 2007/09/13 14:31:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -51,7 +51,7 @@ class PingMsg(crypto.Signable):
         self.signature = 0
         
     def uidstr(self):
-        return "ping-%x-%x-%d" % (bytes_to_long(self.fromSn), bytes_to_long(self.toSn), self.noun)
+        return "ping-%x-%x-%d" % (self.fromSn, self.toSn, self.noun)
 
 class PongMsg(crypto.Signable):
     msgType = MSG_PONG
@@ -63,7 +63,7 @@ class PongMsg(crypto.Signable):
         self.signature = 0
     
     def uidstr(self):
-        return "pong-%x-%x-%d" % (bytes_to_long(self.fromSn), bytes_to_long(self.toSn), self.noun)
+        return "pong-%x-%x-%d" % (self.fromSn, self.toSn, self.noun)
 
 
 class FDMsgPacker(FirefliesPacker):
@@ -310,10 +310,10 @@ class PingPong(DatagramProtocol):
         
         toSn, fromSn, noun = msg.toSn, msg.fromSn, msg.noun
         if not toSn == self.factory.group.getMe().getIdentity():
-            self.logger.warning("ping<- %x wrong receiver %x", bytes_to_long(fromSn), bytes_to_long(toSn))
+            self.logger.warning("ping<- %x wrong receiver %x", fromSn, toSn)
             return        
         if not fromSn in view.sn2peer:
-            self.logger.debug("ping<- %x Unknown host", bytes_to_long(fromSn))
+            self.logger.debug("ping<- %x Unknown host", fromSn)
             return
 
         sender = view.sn2peer[fromSn]
@@ -328,7 +328,7 @@ class PingPong(DatagramProtocol):
         view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
         
         if msg.toSn != self.factory.group.getMe().getIdentity():
-            self.logger.warning("pong<- %x wrong receiver %x", bytes_to_long(msg.fromSn), bytes_to_long(msg.toSn))
+            self.logger.warning("pong<- %x wrong receiver %x", msg.fromSn, msg.toSn)
             return        
         sender = view.sn2peer.get(msg.fromSn, None)
         if sender:
@@ -339,7 +339,7 @@ class PingPong(DatagramProtocol):
             sender.avgLoss = (smoothing * sender.avgLoss) + ( (1. - smoothing) * (sender.nPing))
             sender.nPing = 0
         else:
-            self.logger.debug("pong<- %x Unknown peer", bytes_to_long(msg.fromSn))
+            self.logger.debug("pong<- %x Unknown peer", msg.fromSn)
             
     def ping(self, receiver):
         isinstance(self.factory, FailureDetector)
