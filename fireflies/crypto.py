@@ -9,21 +9,16 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.13 2007/09/11 14:11:06 haavardj Exp $
+## $Id: crypto.py,v 1.14 2007/09/13 14:37:53 haavardj Exp $
 ##                
 ######################################################################
 
 """Cryptographic stuff."""
 
-import fireflies
-import glob, pickle, os, random, M2Crypto, struct
-from os.path import join
-from zope.interface import Interface
-
+import fireflies, M2Crypto, struct
 
 DIGESTALG="sha1"
 DIGESTSIZE=160
-
 
 def fingerprint(data, outputbinary=False):
     h = M2Crypto.EVP.MessageDigest(DIGESTALG)
@@ -32,8 +27,6 @@ def fingerprint(data, outputbinary=False):
     if not outputbinary: 
         digest = hex(M2Crypto.util.octx_to_num(digest))[2:-1]
     return digest
-
-
 
 def long_to_bytes(n, blocksize=0):
     """long_to_bytes(n:long, blocksize:int) : string
@@ -192,10 +185,11 @@ def identitySize():
     """Returns the size (in bytes) of identity numbers."""    
     return DIGESTSIZE/8
 
-
-
 def identityFromCertificate(cert):
-    return cert.get_ext("subjectKeyIdentifier").get_value()
+    return subjectKeyIdentifierToID(cert.get_ext("subjectKeyIdentifier").get_value())
+
+def subjectKeyIdentifierToID(s):
+    return int(s.replace(":",""), 16)
 
 class ImmutableMixin:
     """Mixin for immutable classes."""
@@ -204,203 +198,6 @@ class ImmutableMixin:
 
     def makeImmutable(self):
         self.__setattr__ = self.__setattr_im__
-  
-
-
-
-def noteFileName(note):
-    return "%s-%d" % (note.identity, note.epoch)
-
-
-
-
-class PKIStore:    
-  
-    def __init__(self, dirRoot):        
-        self.dirRoot = dirRoot
-        self.dirCert = join(dirRoot, "certs")
-        self.dirNote = join(dirRoot, "notes")
-        self.dirAccu = join(dirRoot, "accusations")
-        self.dirPriv = join(dirRoot, "private")
-        self.fileCAPriv = join(self.dirPriv, "cakey.pem") 
-        self.fileCaCert = join(self.dirRoot, "cacert.pem")   
-        self.fileSerial = join(self.dirRoot, "serial")
-
-        self.ensurePaths()   
-      
-    def ensurePaths(self):
-        for path in [self.dirRoot, self.dirCert, self.dirPriv, self.dirNote, self.dirAccu]: 
-            if not os.path.exists(path):
-                os.mkdir(path)
-            elif not os.path.isdir(path):
-                raise RuntimeError, "Path exist " + path                
-            elif not os.access(path, os.R_OK | os.W_OK):
-                print "%s access error.", path
-                raise RuntimeError, "Path access error " + path                
-        if not os.path.exists(self.fileSerial):
-            file(self.fileSerial, "w").write("0")
-        
-
-    def newMemberCertificate(self, req, callback=M2Crypto.util.passphrase_callback):
-        sn = int(file(self.fileSerial, "r").readline())
-        sn += 1        
-        caCert = self.loadCACertificate()
-        caPKey = self.loadCAKey(callback)        
-        cert = makeCert(req, caCert, caPKey, sn=sn)
-        file(self.fileSerial, "w").write(str(sn))
-        self.saveMemberCertificate(cert)
-        return cert
-
-    def saveCACert(self, caCert):
-        isinstance(caCert, M2Crypto.X509.X509)
-        caCert.save(self.fileCaCert)
-
-    def saveCaPrivKey(self, pkey, callback=M2Crypto.util.passphrase_callback):
-        isinstance(pkey, M2Crypto.EVP.PKey)
-        pkey.save_key(self.fileCAPriv, callback=callback)        
-        
-    def nameToKeyPath(self, name):
-        return join(self.dirPriv, name + ".pem")
-                
-    def loadCACertificate(self):
-        return M2Crypto.X509.load_cert(self.fileCaCert)
-
-    def hasCAKey(self):
-        return os.path.exists(self.fileCAPriv)
-    
-    def loadCAKey(self, callback=M2Crypto.util.passphrase_callback):
-        return M2Crypto.EVP.load_key(self.fileCAPriv, callback=callback)
-
-    def hasMemberCertificateWithAddress(self, address):
-        try:
-            self.loadMemberCertificateByAddress(address)
-        except KeyError:
-            return False
-        return True
-
-    def hasKeyForCertificate(self, cert):
-        try:
-            self.loadPrivateForCert(cert)
-        except KeyError:
-            return False
-        return True
-
-    def loadMemberCertificates(self):
-        files = glob.glob(os.path.join(self.dirCert, "*"))
-        return map(lambda x: M2Crypto.X509.load_cert(x), files)
-
-    def loadMemberCertificateByAddress(self, address):
-        for f in glob.glob(os.path.join(self.dirCert, "*")):
-            cert = M2Crypto.X509.load_cert(f)
-            if cert.get_subject().L == address:
-                return cert
-        raise KeyError, "No certificate matching L=%s found" % address  
-
-    def loadMemberCertificateByName(self, name):
-        for f in glob.glob(os.path.join(self.dirCert, "*")):
-            cert = M2Crypto.X509.load_cert(f)
-            if cert.get_subject().CN == name:
-                return cert
-        raise KeyError, "No certificate matching L=%s found" % name 
-
-    def loadNotes(self):
-        files = glob.glob(os.path.join(self.dirNote, "*"))
-        return map(lambda x: pickle.load(file(x)), files)
-    
-    def loadAccusations(self):
-        files = glob.glob(os.path.join(self.dirAccu, "*"))
-        return map(lambda x: pickle.load(file(x)), files)
-
-    def saveMemberCertificate(self, cert):
-        isinstance(cert, M2Crypto.X509.X509)
-        path = os.path.join(self.dirCert, identityFromCertificate(cert))
-        cert.save_pem(path)
-
-    def saveNote(self, note):
-        isinstance(note, fireflies.state.Note)
-        path = os.path.join(self.dirNote, noteFileName(note))
-        pickle.dump(note, file(path, "w"))
-
-    def saveAccusation(self, accusation):
-        isinstance(accusation, fireflies.state.Accusation)
-        path = os.path.join(self.dirAccu, accusation.get_fingerprint())
-        pickle.dump(accusation, file(path, "w"))
-
-    def hasPrivateKey(self):
-        path = os.path.join(self.dirPriv, "key.pem")
-        if not os.path.exists(path): return False
-
-    def hasPrivateCertificate(self):
-        path = os.path.join(self.dirPriv, "cert.pem")
-        if not os.path.exists(path): return False        
-        
-
-    def savePrivateKey(self, pkey, cert, callback=M2Crypto.util.passphrase_callback):
-        isinstance(pkey, M2Crypto.EVP.PKey)
-        fn = join(self.dirPriv, identityFromCertificate(cert))
-        pkey.save_key(fn, callback=callback)
-        
-        
-    def loadPrivateKeyForCert(self, cert, callback=M2Crypto.util.passphrase_callback):
-        isinstance(cert, M2Crypto.X509.X509)
-        data = "signthis."
-
-        for f in glob.glob(os.path.join(self.dirPriv, "*")):            
-            # Checks that public key in cert match a private key by 
-            # signing and verifying some data. This is probably not that efficient but there seems not
-            # to be any other way of doing this. 
-            key = M2Crypto.EVP.load_key(f, callback)
-            key.sign_init()
-        
-            key2 = cert.get_pubkey()
-            key2.verify_init()
-        
-            key.sign_update(data)
-            key2.verify_update(data)
-            
-            if key2.verify_final(key.sign_final()):
-                return key
-
-        raise KeyError, "Unable to find correct key"
-       
-    def loadNoteFromCert(self, cert):
-        isinstance(cert, M2Crypto.X509.X509)
-        for f in glob.glob(os.path.join(self.dirNote, "*")):
-            note = pickle.load(file(f))
-            if not isinstance(note, fireflies.state.Note): raise ValueError
-            if note.identity == identityFromCertificate(cert):
-                return note
-
-        raise KeyError, "No matching note found."
-                
-    def clearAccusations(self):
-        for f in glob.glob(os.path.join(self.dirAccu, "*")):
-            os.remove(f)
-
-    def clearNotes(self):
-        for f in glob.glob(os.path.join(self.dirNote, "*")):
-            os.remove(f)
-
-    def clearCertificates(self):
-        for f in glob.glob(os.path.join(self.dirCert, "*.pem")):
-            os.remove(f)
-
-    def saveGroup(self, group):
-        isinstance(group, fireflies.group.Group)
-        self.clear()
-        for member in group.getView().getAllMembers():
-            isinstance(member, fireflies.state.Member)
-            self.saveMemberCertificate(member.getCertificate())
-            n = member.getNote()
-            if n: self.saveNote(n)
-            for acc in member.getAccusations():
-                self.saveAccusation(acc)
-
-    def clear(self):
-        self.clearAccusations()
-        self.clearNotes()
-        self.clearCertificates()
-  
   
 
 class Signable:
