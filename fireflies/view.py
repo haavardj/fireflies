@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.11 2007/08/20 07:47:57 haavardj Exp $
+## $Id: view.py,v 1.12 2007/09/13 14:34:38 haavardj Exp $
 ##                
 ######################################################################
 
@@ -145,6 +145,9 @@ class View:
     def getAllMembers(self):
         """@return: Return an iterable object of of all (live + failed) members."""
         return self.pRing
+
+    def getMemberByCertificate(self, cert):
+        return self.getMemberByIdentity(identityFromCertificate(cert))
 
     def getMemberByIdentity(self, id):
         return self.sn2peer[id]
