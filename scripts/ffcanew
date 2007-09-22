@@ -1,44 +1,87 @@
 #!/usr/bin/python
 
-"""Script for generating Fireflies CA keys."""
-
+import fireflies, os.path, sys, M2Crypto
 import fireflies.crypto
+import fireflies.persist
 from optparse import OptionParser
-import os.path, sys, pickle, socket
-import M2Crypto
 
 
-parser = OptionParser(usage="%prog [options] <group name>")
+parser = OptionParser(usage="""%prog [options] <path>
+
+Initialize a Fireflies Certificate Authority (CA). This includes creating the
+CA's private key and a corresponding self signed X509 certificate. The <path>
+arguments spesifies the directory where the repository will be stored.
+
+Files: 
+  <path>/cacert.pem          - CA's public certificate.
+  <path>/private/cakey.pem   - CA's private key""")
 
 parser.add_option("-e", "--tolerance", dest="tolerance", type="float", default=1.0,
                   help="Byzantine tolerance level. Default=1.0")
-
-
 parser.add_option("-p", metavar="NUMBER", dest="pByz", type="float", default=0.20,
                   help="Uniform probability that a member is Byzantine. Default=0.20")
-
 parser.add_option("-s", metavar="NUMBER", dest="maxGroupSize", type="int", default=1000,
-                  help="Max size of a group. Default=1000")
+                  help="Maximum size of a group. Default=1000")
 parser.add_option("--password",
                   dest="password", default=None,
-                  help="Password to use. If not set, you will be asked for a password when loading and saving keys.")
+                  help="Password to use for reading and writing private keys. If not set, you will be asked for a password when needed.")
+parser.add_option("--nopass",
+                  dest="nopass", default=False, action="store_true",
+                  help="Do not ecrypt private key.")
+parser.add_option("-n",
+                  dest="name", default=None,
+                  help="Group name. If not specified the <path> base name will be used.")
 parser.add_option("-o",
-                      action="store_true", dest="overwrite", default=False,
-                      help="Overwrite existing CA.")
+                  action="store_true", dest="overwrite", default=False,
+                  help="Overwrite CA structure if it exist.")
 
 (options, args) = parser.parse_args()
 
-if os.path.exists(args[0]) and not options.overwrite:
- print "Path exists. Please remove."
+
+if len(args) != 1:
+ parser.print_help()
  sys.exit(0)
-    
-if options.password:
- passwdcb = lambda x: options.password
-else:
- passwdcb= M2Crypto.util.passphrase_callback
-    
-store = fireflies.crypto.PKIStore(args[0])
-caCert, caPKey = fireflies.crypto.newCA(args[0], options.maxGroupSize, options.pByz, options.tolerance)
-store.saveCACert(caCert)
-store.saveCaPrivKey(caPKey, passwdcb)
+
+if os.path.exists(args[0]) and not options.overwrite:
+ print "CA exists. Please remove or use -o option."
+ sys.exit(0)
+
+def passwd(*args):
+ return options.password
+ 
+if options.password: passwdcb = lambda x: options.password
+else: passwdcb= M2Crypto.util.passphrase_callback
+if options.nopass: cipher = None
+else: cipher = 'aes_128_cbc'
+ 
+
+if not options.name:
+ options.name = os.path.basename(args[0])
+ 
+
+
+pkey = fireflies.crypto.makePrivateKey()
+cert = fireflies.crypto.makeCACert(pkey, options.name, options.maxGroupSize, options.pByz, options.tolerance)
+
+#caCert = fireflies.crypto.newCA(options.name, caPKey, options.maxGroupSize, options.pByz, options.tolerance)
+assert cert.verify(pkey)
+assert cert.verify()
+store = fireflies.persist.Store(args[0])
+store.saveCACert(cert)
+store.saveCaPrivKey(pkey, cipher=cipher, callback=passwdcb)
+
+#store.saveCaPrivKey(caPKey, None)
+
+print cert.as_text()
+#print caPKey.as_pem(cipher=None, callback=lambda x:"")
+
+
+store = fireflies.persist.Store(args[0])
+c1 = store.loadCACertificate()
+k1 = store.loadCAKey(callback=passwdcb)
+#print c1.as_text()
+assert c1.verify(k1)
+assert c1.verify()
+#print c1.verify(k1)
+#print c1.verify()
 

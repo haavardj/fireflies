@@ -8,7 +8,7 @@ from twisted.internet import reactor, task
 import random, sys, os.path, logging, socket, pickle, os, glob
 import logging.handlers
 import fireflies
-from fireflies import gossip, state, fd, crypto, group, stats
+from fireflies import gossip, state, fd, crypto, group, stats, persist
 import M2Crypto
 
 from Crypto.Util.number import long_to_bytes, bytes_to_long
@@ -20,21 +20,53 @@ threadable.init()
 del threadable
 
 
+M2Crypto.util.passphrase_callback
+M2Crypto.EVP.load_key
+
+def askPassword(prompt=""):
+    pass
+
 if __name__ == "__main__":
     
     from optparse import OptionParser
-    parser = OptionParser(usage="%prog [options] <Storage path>", version="%%prog %s" % fireflies.version)
+    parser = OptionParser(usage="""%prog [options] <path> <path 1> ... <path n>
+    
+    Deamon that maintains a basic Fireflies mesh. The <path> arguments refers
+    to the path that the deamon will store its data. <path 1>...<path n>
+    reffers to supplemental Fireflies repositories from which the deamon will
+    search for certificates, notes, and accusations when bootstrapping.   
+
+    For the deamon to run it must posess the following:
+       - The CA's X509 certificate, 
+       - A X509 member certificate containing an usable network address.
+       - A private key that corresponds to an usable certificate.
+
+    Upon startup, the daemon will first search for a certificate containing
+    the specified network address. If found, the deamon will search for the
+    private key matching that certificate. If either an usable certificate or
+    the corresponding private key cannot be found, the deamon cannot be
+    started. For testing purposes, you can provide the daemon with the CA's
+    private key. The deamon will then create its own certificates if needed.
+    Note that this behaviour undermines the security of Fireflies and should
+    only be used for testing purposes.
+    
+    Files:
+      - <path>/private/<keyid>.pem    - Private key
+      - <path>/private/cakey.pem      - CA's private key
+      - <path>/certs/<ip:port>.pem    - Member certificates
+      - <path>/cacert.pem             - CA's certificate    
+    """, version="%%prog %s" % fireflies.version)
     hostaddr = socket.gethostbyname(socket.gethostname())
     parser.add_option("-a", "--address", dest="address",
                       help="Bind to ADDRESS. Defaults to %s." % hostaddr, default=hostaddr )
     parser.add_option("-p", "--port", dest="port", type="int",
                       help="Bind PORT. Defaults to 14377", default=14377)
-    parser.add_option("--public",
-                      dest="public", default=None,
-                      help="Path to public state storage.")    
-    parser.add_option("--cakey",
-                      dest="ca", default=None,
-                      help="Path to CA's private key.")        
+    parser.add_option("--capriv",
+                      dest="capriv", default=None,
+                      help="Path to CA's repository. This enables fireflyd to create a X509 certificate for itself.")
+    parser.add_option("--cacert",
+                      dest="cacert", default=None,
+                      help="Import the CA's certificate from this file.")    
     parser.add_option("-l", "--logdir", dest="logdir", 
                       help="When daemon, write logs to LOGDIR.", default="./")
     parser.add_option("-g", "--group", dest="group", default=None,
@@ -55,7 +87,6 @@ if __name__ == "__main__":
     parser.add_option("-s", "--stats",
                       action="store_true", dest="stats", default=False,
                       help="Enable the web-stats.")
-   
     parser.add_option("--verbose",
                       action="store_true", dest="verbose", default=False,
                       help="Verbose output.")
@@ -64,7 +95,11 @@ if __name__ == "__main__":
                       help="Checks in this file if the member is supposed to be Byzantine.")
     parser.add_option("--password",
                       dest="password", default=None,
-                      help="Password to use. If not set, you will be asked for a password when loading and saving keys.")
+                      help="Password to use. If not set, you will be asked for a password when loading and saving private keys.")
+    parser.add_option("--nopass",
+                      dest="nopass", default=False, action="store_true", 
+                      help="Do not use a password to protect private keys.")
+
 
     (options, args) = parser.parse_args()
     
@@ -74,10 +109,11 @@ if __name__ == "__main__":
 
     myAddress = "%s:%d" % (options.address, options.port)
 
-    if options.password:
-        passwdcb = lambda x: options.password
-    else:
-        passwdcb= M2Crypto.util.passphrase_callback
+    if options.password: passwdcb = lambda x: options.password
+    else: passwdcb= M2Crypto.util.passphrase_callback
+    if options.nopass: cipher = None
+    else: cipher = 'aes_128_cbc'
+        
 
     # Change user/group
     import pwd, grp
@@ -95,7 +131,42 @@ if __name__ == "__main__":
     else:
         l.setLevel(logging.INFO)
         
-    # Become a daemon?
+    #Check byzantine setting.
+    byzantine = 0
+    if options.byzantine:
+        for line in file(options.byzantine).readlines():
+            line = line.strip()
+            if line == "": continue
+            name, behaviour = line.split()
+            if name == myAddress:
+                byzantine = int(behaviour)
+
+    # Init private store.
+    try:
+        store = persist.Store(args[0])
+    except Exception, why:
+        print "Unable to initialize store.", why
+        sys.exit(0)
+
+    # Import data from other stores.
+    for path in args[1:]:        
+        try:
+            extStore = persist.Store(path)
+            for cert in extStore.loadMemberCertificates(): store.saveMemberCertificate(cert)
+            for note in extStore.loadNotes(): store.saveNote(note)
+            for accu in extStore.loadAccusations(): store.saveAccusation(accu)
+        except Exception, why:
+            print "Error importing from external data repository: ", path, why
+            pass
+
+                                               
+    #
+    # Load own keys and notes.
+    #
+    # The first argument can either be a CA certificate, or a CA
+    # Key. If given the key, we can make our own member certificates.
+
+  # Become a daemon?
     if options.daemon:
         if os.fork(): 
             os._exit(0)
@@ -115,55 +186,40 @@ if __name__ == "__main__":
     log_hdlr.setFormatter(formatter)
     logging.getLogger().addHandler(log_hdlr)
 
-    #Check byzantine setting.
-    byzantine = 0
-    if options.byzantine:
-        for line in file(options.byzantine).readlines():
-            line = line.strip()
-            if line == "": continue
-            name, behaviour = line.split()
-            if name == myAddress:
-                byzantine = int(behaviour)
-
-                
-    
-    #
-    # Load own keys and notes.
-    #
-    # The first argument can either be a CA certificate, or a CA
-    # Key. If given the key, we can make our own member certificats. 
-    try:
-        store = crypto.PKIStore(args[0])
-    except Exception, why:
-        print "Unable to initialize store.", why
-        sys.exit(0)
-
-
-
     groupCert = groupKey = myCert = myKey = myNote = None
     
     try:
-        groupCert = store.loadCACertificate()
-    except:
-        print "Unable to load group certificate."
-        sys.exit(0)
-    
+        if options.cacert: 
+            groupCert = M2Crypto.X509.load_cert(options.cacert)
+            store.saveCACert(groupCert)
+        else:
+            groupCert = store.loadCACertificate()
+    except Exception, why:
+        print "Unable to load group certificate: ", why
+        sys.exit(0)       
+        
     if store.hasMemberCertificateWithAddress(myAddress):        
         myCert = store.loadMemberCertificateByAddress(myAddress)
     else:
-        if not store.hasCAKey():
+        if not options.capriv:
             print "Unable to find or create member certificate for address=%s" % myAddress
             sys.exit(0)
-        else:
-            caPKey = store.loadCAKey(passwdcb)
-            myKey = fireflies.crypto.generatePrivateKey()
-            req = fireflies.crypto.makeRequest(myAddress, myKey)
-            myCert = store.newMemberCertificate(req, passwdcb)
-            
-            store.saveMemberCertificate(myCert)
-            store.savePrivateKey(myKey, myCert, passwdcb)
 
 
+        print "Loading CA's private key", options.capriv
+        groupKey = M2Crypto.EVP.load_key(options.capriv, passwdcb)
+        if not groupCert.verify(groupKey): raise ValueError, "CA cert and CA key do not match."
+        print "Creating new member key:"
+        myKey = fireflies.crypto.makePrivateKey()
+        
+        req = fireflies.crypto.makeRequest(myAddress, myKey)
+        myCert = store.newMemberCertificate(req, groupKey)          
+        #myCert = fireflies.crypto.makeMemberCert(myAddress, myKey, groupCert, groupKey)
+        assert myCert.verify(groupKey)
+        print myCert.as_text()
+        print "Saving private key", store.filenameKey(myKey) 
+        store.saveMemberCertificate(myCert)
+        store.savePrivateKey(myKey, cipher, passwdcb)
     try:
         myKey = store.loadPrivateKeyForCert(myCert, passwdcb)
     except KeyError, why:
@@ -175,10 +231,15 @@ if __name__ == "__main__":
     except KeyError, why:
         print "Cannot find note. Will create new one.", why
             
+    assert myCert.verify(groupCert.get_pubkey())
+        
     mgroup = group.Group(groupCert, myKey, myCert, myNote)
     logging.info("Me = %s on %s", mgroup.getMe().getIdentity(), mgroup.getMe().getAddress())
     fd = fireflies.fd.FailureDetector(mgroup)
-    gossip = fireflies.gossip.Gossip(mgroup)
+    
+    
+    
+    gossip = fireflies.gossip.Gossip(mgroup, store)
     mgroup.startService()
 
 
@@ -202,19 +263,6 @@ if __name__ == "__main__":
         import fireflies.web
         ws = fireflies.web.NodeViewer(mgroup)
         ws.start()
-
-
-    # find bogomips speed
-    if options.public:
-        cacheStore = crypto.PKIStore(options.public)
-        for cert in cacheStore.loadMemberCertificates():
-            mgroup.view.addCertificate(cert)
-            
-        for note in cacheStore.loadNotes():
-            mgroup.view.addNote(note)
-        
-        for acc in cacheStore.loadAccusations():
-            mgroup.view.addAccusation(acc)
         
     bogomips = 0
 
@@ -279,6 +327,9 @@ if __name__ == "__main__":
     #if options.rundir:
     #    rundirTask = task.LoopingCall(doWriteState)
     #    rundirTask.start(60*10).addErrback(failback)
+
+  
+
 
     try:
         reactor.run()
