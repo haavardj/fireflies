@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.14 2007/09/13 14:37:53 haavardj Exp $
+## $Id: crypto.py,v 1.15 2007/09/22 17:50:21 haavardj Exp $
 ##                
 ######################################################################
 
@@ -19,6 +19,8 @@ import fireflies, M2Crypto, struct
 
 DIGESTALG="sha1"
 DIGESTSIZE=160
+
+import struct
 
 def fingerprint(data, outputbinary=False):
     h = M2Crypto.EVP.MessageDigest(DIGESTALG)
@@ -75,13 +77,48 @@ def bytes_to_long(s):
         acc = (acc << 32) + unpack('>I', s[i:i+4])[0]
     return acc
 
-def generatePrivateKey(size=1024):
-    rsa = M2Crypto.RSA.gen_key(size, M2Crypto.m2.RSA_F4)
+def generateRSAKey(size=1024):
+    return M2Crypto.RSA.gen_key(size, M2Crypto.m2.RSA_F4)
+
+def makePKey(key):
     pkey = M2Crypto.EVP.PKey()
-    pkey.assign_rsa(rsa)
+    pkey.assign_rsa(key)
     return pkey
+
+def makePrivateKey(size=1024): 
+    return makePKey(generateRSAKey(size))
+
+def makeCACert(pkey, groupName, maxGroupSize, pByz, tolerance):
+
+    name = M2Crypto.X509.X509_Name()
+    name.CN = groupName
+    name.O = "%d %f %f" % (maxGroupSize, pByz, tolerance)
     
-def makeRequest(address, pkey, nickname=None):
+    cert = M2Crypto.X509.X509()
+ 
+    cert.set_serial_number(0)
+    cert.set_version(0)
+    cert.set_subject(name)
+    cert.set_issuer(name)
+    cert.set_pubkey(pkey)
+    notBefore = M2Crypto.m2.x509_get_not_before(cert.x509)
+    notAfter  = M2Crypto.m2.x509_get_not_after(cert.x509)
+    M2Crypto.m2.x509_gmtime_adj(notBefore, 0)
+    days = 30
+    M2Crypto.m2.x509_gmtime_adj(notAfter, 60*60*24*days)
+
+    newid4  = name.as_hash()
+    bytes = M2Crypto.Rand.rand_bytes(20)
+    newid = hex(M2Crypto.util.octx_to_num(bytes))[2:-1]
+    ext1 = M2Crypto.X509.new_extension('subjectKeyIdentifier', newid, 0)
+    ext2 = M2Crypto.X509.new_extension('basicConstraints', 'CA:TRUE')
+    cert.add_ext(ext1)       
+    cert.add_ext(ext2)       
+    cert.sign(pkey, 'sha1')
+    assert cert.check_ca() != 0    
+    return cert
+
+def makeRequest(address, pkey, version=0, nickname=None):
     """Create X509 certificate request.
     
     @param address: IP:port tuble containing the contact address.
@@ -100,7 +137,9 @@ def makeRequest(address, pkey, nickname=None):
     subject.commonName = nickname
     subject.localityName = address    
     req.set_subject_name(subject)
+    req.set_version(version)
     req.sign(pkey, DIGESTALG)
+    assert req.verify(pkey)
     return req
 
 def makeCert(req, caCert, caPkey, sn=0, notBefore=0, notAfter=60*60*24*30):
@@ -123,41 +162,23 @@ def makeCert(req, caCert, caPkey, sn=0, notBefore=0, notAfter=60*60*24*30):
     sub = req.get_subject()
     cert = M2Crypto.X509.X509()
     cert.set_serial_number(sn)
-    cert.set_version(2)
+    cert.set_version(req.get_version())
     cert.set_subject(sub)
     cert.set_issuer(caCert.get_subject())
     cert.set_pubkey(pkey)    
     
     M2Crypto.m2.x509_gmtime_adj(M2Crypto.m2.x509_get_not_before(cert.x509), notBefore)
     M2Crypto.m2.x509_gmtime_adj(M2Crypto.m2.x509_get_not_after(cert.x509), notAfter)
-
+    
     newid = M2Crypto.Rand.rand_bytes(20)
     newid = hex(M2Crypto.util.octx_to_num(newid))[2:-1]
-    extId = M2Crypto.X509.new_extension('subjectKeyIdentifier', newid ,critical=1)
-    cert.add_ext(extId)
+    ext1 = M2Crypto.X509.new_extension('subjectKeyIdentifier', newid ,critical=0)    
+    ext2 = M2Crypto.X509.new_extension('basicConstraints', 'CA:FALSE')
+    cert.add_ext(ext1)
+    cert.add_ext(ext2)
     cert.sign(caPkey, DIGESTALG)
 
     return cert
-
-def newCA(name, maxGroupSize=1000, pByz=0.20, toleranceLevel=1.0, keySize=1024, notBefore=0, notAfter=60*60*24*30):
-    """Create a new CA.
-    @return: CA's certificate and private key.
-    @rtype: (L{M2Crypto.X509.X509}, L{M2Crypto.EVP.PKey})
-    """
-    privKey = generatePrivateKey()
-    
-    issuer = M2Crypto.X509.X509_Name()
-    issuer.CN = name
-    issuer.O = "%d %f %f" % (maxGroupSize, pByz, toleranceLevel)
-    cert = M2Crypto.X509.X509()
-    cert.set_subject(issuer)
-    cert.set_issuer(issuer)
-    cert.set_pubkey(privKey)
-
-    M2Crypto.m2.x509_gmtime_adj(M2Crypto.m2.x509_get_not_before(cert.x509), notBefore)
-    M2Crypto.m2.x509_gmtime_adj(M2Crypto.m2.x509_get_not_after(cert.x509), notAfter)
-    cert.sign(privKey, DIGESTALG)
-    return cert, privKey
 
 def sHashDict(d):
     """Compute a deterministic secure hash from a dictionary.
