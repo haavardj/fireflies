@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.19 2007/09/22 17:47:43 haavardj Exp $
+## $Id: gossip.py,v 1.20 2007/09/22 17:50:37 haavardj Exp $
 ##                
 ######################################################################
 
@@ -147,8 +147,6 @@ class Gossip(Service):
         self.nSet = NoteSet(PARTITION_FACTOR, RECON_EXTRA)
         self.aSet = AccusationSet(PARTITION_FACTOR, RECON_EXTRA)
 
-
-
     def getContext(self):
         me = self.parent.getMe()
         myCert = me.getCertificate()
@@ -161,7 +159,6 @@ class Gossip(Service):
         assert myCert.verify(groupCA.get_pubkey())
         ctx = M2Crypto.SSL.Context("sslv23")
         ctx.load_cert(self.store.filenameCertificate(myCert), keyfile=self.store.filenameKey(myKey))
-        #ctx.set_cipher_list('EXP-RC2-CBC-MD5')
         ctx.set_client_CA_list_from_file(self.store.fileCaCert)
         ctx.load_verify_locations(self.store.fileCaCert)
         #ctx.set_allow_unknown_ca(True)
