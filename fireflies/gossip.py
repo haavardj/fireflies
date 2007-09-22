@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.18 2007/08/20 07:47:57 haavardj Exp $
+## $Id: gossip.py,v 1.19 2007/09/22 17:47:43 haavardj Exp $
 ##                
 ######################################################################
 
@@ -29,6 +29,15 @@ from fireflies import setrecon
 from fireflies.view import MemberRings
 from fireflies.state import Note, Accusation, Member
 from fireflies.crypto import identityFromCertificate
+from fireflies.persist import Store
+import M2Crypto.SSL
+import M2Crypto.SSL.TwistedProtocolWrapper as wrapper
+from M2Crypto.SSL.Checker import WrongHost, WrongCertificate, NoCertificate 
+
+
+
+
+#wrapper.debug = 1
 
 PARTITION_FACTOR = 3
 RECON_EXTRA = 5
@@ -84,50 +93,83 @@ class AccusationSet(setrecon.ReconSet):
 class X509Set(setrecon.ReconSet):
     def elmToZZp(self, elm):
         if not isinstance(elm, M2Crypto.X509.X509): raise ValueError
-        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))
+        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))    
 
 
-def makeSSLctx(group):
-    isinstance(group, fireflies.group.Group)
-    me = group.getMe()
-    myCert = me.getCertificate()
-    myKey = group.getMyKey()        
-    data = myCert.as_pem() + myKey.as_pem(cipher=None)
-    theCert = ssl.PrivateCertificate.loadPEM(data)
-    isinstance(theCert, ssl.PrivateCertificate)
-    theCA = ssl.Certificate.loadPEM(group.getGroupCertificate().as_pem())        
-    isinstance(theCA, ssl.Certificate)    
-    ctx = theCert.options(theCA)
-    ctx.method = ssl.SSL.SSLv23_METHOD
-    ctx.verify = True
-    ctx.verifyDepth = 1
-    ctx.requireCertificate = True
-    return ctx
+def sslPostConnectionCheck(peerX509, expectedHost):
+    print "Post connection check"
+    
+    print peerX509, expectedHost
+    return True
+
+def sslVerifyCB(sslCTX_ptr, x509_ptr, a,b,c):
+    print "sslVerifyCB"
+    x509 = M2Crypto.X509.X509(x509_ptr, 0)
+    print x509.as_text()
+    return True
+
+
+class ClientConnectionChecker:
+    
+    def __init__(self, expectedMember):
+        isinstance(expectedMember, fireflies.state.Member)
+        self.expectedMember = expectedMember
+        
+    def __call__(self, peerCert, host=None):
+        isinstance(peerCert, M2Crypto.X509.X509)
+        if peerCert is None:
+            raise NoCertificate('peer did not return certificate')
+        
+        if peerCert.get_fingerprint() != self.expectedMember.getCertificate().get_fingerprint():
+            raise WrongCertificate('peer did return wrong certificate')        
+        return True
+
 
 class Gossip(Service):
     
     name = "gossip"
     
-    def __init__(self, group, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
+    def __init__(self, group, store, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
         
+        self.store = store
+        isinstance(store, Store)
         self.setServiceParent(group)
         isinstance(group, fireflies.group.Group)
         isinstance(self.parent, fireflies.group.Group)
-
         self.rate = rate
-        self.byzantineToleranceNumber = byzantineToleranceNumber
-        
+        self.byzantineToleranceNumber = byzantineToleranceNumber        
         self.rings = MemberRings(byzantineToleranceNumber)
         self.logger = logging.getLogger()        
         self.sFactory = GossipServerFactory(self, TCPTimeout)
         self.cFactory = GossipClientFactory(self, rate, TCPTimeout)    
 
-
-        self.sslCTX = makeSSLctx(group)
-
         self.cSet = X509Set(PARTITION_FACTOR, RECON_EXTRA)
         self.nSet = NoteSet(PARTITION_FACTOR, RECON_EXTRA)
         self.aSet = AccusationSet(PARTITION_FACTOR, RECON_EXTRA)
+
+
+
+    def getContext(self):
+        me = self.parent.getMe()
+        myCert = me.getCertificate()
+        myKey = self.parent.getMyKey()        
+        groupCA = self.parent.getGroupCertificate()
+        assert isinstance(myKey, M2Crypto.EVP.PKey)
+        assert isinstance(myCert, M2Crypto.X509.X509)
+        assert isinstance(groupCA, M2Crypto.X509.X509)
+        assert groupCA.verify()
+        assert myCert.verify(groupCA.get_pubkey())
+        ctx = M2Crypto.SSL.Context("sslv23")
+        ctx.load_cert(self.store.filenameCertificate(myCert), keyfile=self.store.filenameKey(myKey))
+        #ctx.set_cipher_list('EXP-RC2-CBC-MD5')
+        ctx.set_client_CA_list_from_file(self.store.fileCaCert)
+        ctx.load_verify_locations(self.store.fileCaCert)
+        #ctx.set_allow_unknown_ca(True)
+        #ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9, sslVerifyCB)
+        ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9) #.verify_none,0)
+        #ctx.set_verify(M2Crypto.SSL.verify_client_once, 2)
+        #ctx.set_info_callback()
+        return ctx    
 
     def evDataAccusation(self, name, itm, status):
         if name == "data.accusation": set = self.aSet
@@ -168,8 +210,9 @@ class Gossip(Service):
         port = int(port)
         self.logger.info("Binding gossip to tcp %s:%d", host, port)
         
-        
-        self._port = reactor.listenSSL(port, self.sFactory, self.sslCTX, interface=host)
+        self._port = wrapper.listenSSL(port, self.sFactory, self, interface=host,postConnectionCheck=sslPostConnectionCheck)
+        #self._port = reactor.listenSSL(port, self.sFactory, self.sslCTX, interface=host)
+
         #self._port = reactor.listenTCP(port, self.sFactory, interface=host)
         self.sFactory.doStart()
         self.cFactory.doStart()
@@ -643,12 +686,21 @@ class ServerProtocol(GossipBase):
         self.dataBuff = []
         self.reqBuff = []
         self.outBuff = []
-        
+    
+    def postConnection(self, x509, host):
+        isinstance(x509, M2Crypto.X509.X509)
+        service = self.factory.service.parent
+        isinstance(service, fireflies.group.Group)
+        service.view.addCertificate(x509)
+        self.other = service.view.getMemberByCertificate(x509)
+        return True
+
     def connectionMade(self):
         self.setTimeout()
-
-
+        self.transport.postConnectionCheck = self.postConnection
+        
     def connectionLost(self, reason):
+        #print "server connection lost", reason
         try:
             self.cancelTimeout()
         except KeyboardInterrupt:
@@ -688,16 +740,9 @@ class ServerProtocol(GossipBase):
         
     def handle_partner(self, ringNr, hisNote):
         self.cancelTimeout()
-        hisCert = ssl.Certificate.peerFromTransport(self.transport)
-        isinstance(hisCert, ssl.Certificate)
-        hisCert = M2Crypto.X509.load_cert_string(hisCert.dumpPEM())        
-        hisId = identityFromCertificate(hisCert)
-
-        self.factory.service.parent.getView().addCertificate(hisCert)
+   
         self.factory.service.parent.getView().addNote(hisNote)
-        
-        self.other = self.factory.service.parent.getView().getMemberByIdentity(hisId)
-        
+              
         self.logger.debug("partner<- %s on %d", self, ringNr)
         self.ringNr = ringNr
         reactor.callLater(0, self.factory.clientConnected, self, ringNr)
@@ -782,11 +827,23 @@ class ClientProtocol(GossipBase):
         self.reqBuff = []
         self.outBuff = []
 
+    def postConnection(self, x509, host):
+
+        isinstance(x509, M2Crypto.X509.X509)
+        service = self.factory.service.parent
+        isinstance(service, fireflies.group.Group)        
+        service.view.addCertificate(x509)
+        peer = service.getView().getMemberByCertificate(x509)
+        if peer != self.other:
+            raise WrongCertificate('peer did not authenticate with correct certificate')
+                
+        return True
+
     def connectionMade(self):
+        self.transport.postConnectionCheck = self.postConnection
         reactor.callLater(0, self._sendPartner, self.ringNr, self.factory.service.parent.getMe().getNote())
 
     def handle_version(self, major, minor, patchlevel):
-        print "xxxxxxxxxxxx client connection made", ssl.Certificate.peerFromTransport(self.transport)
         #
         # TODO: The node will die if it has an old version
         # number. This is VERY INSECURE and will be removed. However,
@@ -805,22 +862,17 @@ class ClientProtocol(GossipBase):
 
 
     def connectionLost(self, reason):
+        print "connection lost", reason
         addr = self.transport.getPeer()
         if self._timer: self.cancelTimeout()
-        self.state = self.STATE_TERMINATED
-                      
+        self.state = self.STATE_TERMINATED                      
         
     def _sendPartner(self, ringNr, note):
         self.logger.debug("partner-> %s on %s", self, ringNr)
         self.setTimeout()
         self.sendCommand("partner", ringNr, note)
         
-    def handle_accepted(self):
-        hisCert = ssl.Certificate.peerFromTransport(self.transport)
-        isinstance(hisCert, ssl.Certificate)
-        hisCert = M2Crypto.X509.load_cert_string(hisCert.dumpPEM())        
-        hisId = identityFromCertificate(hisCert)        
-        self.other = self.factory.service.parent.getView().getMemberByIdentity(hisId)
+    def handle_accepted(self):   
 
         self.state = self.STATE_IDLE
         self.cancelTimeout()
@@ -833,9 +885,6 @@ class ClientProtocol(GossipBase):
         self.factory.view.addCertificate(crt)
         self.factory.view.addNote(note)
         self.hangup()
-
-
-
 
     #
     # Reconcile stuff
@@ -912,8 +961,6 @@ def isEmptyNode(node):
     return bool(   (node == None) or (node.setsize==0) or (node.intree == False))
 
 
-from twisted.web import server
-server
 
 class GossipServerFactory(ServerFactory):
 
@@ -1062,9 +1109,12 @@ class GossipClientFactory(ClientFactory):
             cc.hangup()
         self.connections[ringNr] = prot
         
+        wrapper.connectSSL(host, port, self, self.service, 
+                           postConnectionCheck=ClientConnectionChecker(peer))
         
-        reactor.connectSSL(host, port, self, self.service.sslCTX)
-
+        #reactor.connectSSL(host, port, self, self.service.sslCTX)
+        
+        
     def reconcile(self, protocol):
 
         def _f(reason):
@@ -1144,6 +1194,3 @@ class GossipClientFactory(ClientFactory):
                     self.reconcile(cg)
                 else:
                     pass
-
-        
-
