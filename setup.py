@@ -5,7 +5,7 @@
 ## Description:   Fireflies setup file.
 ## Author:        Håard Dagenborg Johansen <haavardj@cs.uit.no>
 ##                
-## $Id: setup.py,v 1.6 2007/09/23 12:12:54 haavardj Exp $
+## $Id: setup.py,v 1.7 2007/09/23 12:15:30 haavardj Exp $
 ##                
 ######################################################################
 
@@ -39,8 +39,8 @@ setup(name="fireflies",
       author="Haavard D Johansen",
       author_email="haavardj@cs.uit.no",
       url="http://sourceforge.net/projects/fireflies",
-      scripts=['scripts/ffcakey', 'scripts/fireflyd',
-               'scripts/ffrunmany'],
+      scripts=['scripts/ffcanew', 'scripts/fireflyd',
+               'scripts/ffreq', 'scripts/ffcasign'],
       packages=['fireflies', 'fireflies.web', 'fireflies.setrecon'],
       license="GPL",
       ext_modules = [module1],
