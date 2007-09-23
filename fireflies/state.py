@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.7 2007/09/13 14:32:59 haavardj Exp $
+## $Id: state.py,v 1.8 2007/09/23 11:34:27 haavardj Exp $
 ##                
 ######################################################################
 
@@ -187,7 +187,7 @@ class Member(object):
     """Encapsulates known state of a group member.
 
     @ivar group: The group in which this member is a member of.
-    @type group: L{fireflies.group.BaseGroup}
+    @type group: L{fireflies.group.Group}
     """
 
     def __init__(self, cert, group, initLRate=INITIAL_LRATE):
@@ -472,7 +472,7 @@ class Member(object):
         """Invalidate an accusation.
         
         @param accusation: The accusation to make invalid.
-        @type accusation: L{fireflies.members.Accusation}
+        @type accusation: L{fireflies.state.Accusation}
         @raises e: L{ValueError} if accusation was not valid. 
         """
         

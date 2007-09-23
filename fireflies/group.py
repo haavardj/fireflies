@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.20 2007/09/13 14:33:51 haavardj Exp $
+## $Id: group.py,v 1.21 2007/09/23 11:34:27 haavardj Exp $
 ##                
 ######################################################################
 
@@ -36,11 +36,11 @@ class Group(MultiService):
         private key.
         
         @param groupCertificate: The public certificate of the group CA.
-        @type groupCertificate: L{fireflies.state.GroupCertificate}
+        @type groupCertificate: L{M2Crypto.X509.X509}
         @param myKey: Your private key. 
-        @type myKey: L{fireflies.state.Key}
+        @type myKey: L{M2Crypto.EVP.PKey}
         @param myCertificate: Your member certificate, signed by the CA's private key,
-        @type myCertificate: L{fireflies.state.MemberCertificate}
+        @type myCertificate: L{M2Crypto.X509.X509}
         @param myNote: Your most up-to-date note. When re-joning a group
         a note can be supplied here. This argument is never
         necessary but speeds up the joining process. If not specified a
@@ -177,7 +177,7 @@ class Group(MultiService):
         """
         Check if an object is correctly signed by the group CA.
         @param itm: Object that is to be checked.
-        @type itm: Subclass of L{fireflies.crypto.RSASignable}
+        @type itm: Subclass of L{fireflies.crypto.Signable}
         @return: Return true if itm is signed by the group CA.
         """
         return self._groupCertificate.verify(itm)
@@ -185,7 +185,7 @@ class Group(MultiService):
     def getGroupCertificate(self):
         """
         @return: Get group certificate.
-        @rtype: L{fireflies.state.GroupCertificate}
+        @rtype: L{M2Crypto.X509.X509}
         """
         return self._groupCertificate
 
@@ -205,7 +205,7 @@ class Group(MultiService):
     def getMyKey(self):
         """
         @return: Return your private key.
-        @rtype: L{fireflies.state.Key}
+        @rtype: L{M2Crypto.EVP.PKey}
         """
         return self._myKey
 

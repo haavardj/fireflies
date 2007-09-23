@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.15 2007/09/22 17:50:21 haavardj Exp $
+## $Id: crypto.py,v 1.16 2007/09/23 11:34:27 haavardj Exp $
 ##                
 ######################################################################
 
@@ -128,7 +128,7 @@ def makeRequest(address, pkey, version=0, nickname=None):
     @param nicname: Alternative member name.
     @type nicname: str
     @return: Certificate request.
-    @rtype: L{M2Crypto.X590.X590Request}
+    @rtype: L{M2Crypto.X509.Request}
     """
     if nickname==None: nickname=address
     req = M2Crypto.X509.Request()
@@ -145,7 +145,7 @@ def makeRequest(address, pkey, version=0, nickname=None):
 def makeCert(req, caCert, caPkey, sn=0, notBefore=0, notAfter=60*60*24*30):
     """Create a X509 member certificate.
     @param req: X509 request.
-    @type req: L{M2Crypto.X509.X509Request}
+    @type req: L{M2Crypto.X509.Request}
     @param sn: serial number.
     @param caCert: CA's certificate
     @type caCert: L{M2Crypto.X509.X509}

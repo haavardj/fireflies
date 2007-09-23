@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.12 2007/09/13 14:34:38 haavardj Exp $
+## $Id: view.py,v 1.13 2007/09/23 11:34:27 haavardj Exp $
 ##                
 ######################################################################
 
@@ -353,7 +353,7 @@ class View:
         """Add an accusations.
 
         @param accusation: Accusation to be added.
-        @type accusation: L{fireflies.stats.Accusation}
+        @type accusation: L{fireflies.state.Accusation}
         @raise e:
             - TypeErrror: If accusation is not a Accusation object.
             - ValueError: If accuser or accused is not known. This would
