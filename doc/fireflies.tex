@@ -4,11 +4,11 @@
 
 \title{Fireflies: A Peer-to-Peer Overlay Network Toolkit}
 
-\release{0.0.2}
+\release{0.1}
 
 \newcommand{\Fireflies}{\emph{Fireflies}}
-\newcommand{\firefliesdist}{\emph{fireflies-0.0.2}}
-\newcommand{\firefliestar}{\emph{fireflies-0.0.2.tar.gz}}
+\newcommand{\firefliesdist}{\emph{fireflies-0.1}}
+\newcommand{\firefliestar}{\emph{fireflies-0.1.tar.gz}}
 
 
 \author{H\aa vard Johansen}
@@ -55,7 +55,7 @@ Required software:
 \item[M2Crypto 0.18] (\url{http://chandlerproject.org/Projects/MeTooCrypto})
 \end{description}
 
-Optional software for the \refmodule{fireflies.web} module:
+Optional software for the \refmodule{fireflies.web} package:
 \begin{description}
 \item[Nevow 0.4.1] (\url{http://nevow.com/})
 \item[Twisted Web 0.7.0] (\url{http://twistedmatrix.com/})
@@ -87,52 +87,60 @@ path. You can specify a \programopt{--prefix=PATH} options to the
 
 \subsection{Keys and Certificates}
 
-Each Fireflies group is associated with a group certificate. 
-The group certificate embeds a public key and is self-signed with the corresponding private key.
-The holder of this key is the group's Certificate Authority (CA). 
-To join a Fireflies group, a process must first obtain the group certificate and generate 
-a private/public key pair and a member certificate.
-The process must have its MemberCertificate signed by the CA's private key.
-The following illustrates these operations:
+Each Fireflies group is associated with a group certificate.  The
+group certificate embeds a public key and is self-signed with the
+corresponding private key.  The holder of this key is the group's
+Certificate Authority (CA).  To join a Fireflies group, a process must
+first obtain the group certificate and generate a private/public key
+pair and a member certificate.  The process must have its
+MemberCertificate signed by the CA's private key.  Fireflies use X.509
+certificates for this purpose.  Certificate and crypto key handling
+routines are kept in the \program{fireflies.crypto} module.  The
+following illustrates the creation of a CA and a member certificate.
 
 \begin{verbatim}
-from fireflies.state import Key, GroupCertificate, MemberCertificate
+from fireflies import crypto
 
 #At CA
-caKey = Key() # Create Private key
-caPublic = caKey.publicKey()  # Get public key
-gc = GroupCertificate("foo", caPublic, ...)
-caKey.sign(gc)
+caPrivKey = fireflies.crypto.makePrivateKey()
+caCert = fireflies.crypto.makeCACert(pkey, "test group", 10000, 0.20, 1.0)
+
 
 # At Member
-myPrivateKey = Key()
-myPublicKey = myPrivateKey.publicKey()
-myCertificate = MemberCertificate(myPublicKey, myNetworkAddress)
+myPrivKey = crypto.makePrivateKey()
+myReq = crypto.makeRequest("127.0.0.1:18718", myPrivKey) # X509 Request
 
 # At CA
-caKey.sign(myCertificate)
+hisReq = myReq received from member
+hisCert = crypto.makeCert(hisReq, caCert, caPrivKey, sn=1)
+
+
+# At Member
+myCert = hisCert received from CA
 \end{verbatim}
 
-In addition to the above library functions, 
-the included program \program{ffcekey} implements the basic CA functions.
+In addition to the above library functions, the included programs
+\program{ffcanew}, \program{ffreq}, and \program{ffcasign} implements
+these basic CA functions. Also, the \program{fireflies.persist.Store}
+class can be used to manage certificates and keys on disk.
 
 \subsection{The Group Object}
 
-Once in possession of a valid GroupCertificate and a
-MemberCertificate, a process may join the Fireflies group.
+Once in possession of a valid group certificate and a
+valid member certificate, a process may join the Fireflies group.
 The main interface to Fireflies is through the \program{fireflies.group.Group} class.
 Each group object has an attribute \program{view}, which points to a \program{fireflies.view.View} object.
 The view can be used to query and modify the group's state.
 The view holds references to \program{fireflies.state.Member} instances, one for each member.
 Fireflies implement strict rules regarding view changes. In particular, members can only be added indirectly by adding
-MemberCertificates. Also, a member can only be moved from a crashed state to a live state by adding a valid Note and a
+member certificates. Also, a member can only be moved from a crashed state to a live state by adding a valid Note and a
  member can only be moved from a live state to a crashed state by adding a valid Accusation.
 
 
 \subsection{Basic Network Services}
 
 Fireflies members maintain up-to-date membership information by monitoring one-another and by
-exchanging MemberCertificates, Notes, and Accusations. Two network services are included: 
+exchanging member certificates, Notes, and Accusations. Two network services are included: 
 a failure detection mechanism based on UDP pinging, and a gossip service for exchange of membership events.
 To initialize these services the following must be executed:
 
@@ -141,7 +149,7 @@ from fireflies.group import Group
 from fireflies.fd import FailureDetection
 from fireflies.gossip import Gossip
 
-group = Group(gc, myCertificate, myPrivateKey)
+group = Group(caCert, myCert, myPrivKey)
 FailureDetection(group)
 Gossip(group)
 group.startService()
@@ -162,6 +170,5 @@ reactor.run()
 \end{verbatim}
 %
 Note that this command will block your main thread of execution. 
-
 
 \end{document}
