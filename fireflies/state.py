@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.8 2007/09/23 11:34:27 haavardj Exp $
+## $Id: state.py,v 1.9 2007/09/23 12:12:54 haavardj Exp $
 ##                
 ######################################################################
 
@@ -127,8 +127,8 @@ class Accusation(object, crypto.Signable):
             return "%s" % (self.uidstr())
         
     def uidstr(self):
-        return "Accusation:%d,%d,%d-%d" % (bytes_to_long(self.accused), self.epoch,
-                                  self.nr, bytes_to_long(self.accuser))
+        return "Accusation:%d,%d,%d-%d" % (self.accused, self.epoch,
+                                           self.nr, self.accuser)
 
         
 
@@ -156,7 +156,7 @@ class Note(object, crypto.Signable):
         self.badness = 0
 
     def __repr__(self):        
-        return "N:%x-%d" % (bytes_to_long(self.identity), self.epoch)
+        return "N:%x-%d" % (self.identity, self.epoch)
 
     def __hash__(self):
         return hash(self.get_fingerprint())

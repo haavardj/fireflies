@@ -5,7 +5,7 @@
 ## Description:   Fireflies setup file.
 ## Author:        Håard Dagenborg Johansen <haavardj@cs.uit.no>
 ##                
-## $Id: setup.py,v 1.5 2007/09/11 13:51:29 haavardj Exp $
+## $Id: setup.py,v 1.6 2007/09/23 12:12:54 haavardj Exp $
 ##                
 ######################################################################
 
@@ -34,7 +34,7 @@ module1 = Extension('fireflies.setrecon._setreconbase',
 
 
 setup(name="fireflies",
-      version="0.0.2",
+      version="0.1",
       description="Fireflies.",
       author="Haavard D Johansen",
       author_email="haavardj@cs.uit.no",
