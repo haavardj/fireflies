@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.17 2007/09/13 14:31:52 haavardj Exp $
+## $Id: fd.py,v 1.18 2007/12/19 18:02:57 haavardj Exp $
 ##                
 ######################################################################
 
@@ -31,7 +31,7 @@ from packer import FirefliesPacker, FirefliesUnpacker
 from Crypto.Util.number import long_to_bytes, bytes_to_long
 
 
-ROUNDTIME = 2
+ROUNDTIME = 5
 PMISTAKE = 0.001
 SMOOTHING = 0.999
 TMIN = 3

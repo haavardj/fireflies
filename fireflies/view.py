@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.13 2007/09/23 11:34:27 haavardj Exp $
+## $Id: view.py,v 1.14 2007/12/19 18:02:57 haavardj Exp $
 ##                
 ######################################################################
 
@@ -70,9 +70,9 @@ class View:
     A member's view of a process group.  
     """
 
-    timeout = 2
+    timeout = 10
     
-    def __init__(self, group, rebuttalTimeout=5):
+    def __init__(self, group, rebuttalTimeout=10):
         """
         @param group: The group to wich this view belongs.
         @type group: fireflies.group.Group
@@ -106,7 +106,7 @@ class View:
         @type member: fireflies.state.Member
         """
         if member in self._timers.keys(): raise ValueError("Timer already started.")
-        self._timers[member] = reactor.callLater(self.timeout, self._toRebuttalTimer, member)
+        self._timers[member] = reactor.callLater(self.rebuttalTimeout, self._toRebuttalTimer, member)
         
     def _toRebuttalTimer(self, member):
         assert isinstance(member, Member)
