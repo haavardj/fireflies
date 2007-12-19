@@ -8,13 +8,144 @@
 ##  
 ##         Copyright 2006, Haavard Johansen (Norway)
 ##                
-## $Id: util.py,v 1.2 2007/08/06 12:43:47 haavardj Exp $
+## $Id: util.py,v 1.3 2007/12/19 17:21:07 haavardj Exp $
 ##                
 ######################################################################
 
 """Utility functions and classes."""
 
-from scipy.stats import binom
+
+
+
+
+###################################
+## statistical distributions
+## 10/2004 Wolfgang.Urban@schule.at
+###################################
+import math
+
+# #######################
+# binomial distribution #
+# ##################### #
+
+# straightforward calculation
+#
+def binomial_1(k,n,p):
+    ## special cases
+    if p==0.0:
+        if k==0: return 1.0
+        else: return 0.0
+    if p==1.0:
+        if k==n: return 1.0
+        else: return 0.0
+        
+    if k<=n/2: k1=k                                 
+    else: k1=n-k                                    # fewer calculations
+    ## binomial coefficient
+    fact = 1.0                                  
+    for i in range(0,k1): fact = fact*(n-i)/(k1-i)
+    ## probability
+    return fact*p**k*(1.0-p)**(n-k)                 # binomial probability
+
+
+# using recursion b(k,n,p)=b(k-1,n,p)*(n-k+1)/i*p/q
+# special cases omitted
+#
+def binomial_2(k,n,p):
+    prob = (1.0-p)**n
+
+    for i in range(1,k+1):
+        prob = prob*(n-i+1)/i*p/(1.0-p)
+
+    return prob
+
+
+# to avoid overflow with large n or underflow with small p
+# e.g. 0.5**1075 = 0 (large n gives result 0), we use logarithms
+#
+def binomial_1a(k,n,p):
+    ## special cases
+    if p==0.0:
+        if k==0: return 1.0
+        else: return 0.0
+    if p==1.0:
+        if k==n: return 1.0
+        else: return 0.0
+
+    if k<=n/2: k1=k
+    else: k1=n-k
+
+    fact = 0.0
+    for i in range(0,k1): fact += math.log(float(n-i)/(k1-i))
+
+    result_log = fact+k*math.log(p)+(n-k)*math.log(1.0-p)
+    return math.exp(result_log)
+
+
+# we can do the same with version 2
+# p must not be 0 or 1
+#
+def binomial_2a(k,n,p):
+    q = 1.0-p
+    m = float(n+1)
+    r = math.log(p/q)
+    prob = n*math.log(q)
+    for i in range(1,k+1):
+        prob = prob + r + math.log(m/i-1.0)
+    return math.exp(prob)
+
+# we prefer version 1a to calculate binomial probabilities.
+#
+binomialp = binomial_1a
+
+# cumulative probability
+# version 2a is easily adapted
+#
+def binomialc(k,n,p):
+    ## special cases
+    if p==0.0:
+        return 1.0
+    if p==1.0:
+        if k==n: return 1.0
+        else: return 0.0
+
+    q = 1.0-p
+    m = float(n+1)
+    r = math.log(p/q)
+    prob = n*math.log(q)
+    cum = math.exp(prob)
+    for i in range(1,k+1):
+        prob += r + math.log(m/i-1.0)
+        cum += math.exp(prob)
+    return cum
+
+
+# ####################################################
+# probabilities
+# a single event X has probability p
+# calculate prob. of k occurrences X within n events
+#
+
+def binomialP(k,n,p):
+    return binomialp(k,n,p)
+
+
+
+########################################################
+# return probabilities k=0..n,n,p  as list
+#
+
+def binomial_list(n,p):
+    prob = float(1-p)**n
+    cum = [prob]
+
+    for i in range(1,n+1):
+        prob = prob*(n-i+1)/i*p/(1.0-p)
+        cum.append(prob)
+    return cum
+
+
+
 
 class TimestampMixin:
     """Provides time-stamping functionality to an object."""
@@ -33,6 +164,17 @@ class TimestampMixin:
         self._timestamp = fireflies.time.time()
 
 
+
+
+try:
+    from scipy.stats import binom as _binom
+    def binomCDF(k, n, p):
+        return _binom(n, p).cdf(k)
+except ImportError, why:
+    print "Cannot find scipy. Using alternative binom calculation."
+    def binomCDF(k,n,p):
+        return binomialc(k,n,p)
+
 def minMajority(pByz, size, e=1.0):
     """Compute the minimum t such that the probability of more than t out of
     2t+1 monitors are correct with probability e/size given the uniform
@@ -44,7 +186,7 @@ def minMajority(pByz, size, e=1.0):
     
     pTarget = float(e) / float(size)
     for t in range(1, 10000):
-        pf = 1.0 - binom(2*t+1,pByz).cdf(t)
+        pf = 1.0 - binomCDF(t, 2*t+1,pByz)
         if pTarget >= pf: return t
 
     raise ValueError, "Cannot compute number if rings from pByz=%f" % pByz
