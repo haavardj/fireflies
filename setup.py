@@ -5,7 +5,7 @@
 ## Description:   Fireflies setup file.
 ## Author:        Håard Dagenborg Johansen <haavardj@cs.uit.no>
 ##                
-## $Id: setup.py,v 1.7 2007/09/23 12:15:30 haavardj Exp $
+## $Id: setup.py,v 1.8 2008/01/15 10:47:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -16,9 +16,6 @@ import glob, os.path
 
 sourcePath = os.path.basename(__file__)
 
-
-wf = glob.glob("./fireflies/web/*.html")
-cf = glob.glob("./fireflies/web/css/*.css")
 
 module1 = Extension('fireflies.setrecon._setreconbase',
                     sources = ['fireflies/setrecon/constants.cpp',
@@ -44,7 +41,8 @@ setup(name="fireflies",
       packages=['fireflies', 'fireflies.web', 'fireflies.setrecon'],
       license="GPL",
       ext_modules = [module1],
-      data_files=[ ("lib/python2.5/site-packages/fireflies/web", wf),
-                   ("lib/python2.5/site-packages/fireflies/web/css", cf)
-                   ]
+      package_data = {'fireflies.web': ["*.html", "css/*.css"]}
       )
+
+
+
