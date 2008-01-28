@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.5 2007/07/09 08:59:59 haavardj Exp $
+## $Id: ring.py,v 1.6 2008/01/28 21:38:36 haavardj Exp $
 ##                
 ######################################################################
 
@@ -140,7 +140,7 @@ class Ring(object):
         li = self.index(pred)
         bi = self.index(item)
         hi = self.index(succ)
-        if li == bi and bi == hi: return True 
+        if li == bi or bi == hi: return True 
         
         if hi > li:
             if bi <= li or bi >= hi: return False
