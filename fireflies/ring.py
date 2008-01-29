@@ -9,11 +9,13 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.6 2008/01/28 21:38:36 haavardj Exp $
+## $Id: ring.py,v 1.7 2008/01/29 08:42:44 haavardj Exp $
 ##                
 ######################################################################
 
-import bisect
+import bisect, sha
+from zope.interface import implementedBy
+from fireflies.interfaces import IIdentifiableObject
 
 def __ringIterator(ring, start=0):
     for x in range(len(ring)):
@@ -27,7 +29,8 @@ def __ringTraverse(ring, idx):
         idx = (idx + 1) % l
         if idx == start: break
 
-
+        
+        
 class Ring(object):    
     """A ring is a finite field of items. A ring is similar to Python
     list but items are kept sorted according to their sort
@@ -46,12 +49,12 @@ class Ring(object):
         self.__key2itm = {}
 
     def _sortKey(self, item):
-        """Return item's sorting. 
+        """Return item's sorting key.
         
         This implementation uses the item's hash function return value
         as a key. Reimplement this method in a subclass to use other
         sort keys."""
-        return hash(item)
+        return item.identity()
 
     def __iterate__(self):
         """Iterate the ring starting at the lowest number.
@@ -96,6 +99,7 @@ class Ring(object):
         Raises ValueError if the item is already in the ring. Return index
         where item was inserted."""
 
+        if not IIdentifiableObject.implementedBy(type(item)): raise TypeError("item does not implement IRingObject")
         key = self._sortKey(item)
         if key in self.__key2itm:
             raise ValueError, "Item %s already in list" % (str(item))        
@@ -156,7 +160,7 @@ class Ring(object):
         lst = []
         s = self.succ(item)
         while s:
-            if s == stop: break
+            if s.identity() == stop.identity(): break
             lst.append(s)
             s = self.succ(s)
         return lst        
@@ -166,7 +170,7 @@ class Ring(object):
         lst = []
         s = self.pred(item)
         while s:
-            if s == stop: break
+            if s.identity() == stop.identity(): break
             lst.append(s)
             s = self.pred(s)
         return lst        
@@ -192,7 +196,7 @@ class Ring(object):
         lst = []
         s = self.succ(start)
         while s:
-            if s == start: break
+            if s.identity() == start.identity(): break
             lst.append(s)
             s = self.succ(s)
         return lst            
@@ -237,15 +241,17 @@ class Ring(object):
             key = self.__keylist[idx]                       
         return self.__key2itm[key]
     
-    
+
 class NumberedRing(Ring):
-    """A numbered ring that will sort item differently for different ring numbers."""
+    """A numbered ring that will sort items differently for different ring numbers."""
+    
     def __init__(self, nr):
         super(NumberedRing, self).__init__()
         self.nr = nr
         
     def _sortKey(self, item):
-        return hash(hash(item) + hash(self.nr))  
+        return sha.new(str(item.identity()) + str(self.nr)).digest()
+
 
 class NumberedSetOfRings(object):
     """A set of numbered rings. The constructor to the ring accept a
