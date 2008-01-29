@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.7 2008/01/29 08:42:44 haavardj Exp $
+## $Id: ring.py,v 1.8 2008/01/29 11:42:02 haavardj Exp $
 ##                
 ######################################################################
 
@@ -99,7 +99,7 @@ class Ring(object):
         Raises ValueError if the item is already in the ring. Return index
         where item was inserted."""
 
-        if not IIdentifiableObject.implementedBy(type(item)): raise TypeError("item does not implement IRingObject")
+        if not IIdentifiableObject.implementedBy(type(item)): raise TypeError("item does not implement IIdentifiableObject")
         key = self._sortKey(item)
         if key in self.__key2itm:
             raise ValueError, "Item %s already in list" % (str(item))        
