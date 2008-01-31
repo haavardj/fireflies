@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.8 2008/01/29 11:42:02 haavardj Exp $
+## $Id: ring.py,v 1.9 2008/01/31 13:23:20 haavardj Exp $
 ##                
 ######################################################################
 
@@ -17,7 +17,7 @@ import bisect, sha
 from zope.interface import implementedBy
 from fireflies.interfaces import IIdentifiableObject
 
-def __ringIterator(ring, start=0):
+def _ringIterator(ring, start=0):
     for x in range(len(ring)):
         yield ring[x]
         
@@ -31,7 +31,7 @@ def __ringTraverse(ring, idx):
 
         
         
-class Ring(object):    
+class Ring(object):
     """A ring is a finite field of items. A ring is similar to Python
     list but items are kept sorted according to their sort
     key. Inserting two items with the same key will raise a ValueError
@@ -56,12 +56,13 @@ class Ring(object):
         sort keys."""
         return item.identity()
 
-    def __iterate__(self):
+    def __iter__(self):
         """Iterate the ring starting at the lowest number.
         
         The ring should not be modified during iteration."""
-        return __ringIterator(self, 0)
+        return _ringIterator(self, 0)
 
+    
     def traverse(self, item):
         """Iterates the ring starting at item's successor."""
         idx = self.__keylist.index(self._sortKey(item))        
@@ -131,12 +132,11 @@ class Ring(object):
           - An item lies between itself. That is, if pred == itm == succ, True is
           returned.
 
-          - Nothing (else) lies between an item and itself. That is, if
-          pred == succ, but item != pred and item != succ this method returns False.
-          
-          - An item is always between itself and any other item. That
-          is, if pred == item, or succ == item but pred != succ, this method
-          returns True.
+          - Everything lies between an item and item and itself. That is, if pred == succ, then 
+          this method always returns true.
+                    
+          - An item is always between itself and any other item. That is, if
+          pred == item, or succ == item, this method returns True.
 
           - Raises a ValueError if succ, pred, or item is not in the ring.          
         """
@@ -144,7 +144,8 @@ class Ring(object):
         li = self.index(pred)
         bi = self.index(item)
         hi = self.index(succ)
-        if li == bi or bi == hi: return True 
+
+        if li == hi or li == bi or bi == hi: return True 
         
         if hi > li:
             if bi <= li or bi >= hi: return False
@@ -240,6 +241,19 @@ class Ring(object):
             idx = (idx - 1) % l
             key = self.__keylist[idx]                       
         return self.__key2itm[key]
+    
+    def rank(self, item, dest):
+        """Rank is defined as the number of items between item and dest."""
+        
+        idxItem = self.index(item)
+        idxDest = self.index(dest)
+        
+        if idxDest < idxItem:
+            return len(self) - idxItem + idxDest
+        else:
+            return idxDest - idxItem
+
+        
     
 
 class NumberedRing(Ring):
