@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.9 2008/01/31 13:23:20 haavardj Exp $
+## $Id: ring.py,v 1.10 2008/02/04 13:43:21 haavardj Exp $
 ##                
 ######################################################################
 
@@ -255,18 +255,28 @@ class Ring(object):
 
         
     
-
+import sha
 class NumberedRing(Ring):
     """A numbered ring that will sort items differently for different ring numbers."""
     
+    mRingIDCache = {}
+    
     def __init__(self, nr):
+        self.idCache = {}
         super(NumberedRing, self).__init__()
         self.nr = nr
         
     def _sortKey(self, item):
-        return sha.new(str(item.identity()) + str(self.nr)).digest()
-
-
+        iId = item.identity()
+        try:
+            return NumberedRing.mRingIDCache[iId][self.nr]
+        except KeyError:
+            ids = NumberedRing.get(iId, {})
+            idOnRing = sha.new("%s-%s" % (iId, self.nr)).digest()
+            ids[ringNr] = idOnRing
+            NumberedRing[iId] = ids
+            return idOnRing
+                
 class NumberedSetOfRings(object):
     """A set of numbered rings. The constructor to the ring accept a
     number as a parameter. The contained rings should not be modified by directly."""
