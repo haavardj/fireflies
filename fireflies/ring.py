@@ -9,13 +9,11 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.10 2008/02/04 13:43:21 haavardj Exp $
+## $Id: ring.py,v 1.11 2008/02/04 13:45:30 haavardj Exp $
 ##                
 ######################################################################
 
 import bisect, sha
-from zope.interface import implementedBy
-from fireflies.interfaces import IIdentifiableObject
 
 def _ringIterator(ring, start=0):
     for x in range(len(ring)):
@@ -100,7 +98,6 @@ class Ring(object):
         Raises ValueError if the item is already in the ring. Return index
         where item was inserted."""
 
-        if not IIdentifiableObject.implementedBy(type(item)): raise TypeError("item does not implement IIdentifiableObject")
         key = self._sortKey(item)
         if key in self.__key2itm:
             raise ValueError, "Item %s already in list" % (str(item))        
