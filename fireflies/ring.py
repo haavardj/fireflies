@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.12 2008/02/08 10:18:00 haavardj Exp $
+## $Id: ring.py,v 1.13 2008/02/08 10:25:40 haavardj Exp $
 ##                
 ######################################################################
 
@@ -335,35 +335,35 @@ class SetOfNamedRings(object):
         
         
 class Relation:
-    """A rule determining if fromItem relate to toItem in some manner on one particular ring.
+    """A rule determining if item relate to otherItem in some manner on one particular ring.
     Implement relational rule in the isValid method in subclasses.""" 
     
-    def __init__(self, fromItem, toItem, ring):
-        self.fromItem, self.toItem, self.ring = fromItem, toItem, ring
+    def __init__(self, item, otherItem, ring):
+        self.item, self.otherItem, self.ring = item, otherItem, ring
         
     def isValid(self):   
         raise NotImplementedError
     
     def rank(self):
         """Return the rank of the items relative to each other."""
-        return self.ring.rank(self.fromItem, self.toItem)
+        return self.ring.rank(self.item, self.otherItem)
         
     def __cmp__(self, other):
         """Compare rank. Note: this might be semantically bad idea since objects
-        might have differend toItem and ring attributes."""
+        might have differend otherItem and ring attributes."""
 
         return cmp(self.rank(), other.rank())
 
-class SuccessorRelation(RingRelation):
+class SuccessorRelation(Relation):
     """Rule determining if two an item is the successor of another item in a ring."""
     
     def isValid(self):
-        return self.ring.succ(fromItem) == self.toItem
+        return self.ring.succ(item) == self.otherItem
                 
-class PredecessorRelation(RingRelation):
+class PredecessorRelation(Relation):
     """Rule determining if two an item is the predecessor of another item in a ring."""
     
     def isValid(self):
-        return self.ring.pred(fromItem) == self.toItem
+        return self.ring.pred(item) == self.otherItem
     
     
