@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.11 2008/02/04 13:45:30 haavardj Exp $
+## $Id: ring.py,v 1.12 2008/02/08 10:18:00 haavardj Exp $
 ##                
 ######################################################################
 
@@ -72,8 +72,8 @@ class Ring(object):
         
     def __getitem__(self, idx):
         """Return the item with the sort key idx."""
-        key = self.__keylist[idx]
-        return self.__key2itm[key]
+        #key = self.__keylist[idx]
+        return self.__key2itm[idx]
         
     def __contains__(self, item):
         """Return True if item is in the ring."""
@@ -250,64 +250,57 @@ class Ring(object):
         else:
             return idxDest - idxItem
 
+
+class NamedRing(Ring):
+    """A ring with a name/identity."""
+    
+    def __init__(self, name):
+        self.name = name
+        Ring.__init__(self)
         
+    def identity(self):
+        return self.name
     
 import sha
-class NumberedRing(Ring):
-    """A numbered ring that will sort items differently for different ring numbers."""
+class NameHashedRing(NamedRing):
+    """A named ring that will sort items differently for different ring names."""
     
-    mRingIDCache = {}
-    
-    def __init__(self, nr):
-        self.idCache = {}
-        super(NumberedRing, self).__init__()
-        self.nr = nr
+    mRingIDCache = {}    
         
     def _sortKey(self, item):
         iId = item.identity()
         try:
-            return NumberedRing.mRingIDCache[iId][self.nr]
+            return NameHashedRing.mRingIDCache[iId][self.identity()]
         except KeyError:
-            ids = NumberedRing.get(iId, {})
-            idOnRing = sha.new("%s-%s" % (iId, self.nr)).digest()
-            ids[ringNr] = idOnRing
-            NumberedRing[iId] = ids
+            ids = NameHashedRing.mRingIDCache.get(iId, {})
+            idOnRing = sha.new("%s-%s" % (iId, self.identity())).digest()
+            ids[self.identity()] = idOnRing
+            NameHashedRing.mRingIDCache[iId] = ids
             return idOnRing
                 
-class NumberedSetOfRings(object):
-    """A set of numbered rings. The constructor to the ring accept a
-    number as a parameter. The contained rings should not be modified by directly."""
+class SetOfNamedRings(object):
+    """A set of named rings. The constructor to the ring accept a
+    number as a parameter. The contained rings should not be modified directly."""
     
-    ringClass = NumberedRing
-    
-    def __init__(self, num):
-        self.__rings = []
-        for x in range(num):
-            self.__rings.append(self.ringClass(x))
+     
+    def __init__(self):
+        self.masterRing = Ring()
+        self.__rings = {}
         
     def __iter__(self):
         """Iterate over all rings."""
-        return iter(self.__rings)
+        return iter(self.__rings.values())
     
-    def __getitem__(self, key):
-        """Return a ring by index key."""
+    def __getitem__(self, name):
+        """Return a ring by name ."""
         return self.__rings[key]
     
     def __len__(self):
         """Return the number of rings."""
         return len(self.__rings)
     
-    def __contains__(self, itm):
-        return itm in self.__rings[0]
-
-    def setLength(self, num):
-        while num < len(self):
-            self.__rings.pop(-1)
-        while num > len(self):
-            newRing = self.ringClass(len(self.__rings))
-            for member in self.__rings[0]: 
-                newRing.insert(member)
-            self.__rings.append(newRing)
+    def __contains__(self, name):
+        return name in self.__rings
 
     def succ(self, itm, func=lambda x: True):
         """Return for each ring the first successor of itm for which func evaluates to true."""
@@ -317,10 +310,60 @@ class NumberedSetOfRings(object):
         """Return for each ring the first predecessor of itm for which func evaluates to true."""
         return map(lambda x: x.pred(itm, func), self.__rings)
     
-    def insert(self, itm):
+    def insertItem(self, itm):
         """Insert itm in all rings."""
-        for ring in self.__rings: ring.insert(itm)
+        self.masterRing.insert(itm)
+        for ring in self.__rings.values(): ring.insert(itm)
         
-    def remove(self, itm):
+    def removeItem(self, itm):
         """Remove itm from all rings."""        
-        for ring in self.__rings: ring.insert(itm)
+        self.masterRing.remove(itm)
+        for ring in self.__rings: ring.remove(itm)
+                
+    def insertRing(self, ring):
+        """Insert itm in all rings. Items in ring will be merged with contained items."""
+        for itm in ring:
+            if itm not in self: self.insertItem(itm)                                    
+        for itm in self.masterRing:
+            if itm not in ring: ring.insert(itm)            
+        self.__rings[ring.identity()] = ring
+            
+    def removeRing(self, ring):
+        """Remove itm from all rings."""        
+        return self.__rings.pop(ring.identity())
+
+        
+        
+class Relation:
+    """A rule determining if fromItem relate to toItem in some manner on one particular ring.
+    Implement relational rule in the isValid method in subclasses.""" 
+    
+    def __init__(self, fromItem, toItem, ring):
+        self.fromItem, self.toItem, self.ring = fromItem, toItem, ring
+        
+    def isValid(self):   
+        raise NotImplementedError
+    
+    def rank(self):
+        """Return the rank of the items relative to each other."""
+        return self.ring.rank(self.fromItem, self.toItem)
+        
+    def __cmp__(self, other):
+        """Compare rank. Note: this might be semantically bad idea since objects
+        might have differend toItem and ring attributes."""
+
+        return cmp(self.rank(), other.rank())
+
+class SuccessorRelation(RingRelation):
+    """Rule determining if two an item is the successor of another item in a ring."""
+    
+    def isValid(self):
+        return self.ring.succ(fromItem) == self.toItem
+                
+class PredecessorRelation(RingRelation):
+    """Rule determining if two an item is the predecessor of another item in a ring."""
+    
+    def isValid(self):
+        return self.ring.pred(fromItem) == self.toItem
+    
+    
