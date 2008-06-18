@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard Johansen (Norway)
 ##                
-## $Id: util.py,v 1.3 2007/12/19 17:21:07 haavardj Exp $
+## $Id: util.py,v 1.4 2008/06/18 13:55:01 haavardj Exp $
 ##                
 ######################################################################
 
@@ -23,6 +23,7 @@
 ## 10/2004 Wolfgang.Urban@schule.at
 ###################################
 import math
+from twisted.internet import reactor
 
 # #######################
 # binomial distribution #
@@ -145,7 +146,96 @@ def binomial_list(n,p):
     return cum
 
 
+def long_to_bytes(n, blocksize=0):
+    """long_to_bytes(n:long, blocksize:int) : string
+    Convert a long integer to a byte string.
 
+    If optional blocksize is given and greater than zero, pad the front of the
+    byte string with binary zeros so that the length is a multiple of
+    blocksize.
+    """
+    # after much testing, this algorithm was deemed to be the fastest
+    s = ''
+    n = long(n)
+    pack = struct.pack
+    while n > 0:
+        s = pack('>I', n & 0xffffffffL) + s
+        n = n >> 32
+    # strip off leading zeros
+    for i in range(len(s)):
+        if s[i] != '\000':
+            break
+    else:
+        # only happens when n == 0
+        s = '\000'
+        i = 0
+    s = s[i:]
+    # add back some pad bytes.  this could be done more efficiently w.r.t. the
+    # de-padding being done above, but sigh...
+    if blocksize > 0 and len(s) % blocksize:
+        s = (blocksize - len(s) % blocksize) * '\000' + s
+    return s
+
+def bytes_to_long(s):
+    """bytes_to_long(string) : long
+    Convert a byte string to a long integer.
+
+    This is (essentially) the inverse of long_to_bytes().
+    """
+    acc = 0L
+    unpack = struct.unpack
+    length = len(s)
+    if length % 4:
+        extra = (4 - length % 4)
+        s = '\000' * extra + s
+        length = length + extra
+    for i in range(0, length, 4):
+        acc = (acc << 32) + unpack('>I', s[i:i+4])[0]
+    return acc
+
+
+
+class TimeoutMixin:
+    
+    timeout = 30
+    timer = None
+    
+    def startTimer(self):        
+        if self.timer: raise ValueError("Timer already started")
+
+        def _d():
+            self.timer = None
+            self.timedOut()
+        
+        self.timer = reactor.callLater(self.timeout, _d)
+
+    def cancelTimer(self):
+        self.timer.cancel()
+        self.timer = None
+
+    def hasTimer(self):
+        if self.timer: assert self.timer.active()
+        return bool(self.timer)
+    
+    def timedOut(self): pass
+        
+        
+class ObserveableMixin:
+    
+    _observers = None
+    
+    def registerObserver(self, o, *args, **kwargs):
+        if self._observers == None:
+            self._observers = {}
+        self._observers.append[o] = (args, kwargs)
+
+    def deregisterObserver(self, o):
+        del self._observers[o]
+        
+    def notify(self, *args, **kwargs):
+        for o, oArgs, oKwargs, in self._observers.items():
+            o(*args, **kwargs)
+        
 
 class TimestampMixin:
     """Provides time-stamping functionality to an object."""
