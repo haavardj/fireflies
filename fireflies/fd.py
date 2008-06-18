@@ -9,19 +9,17 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.19 2008/06/12 11:29:44 haavardj Exp $
+## $Id: fd.py,v 1.20 2008/06/18 13:43:11 haavardj Exp $
 ##                
 ######################################################################
 
 """Failure detection protocol using adaptive pinging.""" 
 
 import logging, pickle
-from fireflies.channel import TypedChannel
 from twisted.internet.protocol import Factory, DatagramProtocol, Protocol, ClientFactory
 from twisted.internet import reactor, task
 from twisted.application.service import Service
-from fireflies.state import Accusation, Note
-from fireflies.member import Member
+from fireflies.state import Accusation, Note, Member
 import socket
 from math import *
 
@@ -136,19 +134,32 @@ class FDMsgUnpacker(FirefliesUnpacker):
             raise Exception
 
 
-class FailureDetector(TypedChannel):
+class FailureDetector(Service):
     
     name = "fd"
-    roundTime = ROUNDTIME
-    pmistake = PMISTAKE
-    smoothing = SMOOTHING
-    tmin = TMIN
-
-    log = logging.getLogger("FailureDetector")
+    roundtime = 5
+    pmistake = 0.001
+    smoothing = 0.999
+    tmin = 3
     
 
+    def __init__(self, group):
+        
+        isinstance(group, fireflies.group.Group)
+        self.peer = group.getMe()
+        self.setServiceParent(group) 
+        self.group = group
+        self.mkey = group.getMyKey()
+        self.view = group.getView()
+        self.logger = logging.getLogger(group.getMe().getAddress())
+         
+        nrRings = self.view.getNumberOfRings()
+        self.last = -1 % nrRings
+        self._pinglist = [None] * nrRings
+        isinstance(self.parent, fireflies.group.Group)
+
     def startService(self):
-        super(FailureDetector, self).startService()
+        Service.startService(self)
         
         self.protocol = PingPong()
         self.protocol.logger = self.logger
@@ -231,8 +242,8 @@ class FailureDetector(TypedChannel):
                                             )
             
             accusation.sign(me.getPublicKey())
-            #view.stats.accusationsCreated += 1
-            #view.stats.accusationsCreatedByzantine += 1
+            view.stats.accusationsCreated += 1
+            view.stats.accusationsCreatedByzantine += 1
             view.addAccusation(accusation)
             self.logger.warning("created %s aggressive attack", self.peer.view.pprint(accusation))
         elif myBadness == 0:
@@ -260,7 +271,7 @@ class FailureDetector(TypedChannel):
                 accusation.sign(self.group.getMyKey())
                 self.logger.warning("created %s t=%.2f nPing=%d", self.peer.view.pprint(accusation), t, mon.nPing)
                 view.addAccusation(accusation)                
-                #view.stats.accusationsCreated += 1
+                view.stats.accusationsCreated += 1
 
                 #assert mon.nPing > 0
                 #mon.avgLoss = (g.SMOOTHING * mon.avgLoss) + ( (1. - g.SMOOTHING) * (mon.nPing))                
@@ -362,11 +373,11 @@ class PingPong(DatagramProtocol):
         h, p = receiver.getAddress().split(":")
         p = int(p)
         
-        #self.factory.peer.view.stats.udpW += len(data)
+        self.factory.peer.view.stats.udpW += len(data)
         self.transport.write(data, (h, p))
 
     def datagramReceived(self, data, (host, port)):
-        #self.factory.peer.view.stats.udpR += len(data)
+        self.factory.peer.view.stats.udpR += len(data)
         if len(data) < 1:
             self.logger.warning("Dropped invalid datagram")
             return        
@@ -378,4 +389,5 @@ class PingPong(DatagramProtocol):
         except KeyboardInterrupt:
             raise
         except Exception, why:
-            self.logger.warning("Error in message from %s:%d: %s", host, port, why)
+            self.logger.warning("Error in message from %s:%d: %s", host, port, why)            
+
