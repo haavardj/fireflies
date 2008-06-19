@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.9 2007/09/23 12:12:54 haavardj Exp $
+## $Id: state.py,v 1.10 2008/06/19 08:50:15 haavardj Exp $
 ##                
 ######################################################################
 
@@ -366,6 +366,8 @@ class Member(object):
 
         return crypto.identityFromCertificate(self._cert)
 
+    identity = getIdentity
+    
     def getPublicKey(self):
         return self._cert.get_pubkey()
 

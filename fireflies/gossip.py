@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.20 2007/09/22 17:50:37 haavardj Exp $
+## $Id: gossip.py,v 1.21 2008/06/19 08:50:15 haavardj Exp $
 ##                
 ######################################################################
 
@@ -25,14 +25,14 @@ from zope.interface import Interface
 from twisted.application.service import Service
 import fireflies
 from fireflies.packer import FirefliesPacker, FirefliesUnpacker
-from fireflies import setrecon
-from fireflies.view import MemberRings
+from fireflies import setrecon, ring
 from fireflies.state import Note, Accusation, Member
 from fireflies.crypto import identityFromCertificate
 from fireflies.persist import Store
 import M2Crypto.SSL
 import M2Crypto.SSL.TwistedProtocolWrapper as wrapper
 from M2Crypto.SSL.Checker import WrongHost, WrongCertificate, NoCertificate 
+from fireflies.protocols import ClientConnectionChecker
 
 
 
@@ -109,25 +109,12 @@ def sslVerifyCB(sslCTX_ptr, x509_ptr, a,b,c):
     return True
 
 
-class ClientConnectionChecker:
-    
-    def __init__(self, expectedMember):
-        isinstance(expectedMember, fireflies.state.Member)
-        self.expectedMember = expectedMember
-        
-    def __call__(self, peerCert, host=None):
-        isinstance(peerCert, M2Crypto.X509.X509)
-        if peerCert is None:
-            raise NoCertificate('peer did not return certificate')
-        
-        if peerCert.get_fingerprint() != self.expectedMember.getCertificate().get_fingerprint():
-            raise WrongCertificate('peer did return wrong certificate')        
-        return True
 
 
 class Gossip(Service):
     
     name = "gossip"
+    logger = logging.getLogger("Gossip")
     
     def __init__(self, group, store, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
         
@@ -138,8 +125,10 @@ class Gossip(Service):
         isinstance(self.parent, fireflies.group.Group)
         self.rate = rate
         self.byzantineToleranceNumber = byzantineToleranceNumber        
-        self.rings = MemberRings(byzantineToleranceNumber)
-        self.logger = logging.getLogger()        
+        self.rings = ring.SetOfNamedRings()
+        for x in range(self.byzantineToleranceNumber):
+            self.rings.insertRing(ring.NameHashedRing(x))
+        
         self.sFactory = GossipServerFactory(self, TCPTimeout)
         self.cFactory = GossipClientFactory(self, rate, TCPTimeout)    
 
@@ -175,7 +164,7 @@ class Gossip(Service):
         else: raise RuntimeError, "Invalid data event", name
         
         if status == True:
-            set.append(itm)
+            set.insert(itm)
         else:
             set.remove(itm)
             
@@ -193,8 +182,8 @@ class Gossip(Service):
 
         # Add all certificates, notes, and accusations to our data sets.
         for m in self.parent.view.getAllMembers():
-            self.cSet.append(m.getCertificate())
-            if m.getNote(): self.nSet.append(m.getNote())
+            self.cSet.insert(m.getCertificate())
+            if m.getNote(): self.nSet.insert(m.getNote())
             for a in m.getAccusations(): self.aSet.append(a)
 
         #register to receive notification on group updates.
@@ -210,7 +199,6 @@ class Gossip(Service):
         self._port = wrapper.listenSSL(port, self.sFactory, self, interface=host,postConnectionCheck=sslPostConnectionCheck)
         #self._port = reactor.listenSSL(port, self.sFactory, self.sslCTX, interface=host)
 
-        #self._port = reactor.listenTCP(port, self.sFactory, interface=host)
         self.sFactory.doStart()
         self.cFactory.doStart()
 

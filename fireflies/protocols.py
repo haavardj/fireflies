@@ -1,340 +1,466 @@
+
 #import fireflies.group, fireflies.members
-from zope.interface import Interface, implements
-from twisted.python import components
-from twisted.internet import reactor, task
-import twisted.application.service
-import twisted.protocols
-import twisted.protocols.basic
-import twisted, logging
 
-import fireflies
-import fireflies.members
+import twisted
+from twisted.spread import pb 
+from twisted.internet import reactor, task, defer, protocol
+from twisted.protocols.basic import Int32StringReceiver
+from twisted.protocols.policies import ProtocolWrapper, WrappingFactory
+from twisted.application import service
+import logging, random, os, tempfile
+import M2Crypto
+import M2Crypto.SSL.TwistedProtocolWrapper
+import struct
+from M2Crypto.SSL.Checker import WrongHost, WrongCertificate, NoCertificate 
+from M2Crypto import m2
+from zope.interface import implements, Interface, Attribute
 
-DATA_CERTIFICATE_ID = 0x1
-DATA_NOTE_ID = 0x2
-DATA_ACCUSATION_ID = 0x3
-
-DUBLICATEPARTNERS = False
-
-cmd2code = {
-    'partner': 0x1,
-    'accepted': 0x4,
-    'gossip': 0x5,
-    'authenticate': 0x6,
-    'redirect': 0x7,
-    'version': 0x9,
-    'patch': 0xa,
-    'notify': 0xb,
-    'key': 0xc,
-    'recover': 0xd,
-    'request': 0xe
-}
-
-code2cmd = {}
-for k, v in cmd2code.items():
-    code2cmd[v] = k
+from fireflies import state, crypto, ring, view
+import xdrlib
 
 
+debug = False
+noiselevel = 0
+#M2Crypto.SSL.TwistedProtocolWrapper.debug = 0
+# A nicer print function for addresses
 
-class TimeoutMixin:
-    """Implements a timeout mechanism."""
-    
-    __timeoutCall = None
-    timeout = 120.0
-    
-    def startTimer(self, timeout=timeout):
-        if self.__timeoutCall != None: raise RuntimeError
-        self.__timeoutCall = reactor.callLater(timeout, self.__timedOut)
-
-    def stopTimer(self):
-        self.__timeoutCall.cancel()
-        self.__timeoutCall = None
-    
-    def __timedOut(self):
-        assert self.__timeoutCall != None
-        self.__timeoutCall = None
-        self.timedOut()
-        
-    def timedOut(self):
-        raise NotImplementedError
+twisted.internet.address.IPv4Address.__str__ = lambda x: "%s:%d" % (x.host, x.port)
 
 
-serializer_registry = {}
-
-
-
-class Message:
-    data = ""
-    type = 0
-        
-    def setData(self, data): 
-        self.data = data
-        
-    def getData(self):
-        return data
-
-    
-import xdrlib    
-
-class FirefliesMessagingProtocol(twisted.protocols.basic.Int32StringReceiver):
-
-    MAX_LENGTH = 1000000
-
-    def sendMessage(self, message):
-        p = fireflies.packer.FirefliesPacker()
-        p.pack_uin(message.type)
-        p.pack_string(message.getData())
-        self.sendString(p.get_buffer())
-
-    def stringReceived(self, data):
-        up = fireflies.packer.FirefliesUnpacker(data)
-        type = up.unpack_uint()
-        data = up.unpack_string()
-        up.done()
-        m = Message()
-        m.setData(data)
-        self.messageReceived(m)
-
-    def messageReceived(self, message):
-        raise NotImplementedError
-
-
-class FirefliesChannelingProtocol(FirefliesMessagingProtocol):
-
-    def __init__(self):
-        self.channels = {0:self}
-        self.cId = 1
-    
-    def registerChannel(self, channel):
-        self.channels[self.cId] = channel
-        self.cId += 1
-        
-
-        
-        
-
-class FirefliesProtocol(twisted.protocols.basic.Int32StringReceiver, TimeoutMixin):
-  
-    server = True
-    attached = False
-    group = None
-    peer = None
-    cid = 0
-    
-    portal = None
-    pending_requests = {}
-    
-    def connectionMade(self):
-        self.cid = FirefliesProtocol.cid
-        FirefliesProtocol.cid += 1
-     
-
-        self.sendMessage(VersionMessage(*fireflies.protocol_version))
-     
-        self.sendMessage(AuthenticateMessage(self.portal.getCredentials()))
-     
-  
-        logging.debug("authenticate-> %s %s-%s server=%s", self, crt, note, str(self.server))
-        self.startTimer()
-
-    def redirect(self, elms):
-        self.sendCommand("redirect", elms)
-        self.hangup()
-
-    def timedOut(self):
-        if self.transport: self.transport.loseConnection()
-        
-    def connectionLost(self, reason=twisted.internet.protocol.connectionDone):
-        self.factory.logger.debug("%s connectionLost server=%s attached=%s", self, self.server, self.attached)
-        if self.attached: self.factory.detach(self)
-        self.attached = False
-
-    def handle_version(self, major, minor, patchlevel):
-        #
-        # TODO: The node will die if it has an old version
-        # number. This is VERY INSECURE and will be removed. However,
-        # it is nice for testing on PlanetLab.
-        # 
-        if (major, minor, patchlevel) > fireflies.protocol_version:
-            self.factory.logger.warning("authenticate<- %s Version error. I have an old version. Exiting.", self)
-            self.hangup()
-            reactor.callLater(2, reactor.stop)
-        elif (major, minor, patchlevel) < fireflies.protocol_version:
-            self.factory.logger.warning("authenticate<- %s Version error. Other have an old version. Exiting.", self)
-
-    def handle_authenticate(self, crt, note):
-        self.stopTimer()
-        group = self.mesh.group
-        isinstance(group, fireflies.group.Group) 
-        self.factory.logger.debug("authenticate<- %s %s %s server=%s", self, crt, note, str(self.server))
-
-        if note.identity != crt.identity:
-            self.mesh.logger.warning("authenticate<- %s Error. Note and crt identity do not match.", self)
-            self.hangup()
-            return
-
-        group.addCertificate(crt)
-        group.addNote(note)
-        self.peer = self.mesh.getPeerFromMember(group.getMemberByCertificate(crt))
-        isinstance(self.peer, PeerFactory)
-                
-        if self.isServer():
-            reactor.callLater(self.peer.attach, self)
-
-
-    def handle_redirect(self, l):
-        view = self.factory.service.group
-        isinstance(view, fireflies.group.Group)                
-        for cert, note in l:
-            view.addCertificate(cert)
-            view.addNote(note)
-        self.hangup()
             
-    def handle_accepted(self):
-        self.factory.logger.debug("accepted<- %s server=%s", self, self.server)
-        if self.server:
-            if not self.factory.isActive():
-                self.factory.logger.debug("%s hangup. Not active server=True", self)
-                self.hangup()
-                return
-        else:
-            if not self.factory.isAllowed(): 
-                self.factory.logger.debug("%s hangup. Not allowed server=False", self)
-                self.hangup()
-                return            
-            
-        if self.factory.attach(self):
-            self.attached = True
-            self.factory.logger.info("%s Attached. server=%d", self, self.server)
-            if self.server: 
-                self.factory.logger.debug("accepted->%s. server=%s", self, self.server)
-                self.sendCommand("accepted")
-                
-            self.partnerConnected() 
-        else:
-            self.factory.logger.debug("%s hangup. Attach failed. server=%d", self, self.server)
-            self.hangup()
+def connect(host, 
+            port, 
+            factory, 
+            contextFactory, 
+            timeout=30,
+            bindAddress=None,
+            reactor=twisted.internet.reactor,
+            postConnectionCheck=M2Crypto.SSL.Checker.Checker()):
+    """
+    A convenience function to start an SSL/TLS connection using Twisted.
+    
+    See IReactorSSL interface in Twisted. 
+    """
+    wrappingFactory = WrappingFactory(factory)
+    wrappingFactory.protocol = lambda factory, wrappedProtocol: \
+                   TLSProtocolWrapper(factory,
+                                      wrappedProtocol,
+                                      startPassThrough=0,
+                                      client=1,
+                                      contextFactory=contextFactory,
+                                      postConnectionCheck=postConnectionCheck)
+    
+    return reactor.connectTCP(host, port, wrappingFactory, timeout, bindAddress)
+                              
 
-    def partnerConnected(self): 
-        raise NotImplementedError
+def listen(port, 
+           factory,
+           contextFactory, 
+           backlog=5, 
+           interface='',
+           reactor=twisted.internet.reactor,  
+           postConnectionCheck=M2Crypto.SSL.TwistedProtocolWrapper._alwaysSucceedsPostConnectionCheck):
+    """
+    A convenience function to listen for SSL/TLS connections using Twisted. 
 
-    def sendString(self, data):
-        #self.factory.service.peer.view.stats.tcpW += (len(data) + 4)
-        return twisted.protocols.basic.Int32StringReceiver.sendString(self, data)
-
-    def sendMessage(self, data):
-        self.sendString(data)
-
-    def sendCommand(self, cmd, *args):
-        try:
-            p = FirefliesPacker()
-
-            p.pack_fstring(1, chr(cmd2code[cmd]))
-
-            if cmd in ["partner"]:
-                nr, = args
-                p.pack_uint(nr)
-            elif cmd == "authenticate":
-                crt, note  = args
-                p.pack_cert(crt)
-                p.pack_note(note)
-                #p.pack_uint(rn)
-            elif cmd == "redirect":
-                l, = args
-                p.pack_uint(len(l))
-                for crt, note in l:
-                    p.pack_cert(crt)
-                    p.pack_note(note)     
-            elif cmd == "version":
-                major, minor, patchl = args
-                p.pack_short(major)
-                p.pack_short(minor)
-                p.pack_short(patchl)                    
-            elif cmd in ["accepted"]:
-                # No arguments.
-                pass                
-            else:
-                raise Exception, "Unknown command"
-
-            self.sendString(p.get_buffer())
-
-        except KeyboardInterrupt:
-            raise
-        except Exception, why:
-            self.factory.logger.exception("Unable to send command %s. %s", cmd, why)
-
-    def dataReceived(self, recd):
-        #self.factory.service.peer.view.stats.tcpR += len(recd)
-        return twisted.protocols.basic.Int32StringReceiver.dataReceived(self, recd)
- 
-    def stringReceived(self, data):
-        return self.messageReceived(data)
-
-    def messageReceived(self, data):
-        try:
-            cmd = "N/A"
-            p = FirefliesUnpacker(data)
-            cmd = code2cmd[ord(p.unpack_fstring(1))]
-            args = ()
-            if cmd in ["partner"]:
-                args = (p.unpack_uint(),)
-            elif cmd == "authenticate":
-                args = (p.unpack_cert(), p.unpack_note()) #, p.unpack_uint())
-            elif cmd == "redirect":
-                n = p.unpack_uint()
-                l = []
-                for x in range(n):
-                    l.append((p.unpack_cert(), p.unpack_note()) )
-                args=(l,)               
-            elif cmd == "version":
-                args = (p.unpack_short(),
-                        p.unpack_short(),
-                        p.unpack_short())
-            elif cmd in ["accepted"]:
-                args = ()         
-            else:
-                raise Exception, "unknown command."
-            p.done()
-            #cmd, args = loads(msg)
-            getattr(self, "handle_" + cmd)(*args)
-        except KeyboardInterrupt:
-            raise
-        except Exception, why:
-            self.factory.logger.exception("Unable to run command %s: %s", cmd, why)
+    See IReactorSSL interface in Twisted. 
+    """
+    wrappingFactory = WrappingFactory(factory)
+    wrappingFactory.protocol = lambda factory, wrappedProtocol: \
+                   TLSProtocolWrapper(factory,
+                                      wrappedProtocol,
+                                      startPassThrough=0,
+                                      client=0,
+                                      contextFactory=contextFactory,
+                                      postConnectionCheck=postConnectionCheck)
+    
+    return reactor.listenTCP(port, wrappingFactory, backlog, interface)
          
-    def hangup(self):
-        if not self.transport: return
-        self.transport.loseConnection()
-        self.factory.logger.debug("%s hangup", self)
-
-    def timedoutConnection(self):
-        self.factory.logger.warning("%s timeout", self)
-        self.hangup()
-                
-    def __repr__(self):
-        if self.factory and (self.factory.member != self.factory.service.member):
-            return "C:%d-%s" % (self.cid, self.factory.member.getCertificate().address)
-        elif self.transport:
-            addr = self.transport.getPeer()
-            return "C:%d-%s:%d" % (self.cid, addr.host, addr.port)
-        else:
-            return "C:%d:-" % (self.cid)
-
-    def isServer(self):
-        return self.server
+                  
+class SSLContextGenerator:
     
-
-
-
-
-
-class PeerListeningFactoryWrapper:
-    
-    def __init__(self, factory):
-        self.factory = factory
+    def __init__(self, certificate, key, ca):
+        if 0: isinstance(ca, state.GroupCertificate)
+        if 0: isinstance(certificate, state.MemberCertificate)
+        if 0: isinstance(key, M2Crypto.EVP.PKey)
         
-    def buildProtocol(self, address):
-        p = self.factory.buildProtocol(address)
-        p.server = True
-        return p
+        self.certificate = certificate
+        self.key = key
+        self.ca = ca
+        
+        self.ca.verify()
+        self.certificate.verify(self.ca.get_pubkey())
+        self.ctx = M2Crypto.SSL.Context("sslv23")
+                
+        #M2Crypto's SSL context objects do only support loading keys and
+        #certificates from files. As such, we need to write these items to
+        #temporary files and then load the context with these.
+        
+        cD, cN = tempfile.mkstemp()
+        os.close(cD)
+        kD, kN = tempfile.mkstemp()
+        os.close(kD)
+        caD, caN = tempfile.mkstemp()
+        os.close(caD)
+        
+        self.certificate.save(cN)
+        
+        # We do not want to read and write private keys in cleartext.
+        secret = str(random.randint(0,2**128)) 
+        self.key.save_key(kN, callback=lambda x: secret)
+        self.ca.save(caN)
+        
+        self.ctx.load_cert(cN, kN, callback=lambda x: secret)       
+        self.ctx.set_client_CA_list_from_file(caN)
+        self.ctx.load_verify_locations(caN)
+        self.ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9) #.verify_none,0)
+        
+        self.ctx.set_allow_unknown_ca(False)  
+        #ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9, sslVerifyCB)
+        #ctx.set_verify(M2Crypto.SSL.verify_client_once, 2)
+        if debug: self.ctx.set_info_callback()
+         
+        #Remove temporary files.
+        os.remove(cN)
+        os.remove(kN)
+        os.remove(caN)
+        
+    def getContext(self):
+        return self.ctx   
+   
+def sslPostConnectionCheck(peerX509, expectedHost):
+    print "Post connection check"
+    print peerX509, expectedHost
+    return True
+
+
+class ClientConnectionChecker:
     
+    def __init__(self, certificate):
+        self.expectedCertificate = certificate
+        
+    def __call__(self, peerCert, host=None):
+        
+        isinstance(peerCert, M2Crypto.X509.X509)
+        if peerCert is None:
+            raise NoCertificate('peer did not return certificate')
+        
+        if peerCert.get_fingerprint() != self.expectedCertificate.get_fingerprint():
+            raise WrongCertificate('peer did return wrong certificate')        
+        return True
+
+
+import pickle    
+class SSLAuthenticatedProtocol(Int32StringReceiver):
+    
+    factory = None
+    certificate = None
+    log = logging.getLogger("SSLAuthenticatedProtocol")
+    
+    def postConnection(self, x509, host):
+        #logging.debug("postConnection %s %s", x509, host)
+        if not x509: return False 
+        isinstance(x509, M2Crypto.X509.X509)
+        self.x509 = crypto.MemberCertificate(x509.x509)
+        self.factory.clientConnectionMade(self)
+        reactor.callLater(0, self.next)
+        return True 
+     
+        
+    def getCertificate(self):
+        return self.x509
+    
+    def connectionMade(self):  
+        #logging.debug("%s connectionMade", self.factory.node.getMe().address)
+        self.transport.postConnectionCheck = self.postConnection
+
+    def connectionLost(self, reason):
+        if self in self.factory._connections:
+            self.factory._connections.remove(self)
+                         
+    def stringReceived(self, msg):
+        if noiselevel > 0: self.log.debug("%s<-%s %s ", self.factory.node.me, self.factory, msg)
+
+        try:
+            remoteOID, localOID, args, kwargs = pickle.loads(msg)
+            self.factory.receiveMessage(self, remoteOID, localOID, *args, **kwargs)
+        except:
+            self.log.exception("%s<-%s Error processing message: %s", self.factory.node.me, self.factory, msg)            
+            
+    def sendMessage(self, localOID, remoteOID, *args, **kwargs):
+        s = pickle.dumps( (localOID, remoteOID, args, kwargs))
+        #self.log.debug("%s->%s %s", self.factory.node.getMe(), self.factory, s)
+        self.sendString(s)
+
+
+class UnsecuredDatagramProtocol(protocol.DatagramProtocol):
+
+    log = logging.getLogger("UnAuthenticatedDatagramProtocol")
+    
+    
+    def datagramReceived(self, data, (host, port)):      
+        memberID, remoteOID, localOID, args, kwargs = pickle.loads(data)    
+        root = self.factory.getRootService()        
+        m = root.getMemberByIdentity(memberID)
+        m.receiveMessage(self, remoteOID, localOID, *args, **kwargs)
+               
+    def sendMessage(self, member, localOID, remoteOID, *args, **kwargs):        
+        s = pickle.dumps( (member.identity, localOID, remoteOID, args, kwargs))
+        self.transport.write( s, (member.address.host, member.address.port))
+        
+
+
+class UDPNetwork(service.MultiService):
+    
+    name = "UDP"
+    
+    def __init__(self, group):
+        super(UDPNetwork, self).__init__()
+        self.group = group
+        
+    def startService(self):
+        super(UDPNetwork, self).startService()   
+        me = self.getRootService().me
+        self.log.info("Binding to UDP:%s", me.address)
+        
+        self.protocol = UnsecuredDatagramProtocol()
+        self.protocol.factory = self
+        self._port = reactor.listenUDP(me.address.port, self.protocol, interface=me.address.host)        
+        
+    def stopService(self):
+        super(FailureDetector, self).stopService()
+        self._port.stopListening()
+
+    def send(self, member, *args, **kwargs):
+        self.protocol.sendMessage(member, *args, **kwargs)
+        
+    def receive(self, protocol, member, *args, **kwargs):
+        pass
+
+class Network(service.MultiService):
+
+    log = logging.getLogger("Network")
+    name = "TCP"
+    
+    def __init__(self, group):
+        super(Network, self).__init__()
+        self._pool = {}
+        self.group = group
+        
+    def startService(self):
+   
+        for m in group.members:
+            self._pool[m] = Peer(m.certificate)
+            
+        addr = self.group.me.address
+        self._port = listen(addr.port,
+                            FirefliesServerFactory(self),
+                            self.sslCtx,
+                            interface=addr.host,
+                            postConnectionCheck=sslPostConnectionCheck)
+        super(Network, self).startService()
+        self.log.debug("listen %s", addr)
+        return self._port
+        
+    def stopService(self):
+        d = super(Network, self).stopService()
+        d = TypedChannel.stopService(self)
+        d.addCallback(lambda x: self._port.stopListening())
+        
+        def deactivateClients():
+            for x in self.members:
+                x.deactivate()
+
+        d.addCallback(lambda x: deactivateClients())
+        return d    
+    
+    def send(self, member, *args, **kwargs):        
+        pass
+    
+    def receive(self, protocol, member, *args, **kwargs):
+        pass
+    
+    
+    
+        
+class FirefliesServerFactory(protocol.ServerFactory):
+
+    unsafeTracebacks = 1
+    protocol = SSLAuthenticatedProtocol
+
+    def __init__(self, node, unsafeTracebacks=False):
+        self.node = node 
+        self.unsafeTracebacks = unsafeTracebacks
+
+    def buildProtocol(self, addr):
+        proto = self.protocol()
+        proto.factory = self
+        return proto
+
+    def clientConnectionMade(self, proto):
+        m = self.node.addCertificate(proto.x509)
+        proto.factory = m
+        return m.clientConnectionMade(proto)
+
+    
+class AuthenticatedReliableFiFO(protocol.ReconnectingClientFactory):
+
+    protocol = SSLAuthenticatedProtocol
+    unsafeTracebacks = 1
+    continueTrying = 0
+    _active = False
+    _allowConnectionFrom = False
+    _allowConnectionTo = False
+    
+    def __init__(self, member):
+        
+        if 0: isinstance(certificate, state.MemberCertificate)
+        if 0: isinstance(self.node, Node)
+        self._pendingActivation = set()
+        self._msgQueue = defer.DeferredQueue()
+        self._connections = set()
+        self.member = member
+        self.certificate = member.certificate
+        self.log = logging.getLogger("protocols.peer")
+        
+    def sendMessage(self, *args, **kwargs):
+        self.log.debug("%s->%s %s %s", self.node.me, self, args, kwargs)
+        #self.activate()
+        self._msgQueue.put( (args, kwargs))
+            
+    def receiveMessage(self, protocol, remoteOID, localOID, *args, **kwargs):
+        self.log.debug("%s:%s<-%s:%s %s %s", 
+                       self.node.me, localOID,
+                       self, remoteOID,
+                       args, 
+                       kwargs)
+
+        try:
+            service = self.node.getServiceNamed(localOID)
+        except KeyError:
+            self.log.warning("%s:%s<-%s:%s no such service", 
+                             self.node.me, localOID,
+                             self, remoteOID)
+            raise
+        else:
+            service.receiveMessage(self, remoteOID, *args, **kwargs)
+                
+    def clientConnectionFailed(self, connector, reason):
+        #self.log.debug("clientConnectionFailed")
+
+        if self.continueTrying:
+            self.connector = connector
+            self.retry()
+                
+    def clientConnectionLost(self, connector, reason):
+        #self.log.debug("clientConnectionLost %s", reason)
+
+        if self.continueTrying:
+            self.connector = connector
+            self.retry()
+
+    def clientConnectionMade(self, protocol):
+        self.log.debug("%s clientConnectionMade %s", self.node.me.address, self.address)
+        self._connections.add(protocol)
+        
+        while self._pendingActivation:
+            d = self._pendingActivation.pop()
+            d.callback(self)                    
+        
+    def isActive(self):
+        return self._active
+                
+    def activate(self):
+        """Start connecting to this peer."""
+
+        if self.isActive():
+            #assert self._connections
+            assert self.continueTrying
+            #assert self._callID
+            self.log.debug("%s activate %s (multiple)", self.node.me.address, self.address)
+            return defer.succeed(self)
+        else:
+            self.log.info("%s activate %s", self.node.me.address, self.address)
+
+        assert not self._connections
+        assert not self.continueTrying
+        assert not self._callID
+
+        self._active = True
+        self.continueTrying = 1
+        
+        if self.connector:
+            self.retry()
+        else:
+            self.connect()
+
+        d = defer.Deferred()
+        self._pendingActivation.add(d)
+        return d
+                
+    def deactivate(self, reason=None):
+        """Deactivate a connection to this peer."""
+        
+        if not self.isActive(): 
+            #self.log.debug("%s deactivate %s (multiple).", self.node.getMe().address, self.address)
+            #assert not self._connections
+            return
+        else:
+            self.log.debug("%s deactivate %s", self.node.me.address, self.address)
+            
+        self._active = False
+        
+        try:
+            self.stopTrying()
+        except twisted.internet.error.NotConnectingError:
+            pass
+        
+        while self._connections:
+            x = self._connections.pop()
+            x.transport.loseConnection()
+
+        while self._pendingActivation:
+            d = self._pendingActivation.pop()
+            d.errback()        
+    
+    def isConnected(self):
+        return bool(self._connections) 
+    
+    @property
+    def identity(self):
+        return self.certificate.identity()
+
+    @property
+    def address(self):
+        host, port = self.certificate.get_subject().CN.split(":")
+        return twisted.internet.address.IPv4Address("TCP", host, int(port))        
+           
+    def connect(self):
+        self.log.debug("connect")
+        adr = self.address
+        return connect(adr.host, adr.port, self, self.node)
+    
+    def isAllowedConnectionFrom(self):
+        return self._allowConnectionFrom   
+    
+    def allowConnectionFrom(self):
+        self._allowConnectionFrom = True
+
+    def denyConnectionFrom(self):
+        self._allowConnectionFrom = False
+
+    def isAllowedConnectionTo(self):
+        return self._allowConnectionTo   
+    
+    def allowConnectionTo(self):
+        self._allowConnectionTo = True
+
+    def denyConnectionTo(self):
+        self._allowConnectionTo = False
+        
+    def __str__(self):
+        return str(self.address)
+        
+
+
+

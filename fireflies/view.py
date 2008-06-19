@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.14 2007/12/19 18:02:57 haavardj Exp $
+## $Id: view.py,v 1.15 2008/06/19 08:50:16 haavardj Exp $
 ##                
 ######################################################################
 
@@ -25,6 +25,7 @@ import fireflies
 from fireflies.state import Note, Accusation, Member
 from fireflies.crypto import identityFromCertificate
 import fireflies.stats
+from fireflies import ring
 from fireflies.util import minMajority
 import M2Crypto
 
@@ -42,27 +43,26 @@ def _mRingID(member, ringNr):
         _mRingIDCache[memberId] = ids
         return idOnRing
 
-from fireflies.ring import Ring, NumberedRing, NumberedSetOfRings
 
 
-class IdentityRing(Ring):
-    """A ring of member object sorted according to the members' identities."""
+#class IdentityRing(Ring):
+#    """A ring of member object sorted according to the members' identities."""
     
-    def _sortKey(self, item):
-        return item.getIdentity()
+#    def _sortKey(self, item):
+#        return item.getIdentity()
    
     
-class MemberRing(NumberedRing):
-    """A name ring of member object sorted according to the members' identities concatenated with a ring number."""
+#class MemberRing(NumberedRing):
+#    """A name ring of member object sorted according to the members' identities concatenated with a ring number."""
 
-    def _sortKey(self, item):
-        return _mRingID(item, self.nr)
+#    def _sortKey(self, item):
+#        return _mRingID(item, self.nr)
 
 
-class MemberRings(NumberedSetOfRings):    
-    """A set of MemberRings."""
-
-    ringClass = MemberRing
+#class MemberRings(NumberedSetOfRings):    
+#    """A set of MemberRings."""
+#
+#    ringClass = MemberRing
 
 
 class View:
@@ -91,11 +91,13 @@ class View:
 
         self.stats = fireflies.stats.Stats()
         
-        self.aRing = IdentityRing() # List of live members. Sorted by their identity number.
-        self.pRing = IdentityRing() # List of all members.
-        self.fRing = IdentityRing() # List of failed members. Sorted by their identity number.
+        self.aRing = ring.Ring() # List of live members. Sorted by their identity number.
+        self.pRing = ring.Ring() # List of all members.
+        self.fRing = ring.Ring() # List of failed members. Sorted by their identity number.
 
-        self.mRings = MemberRings(self.numberOfRings)
+        self.mRings = ring.SetOfNamedRings()
+        for x in range(self.numberOfRings):
+            self.mRings.insertRing(ring.NameHashedRing(x))
 
         self.logger = logging.getLogger(self.group.getGroupName())
         self._timers = {}

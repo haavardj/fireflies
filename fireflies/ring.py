@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.13 2008/02/08 10:25:40 haavardj Exp $
+## $Id: ring.py,v 1.14 2008/06/19 08:49:42 haavardj Exp $
 ##                
 ######################################################################
 
@@ -58,7 +58,7 @@ class Ring(object):
         """Iterate the ring starting at the lowest number.
         
         The ring should not be modified during iteration."""
-        return _ringIterator(self, 0)
+        return iter(self.__key2itm.values()) #_ringIterator(self, 0)
 
     
     def traverse(self, item):
@@ -265,7 +265,10 @@ import sha
 class NameHashedRing(NamedRing):
     """A named ring that will sort items differently for different ring names."""
     
-    mRingIDCache = {}    
+    mRingIDCache = {}
+    
+    def __init__(self, name):
+        super(NameHashedRing, self).__init__(name)
         
     def _sortKey(self, item):
         iId = item.identity()
@@ -288,19 +291,19 @@ class SetOfNamedRings(object):
         self.__rings = {}
         
     def __iter__(self):
-        """Iterate over all rings."""
-        return iter(self.__rings.values())
+        """Iterate over all items."""
+        return iter(self.masterRing)
     
     def __getitem__(self, name):
         """Return a ring by name ."""
-        return self.__rings[key]
+        return self.__rings[name]
     
     def __len__(self):
         """Return the number of rings."""
-        return len(self.__rings)
+        return len(self.masterRing)
     
     def __contains__(self, name):
-        return name in self.__rings
+        return name in self.masterRing #__rings
 
     def succ(self, itm, func=lambda x: True):
         """Return for each ring the first successor of itm for which func evaluates to true."""
@@ -314,11 +317,15 @@ class SetOfNamedRings(object):
         """Insert itm in all rings."""
         self.masterRing.insert(itm)
         for ring in self.__rings.values(): ring.insert(itm)
+    
+    insert = insertItem
         
     def removeItem(self, itm):
         """Remove itm from all rings."""        
         self.masterRing.remove(itm)
         for ring in self.__rings: ring.remove(itm)
+        
+    remove = removeItem
                 
     def insertRing(self, ring):
         """Insert itm in all rings. Items in ring will be merged with contained items."""
