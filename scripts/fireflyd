@@ -239,7 +239,7 @@ if __name__ == "__main__":
     
     
     
-    gossip = fireflies.gossip.Gossip(mgroup, store)
+    gossip = fireflies.gossip.Gossip(mgroup)
     mgroup.startService()
 
 

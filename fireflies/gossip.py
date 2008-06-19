@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.22 2008/06/19 12:12:05 haavardj Exp $
+## $Id: gossip.py,v 1.23 2008/06/19 12:31:25 haavardj Exp $
 ##                
 ######################################################################
 
@@ -117,10 +117,8 @@ class Gossip(Service):
     name = "gossip"
     logger = logging.getLogger("Gossip")
     
-    def __init__(self, group, store, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
+    def __init__(self, group, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
         
-        self.store = store
-        isinstance(store, Store)
         self.setServiceParent(group)
         isinstance(group, fireflies.group.Group)
         isinstance(self.parent, fireflies.group.Group)
