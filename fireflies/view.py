@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.15 2008/06/19 08:50:16 haavardj Exp $
+## $Id: view.py,v 1.16 2008/06/19 12:12:07 haavardj Exp $
 ##                
 ######################################################################
 
@@ -42,27 +42,6 @@ def _mRingID(member, ringNr):
         ids[ringNr] = idOnRing
         _mRingIDCache[memberId] = ids
         return idOnRing
-
-
-
-#class IdentityRing(Ring):
-#    """A ring of member object sorted according to the members' identities."""
-    
-#    def _sortKey(self, item):
-#        return item.getIdentity()
-   
-    
-#class MemberRing(NumberedRing):
-#    """A name ring of member object sorted according to the members' identities concatenated with a ring number."""
-
-#    def _sortKey(self, item):
-#        return _mRingID(item, self.nr)
-
-
-#class MemberRings(NumberedSetOfRings):    
-#    """A set of MemberRings."""
-#
-#    ringClass = MemberRing
 
 
 class View:

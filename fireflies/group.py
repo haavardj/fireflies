@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.21 2007/09/23 11:34:27 haavardj Exp $
+## $Id: group.py,v 1.22 2008/06/19 12:12:06 haavardj Exp $
 ##                
 ######################################################################
 
@@ -23,6 +23,7 @@ from fireflies.crypto import identityFromCertificate
 import fireflies.stats
 import M2Crypto
            
+
 
 class Group(MultiService):
     """A Fireflies group. This class is the main interface to the Firelifes runtime. 
@@ -222,9 +223,42 @@ class Group(MultiService):
         return self.view.toleranceLevel
         
     def startService(self):
+        
+        self._sslCtx = fireflies.protocols.makeSSLCtx(
+            self.getMe().getCertificate(), 
+            self.getMyKey(),
+            self.getGroupCertificate())
+        
         MultiService.startService(self)        
         self.logger.info("join group %s", self.getGroupName())
+        
 
     def stopService(self):
         MultiService.stopService(self)
         self.logger.info("leave group %s", self.getGroupName())
+                
+    def getContext(self):
+        return self._sslCtx
+        #me = self.getMe()
+        #myCert = me.getCertificate()
+        #myKey = self.getMyKey()        
+        #groupCA = self.getGroupCertificate()
+        #assert isinstance(myKey, M2Crypto.EVP.PKey)
+        #assert isinstance(myCert, M2Crypto.X509.X509)
+        #assert isinstance(groupCA, M2Crypto.X509.X509)
+        #assert groupCA.verify()
+        #assert myCert.verify(groupCA.get_pubkey())
+        #ctx = M2Crypto.SSL.Context("sslv23")
+        #ctx.load_cert(self.store.filenameCertificate(myCert), keyfile=self.store.filenameKey(myKey))
+        #ctx.set_client_CA_list_from_file(self.store.fileCaCert)
+        #ctx.load_verify_locations(self.store.fileCaCert)
+        ##ctx.set_allow_unknown_ca(True)
+        ##ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9, sslVerifyCB)
+        #ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9) #.verify_none,0)
+        ##ctx.set_verify(M2Crypto.SSL.verify_client_once, 2)
+        ##ctx.set_info_callback()
+        
+
+        #return ctx    
+        
+    

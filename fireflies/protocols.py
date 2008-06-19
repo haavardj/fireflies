@@ -9,7 +9,9 @@ from twisted.protocols.policies import ProtocolWrapper, WrappingFactory
 from twisted.application import service
 import logging, random, os, tempfile
 import M2Crypto
-import M2Crypto.SSL.TwistedProtocolWrapper
+import M2Crypto
+import M2Crypto.SSL.TwistedProtocolWrapper as wrapper
+from twisted.protocols import policies
 import struct
 from M2Crypto.SSL.Checker import WrongHost, WrongCertificate, NoCertificate 
 from M2Crypto import m2
@@ -28,32 +30,30 @@ twisted.internet.address.IPv4Address.__str__ = lambda x: "%s:%d" % (x.host, x.po
 
 
             
-def connect(host, 
-            port, 
-            factory, 
-            contextFactory, 
-            timeout=30,
-            bindAddress=None,
-            reactor=twisted.internet.reactor,
-            postConnectionCheck=M2Crypto.SSL.Checker.Checker()):
+def connect(member, factory, timeout=30, bindAddress=None):
     """
     A convenience function to start an SSL/TLS connection using Twisted.
     
     See IReactorSSL interface in Twisted. 
     """
-    wrappingFactory = WrappingFactory(factory)
+    
+    ctx = member.group
+    address = member.address
+    
+    wrappingFactory = policies.WrappingFactory(factory)
     wrappingFactory.protocol = lambda factory, wrappedProtocol: \
-                   TLSProtocolWrapper(factory,
+                   wrapper.TLSProtocolWrapper(factory,
                                       wrappedProtocol,
                                       startPassThrough=0,
                                       client=1,
-                                      contextFactory=contextFactory,
-                                      postConnectionCheck=postConnectionCheck)
+                                      contextFactory=ctx,
+                                      postConnectionCheck=ClientConnectionChecker(member.getCertificate()))
     
-    return reactor.connectTCP(host, port, wrappingFactory, timeout, bindAddress)
+    
+    return reactor.connectTCP(address.host, address.port, wrappingFactory, timeout, bindAddress)
                               
 
-def listen(port, 
+def listen(port,
            factory,
            contextFactory, 
            backlog=5, 
@@ -65,68 +65,65 @@ def listen(port,
 
     See IReactorSSL interface in Twisted. 
     """
-    wrappingFactory = WrappingFactory(factory)
+    wrappingFactory = policies.WrappingFactory(factory)
     wrappingFactory.protocol = lambda factory, wrappedProtocol: \
-                   TLSProtocolWrapper(factory,
-                                      wrappedProtocol,
-                                      startPassThrough=0,
-                                      client=0,
-                                      contextFactory=contextFactory,
-                                      postConnectionCheck=postConnectionCheck)
+                   wrapper.TLSProtocolWrapper(factory,
+                                              wrappedProtocol,
+                                              startPassThrough=0,
+                                              client=0,
+                                              contextFactory=contextFactory,
+                                              postConnectionCheck=postConnectionCheck)
     
     return reactor.listenTCP(port, wrappingFactory, backlog, interface)
          
-                  
-class SSLContextGenerator:
-    
-    def __init__(self, certificate, key, ca):
-        if 0: isinstance(ca, state.GroupCertificate)
-        if 0: isinstance(certificate, state.MemberCertificate)
-        if 0: isinstance(key, M2Crypto.EVP.PKey)
+
+def makeSSLCtx(certificate, key, ca):
+    if 0: isinstance(ca, state.GroupCertificate)
+    if 0: isinstance(certificate, state.MemberCertificate)
+    if 0: isinstance(key, M2Crypto.EVP.PKey)
         
-        self.certificate = certificate
-        self.key = key
-        self.ca = ca
+    certificate = certificate
+    key = key
+    ca = ca
         
-        self.ca.verify()
-        self.certificate.verify(self.ca.get_pubkey())
-        self.ctx = M2Crypto.SSL.Context("sslv23")
+    ca.verify()
+    certificate.verify(ca.get_pubkey())
+    ctx = M2Crypto.SSL.Context("sslv23")
                 
-        #M2Crypto's SSL context objects do only support loading keys and
-        #certificates from files. As such, we need to write these items to
-        #temporary files and then load the context with these.
+    #M2Crypto's SSL context objects do only support loading keys and
+    #certificates from files. As such, we need to write these items to
+    #temporary files and then load the context with these.
         
-        cD, cN = tempfile.mkstemp()
-        os.close(cD)
-        kD, kN = tempfile.mkstemp()
-        os.close(kD)
-        caD, caN = tempfile.mkstemp()
-        os.close(caD)
+    cD, cN = tempfile.mkstemp()
+    os.close(cD)
+    kD, kN = tempfile.mkstemp()
+    os.close(kD)
+    caD, caN = tempfile.mkstemp()
+    os.close(caD)
         
-        self.certificate.save(cN)
-        
-        # We do not want to read and write private keys in cleartext.
-        secret = str(random.randint(0,2**128)) 
-        self.key.save_key(kN, callback=lambda x: secret)
-        self.ca.save(caN)
-        
-        self.ctx.load_cert(cN, kN, callback=lambda x: secret)       
-        self.ctx.set_client_CA_list_from_file(caN)
-        self.ctx.load_verify_locations(caN)
-        self.ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9) #.verify_none,0)
-        
-        self.ctx.set_allow_unknown_ca(False)  
-        #ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9, sslVerifyCB)
-        #ctx.set_verify(M2Crypto.SSL.verify_client_once, 2)
-        if debug: self.ctx.set_info_callback()
-         
-        #Remove temporary files.
-        os.remove(cN)
-        os.remove(kN)
-        os.remove(caN)
-        
-    def getContext(self):
-        return self.ctx   
+    certificate.save(cN)
+    
+    # We do not want to read and write private keys in cleartext.
+    secret = str(random.randint(0,2**128)) 
+    key.save_key(kN, callback=lambda x: secret)
+    ca.save(caN)
+    
+    ctx.load_cert(cN, kN, callback=lambda x: secret)       
+    ctx.set_client_CA_list_from_file(caN)
+    ctx.load_verify_locations(caN)
+    ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9) #.verify_none,0)
+    
+    ctx.set_allow_unknown_ca(False)  
+    #ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9, sslVerifyCB)
+    #ctx.set_verify(M2Crypto.SSL.verify_client_once, 2)
+    if debug: ctx.set_info_callback()
+    
+    #Remove temporary files.
+    os.remove(cN)
+    os.remove(kN)
+    os.remove(caN)
+    return ctx
+    
    
 def sslPostConnectionCheck(peerX509, expectedHost):
     print "Post connection check"

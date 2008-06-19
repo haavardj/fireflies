@@ -8,12 +8,13 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.21 2008/06/19 08:50:15 haavardj Exp $
+## $Id: gossip.py,v 1.22 2008/06/19 12:12:05 haavardj Exp $
 ##                
 ######################################################################
 
 import logging
-from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFactory
+from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFactory, ReconnectingClientFactory
+
 from twisted.internet import ssl
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.internet import reactor, task, defer
@@ -136,26 +137,6 @@ class Gossip(Service):
         self.nSet = NoteSet(PARTITION_FACTOR, RECON_EXTRA)
         self.aSet = AccusationSet(PARTITION_FACTOR, RECON_EXTRA)
 
-    def getContext(self):
-        me = self.parent.getMe()
-        myCert = me.getCertificate()
-        myKey = self.parent.getMyKey()        
-        groupCA = self.parent.getGroupCertificate()
-        assert isinstance(myKey, M2Crypto.EVP.PKey)
-        assert isinstance(myCert, M2Crypto.X509.X509)
-        assert isinstance(groupCA, M2Crypto.X509.X509)
-        assert groupCA.verify()
-        assert myCert.verify(groupCA.get_pubkey())
-        ctx = M2Crypto.SSL.Context("sslv23")
-        ctx.load_cert(self.store.filenameCertificate(myCert), keyfile=self.store.filenameKey(myKey))
-        ctx.set_client_CA_list_from_file(self.store.fileCaCert)
-        ctx.load_verify_locations(self.store.fileCaCert)
-        #ctx.set_allow_unknown_ca(True)
-        #ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9, sslVerifyCB)
-        ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9) #.verify_none,0)
-        #ctx.set_verify(M2Crypto.SSL.verify_client_once, 2)
-        #ctx.set_info_callback()
-        return ctx    
 
     def evDataAccusation(self, name, itm, status):
         if name == "data.accusation": set = self.aSet
@@ -192,11 +173,10 @@ class Gossip(Service):
         self.parent.registerEventHandler("data.note", self.evDataAccusation)
         self.parent.registerEventHandler("data.certificate", self.evDataAccusation)
                 
-        host, port = self.parent.getMe().getAddress().split(":")
-        port = int(port)
-        self.logger.info("Binding gossip to tcp %s:%d", host, port)
+        address = self.parent.getMe().address
+        self.logger.info("Binding gossip to tcp %s:%d", address.host, address.port)
         
-        self._port = wrapper.listenSSL(port, self.sFactory, self, interface=host,postConnectionCheck=sslPostConnectionCheck)
+        self._port = fireflies.protocols.listen(address.port, self.sFactory, self.parent, interface=address.host,postConnectionCheck=sslPostConnectionCheck)
         #self._port = reactor.listenSSL(port, self.sFactory, self.sslCTX, interface=host)
 
         self.sFactory.doStart()
@@ -1094,8 +1074,7 @@ class GossipClientFactory(ClientFactory):
             cc.hangup()
         self.connections[ringNr] = prot
         
-        wrapper.connectSSL(host, port, self, self.service, 
-                           postConnectionCheck=ClientConnectionChecker(peer))
+        fireflies.protocols.connect(peer, self)
         
         #reactor.connectSSL(host, port, self, self.service.sslCTX)
         

@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.10 2008/06/19 08:50:15 haavardj Exp $
+## $Id: state.py,v 1.11 2008/06/19 12:12:07 haavardj Exp $
 ##                
 ######################################################################
 
@@ -22,7 +22,7 @@ from fireflies.stats import Stats
 from fireflies import crypto
 import bisect, logging, setrecon, random, stats
 import M2Crypto
-
+import twisted
 
 INITIAL_LRATE = 0.10
 
@@ -254,6 +254,12 @@ class Member(object):
         @rtype: IP:port string
         """
         return self._cert.get_subject().L
+    
+    @property
+    def address(self):
+        host, port = self._cert.get_subject().L.split(":")
+        port = int(port) 
+        return twisted.internet.address.IPv4Address("TCP", host, port) 
     
     def getCommonName(self):
         return self._cert.get_subject().CN
