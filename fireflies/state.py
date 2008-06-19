@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.11 2008/06/19 12:12:07 haavardj Exp $
+## $Id: state.py,v 1.12 2008/06/19 12:27:46 haavardj Exp $
 ##                
 ######################################################################
 
@@ -197,8 +197,8 @@ class Member(object):
     
         self._cert = cert
         self._note = None
+        self._group = group
         
-        self.group = group
         self.view = group.view       
         self.logger = logging.getLogger()
 
@@ -254,6 +254,10 @@ class Member(object):
         @rtype: IP:port string
         """
         return self._cert.get_subject().L
+    
+    @property
+    def group(self):
+        return self._group
     
     @property
     def address(self):

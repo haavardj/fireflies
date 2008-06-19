@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.16 2008/06/19 12:12:07 haavardj Exp $
+## $Id: view.py,v 1.17 2008/06/19 12:27:46 haavardj Exp $
 ##                
 ######################################################################
 
@@ -223,7 +223,6 @@ class View:
             self.logger.debug("discard %s redundant", elm)
         else:                
             m = Member(elm, self.group)
-            m.group = self.group
             self._new(m)
             self.group.notify("data.certificate", elm, True)
             self.group.notify("member.crash", m, fireflies.EV_CRASH_NEW)
