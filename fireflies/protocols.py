@@ -20,6 +20,7 @@ from zope.interface import implements, Interface, Attribute
 from fireflies import state, crypto, ring, view
 import xdrlib
 
+from twisted.conch import client
 
 debug = False
 noiselevel = 0
