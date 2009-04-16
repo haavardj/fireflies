@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.23 2008/06/19 12:31:25 haavardj Exp $
+## $Id: gossip.py,v 1.24 2009/04/16 07:25:29 haavardj Exp $
 ##                
 ######################################################################
 
@@ -116,20 +116,21 @@ class Gossip(Service):
     
     name = "gossip"
     logger = logging.getLogger("Gossip")
+    byzantineToleranceNumber = 7
+    rate = 30.0
+    TCPTimeout = 360.0
     
-    def __init__(self, group, byzantineToleranceNumber=7, rate=30.0, TCPTimeout=360.0):
+    def __init__(self, group):
         
         self.setServiceParent(group)
         isinstance(group, fireflies.group.Group)
         isinstance(self.parent, fireflies.group.Group)
-        self.rate = rate
-        self.byzantineToleranceNumber = byzantineToleranceNumber        
         self.rings = ring.SetOfNamedRings()
         for x in range(self.byzantineToleranceNumber):
             self.rings.insertRing(ring.NameHashedRing(x))
         
-        self.sFactory = GossipServerFactory(self, TCPTimeout)
-        self.cFactory = GossipClientFactory(self, rate, TCPTimeout)    
+        self.sFactory = GossipServerFactory(self, self.TCPTimeout)
+        self.cFactory = GossipClientFactory(self, self.rate, self.TCPTimeout)    
 
         self.cSet = X509Set(PARTITION_FACTOR, RECON_EXTRA)
         self.nSet = NoteSet(PARTITION_FACTOR, RECON_EXTRA)
