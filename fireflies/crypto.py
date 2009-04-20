@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.16 2007/09/23 11:34:27 haavardj Exp $
+## $Id: crypto.py,v 1.17 2009/04/20 13:00:25 haavardj Exp $
 ##                
 ######################################################################
 
@@ -77,16 +77,16 @@ def bytes_to_long(s):
         acc = (acc << 32) + unpack('>I', s[i:i+4])[0]
     return acc
 
-def generateRSAKey(size=1024):
-    return M2Crypto.RSA.gen_key(size, M2Crypto.m2.RSA_F4)
+def generateRSAKey(size=1024, callback=M2Crypto.RSA.keygen_callback):
+    return M2Crypto.RSA.gen_key(size, M2Crypto.m2.RSA_F4, callback)
 
 def makePKey(key):
     pkey = M2Crypto.EVP.PKey()
     pkey.assign_rsa(key)
     return pkey
 
-def makePrivateKey(size=1024): 
-    return makePKey(generateRSAKey(size))
+def makePrivateKey(size=1024, callback=M2Crypto.RSA.keygen_callback): 
+    return makePKey(generateRSAKey(size, callback))
 
 def makeCACert(pkey, groupName, maxGroupSize, pByz, tolerance):
 
