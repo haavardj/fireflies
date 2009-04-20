@@ -9,18 +9,57 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.17 2009/04/20 13:00:25 haavardj Exp $
+## $Id: crypto.py,v 1.18 2009/04/20 13:34:00 haavardj Exp $
 ##                
 ######################################################################
 
 """Cryptographic stuff."""
 
-import fireflies, M2Crypto, struct
+import fireflies, M2Crypto, struct, sha
 
 DIGESTALG="sha1"
 DIGESTSIZE=160
 
-import struct
+class GroupCertificate(M2Crypto.X509.X509):
+    
+    def uidstr(self):
+        return "GroupCertificate:%d" % (self.get_fingerprint())
+    
+    def maxSize(self):        
+        return int(self.get_subject().organizationName.split()[0])
+
+    def pByz(self):
+        return float(self.get_subject().organizationName.split()[1])
+            
+    def faultToleranceLevel(self):
+        return float(self.get_subject().organizationName.split()[2])
+
+    def name(self):
+        self.get_subject().commonName
+        
+    def nrRings(self):
+        return fireflies.util.minMajority(self.pByz(), self.maxSize(), self.faultToleranceLevel()) * 2 + 1
+
+    def identity(self):
+        return self.get_fingerprint()
+
+class MemberCertificate(M2Crypto.X509.X509):
+    
+    def __getstate__(self):
+        return self.x509.as_der()
+    
+    def __setstate__(self, data):        
+        bio = M2Crypto.BIO.MemoryBuffer(data) 
+        self.x509 = M2Crypto.m2.d2i_x509(bio._ptr())
+        assert M2Crypto.m2.x509_type_check(self.x509)
+        self._pyfree = 1
+        
+    def uidstr(self):
+        return "Certificate:%s" % self.get_fingerprint()
+    
+    def identity(self):
+        return self.get_fingerprint()
+
 
 def fingerprint(data, outputbinary=False):
     h = M2Crypto.EVP.MessageDigest(DIGESTALG)
@@ -88,13 +127,13 @@ def makePKey(key):
 def makePrivateKey(size=1024, callback=M2Crypto.RSA.keygen_callback): 
     return makePKey(generateRSAKey(size, callback))
 
-def makeCACert(pkey, groupName, maxGroupSize, pByz, tolerance):
+def makeCACert(pkey, groupName, nrRings):
 
     name = M2Crypto.X509.X509_Name()
     name.CN = groupName
-    name.O = "%d %f %f" % (maxGroupSize, pByz, tolerance)
+    name.O = "%d" % nrRings
     
-    cert = M2Crypto.X509.X509()
+    cert = GroupCertificate()
  
     cert.set_serial_number(0)
     cert.set_version(0)
@@ -110,7 +149,10 @@ def makeCACert(pkey, groupName, maxGroupSize, pByz, tolerance):
     newid4  = name.as_hash()
     bytes = M2Crypto.Rand.rand_bytes(20)
     newid = hex(M2Crypto.util.octx_to_num(bytes))[2:-1]
-    ext1 = M2Crypto.X509.new_extension('subjectKeyIdentifier', newid, 0)
+    
+    
+    kid = computeKeyIdentifier(pkey)
+    ext1 = M2Crypto.X509.new_extension('subjectKeyIdentifier', kid, 0)
     ext2 = M2Crypto.X509.new_extension('basicConstraints', 'CA:TRUE')
     cert.add_ext(ext1)       
     cert.add_ext(ext2)       
@@ -205,6 +247,16 @@ def sHashDict(d):
 def identitySize():
     """Returns the size (in bytes) of identity numbers."""    
     return DIGESTSIZE/8
+
+def computeKeyIdentifier(pkey):
+    client_serial = sha.new( pkey.as_der() ).hexdigest().upper()
+    client_serial_hex = ''
+    
+    for byte in xrange(20):
+        client_serial_hex += client_serial[byte*2] + client_serial[byte*2+1]
+        if byte < 19:
+            client_serial_hex += ':'            
+    return client_serial_hex
 
 def identityFromCertificate(cert):
     return subjectKeyIdentifierToID(cert.get_ext("subjectKeyIdentifier").get_value())
