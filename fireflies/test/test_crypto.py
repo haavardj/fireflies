@@ -41,7 +41,7 @@ class CertificateTest(unittest.TestCase):
         id1 = crypto.subjectKeyIdentifierToID(crypto.computeKeyIdentifier(pkey))
         id2 = crypto.identityFromCertificate(self.caCert)
         self.failUnless(id2 == id1)
-        
+
         pkey = self.mCert.get_pubkey()        
         id3 = crypto.subjectKeyIdentifierToID(crypto.computeKeyIdentifier(pkey))
         id4 = crypto.identityFromCertificate(self.mCert)
