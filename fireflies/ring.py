@@ -9,11 +9,11 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.14 2008/06/19 08:49:42 haavardj Exp $
+## $Id: ring.py,v 1.15 2009/04/28 07:35:23 haavardj Exp $
 ##                
 ######################################################################
 
-import bisect, sha
+import bisect, hashlib
 
 def _ringIterator(ring, start=0):
     for x in range(len(ring)):
@@ -261,7 +261,7 @@ class NamedRing(Ring):
     def identity(self):
         return self.name
     
-import sha
+
 class NameHashedRing(NamedRing):
     """A named ring that will sort items differently for different ring names."""
     
@@ -276,7 +276,7 @@ class NameHashedRing(NamedRing):
             return NameHashedRing.mRingIDCache[iId][self.identity()]
         except KeyError:
             ids = NameHashedRing.mRingIDCache.get(iId, {})
-            idOnRing = sha.new("%s-%s" % (iId, self.identity())).digest()
+            idOnRing = hashlib.new("%s-%s" % (iId, self.identity())).digest()
             ids[self.identity()] = idOnRing
             NameHashedRing.mRingIDCache[iId] = ids
             return idOnRing

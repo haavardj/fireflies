@@ -9,13 +9,13 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.18 2009/04/20 13:34:00 haavardj Exp $
+## $Id: crypto.py,v 1.19 2009/04/28 07:38:09 haavardj Exp $
 ##                
 ######################################################################
 
 """Cryptographic stuff."""
 
-import fireflies, M2Crypto, struct, sha
+import fireflies, M2Crypto, struct, hashlib
 
 DIGESTALG="sha1"
 DIGESTSIZE=160
@@ -127,11 +127,11 @@ def makePKey(key):
 def makePrivateKey(size=1024, callback=M2Crypto.RSA.keygen_callback): 
     return makePKey(generateRSAKey(size, callback))
 
-def makeCACert(pkey, groupName, nrRings):
+def makeCACert(pkey, groupName, maxGroupSize, pByz=0.10, faultTolerance=0.10):
 
     name = M2Crypto.X509.X509_Name()
     name.CN = groupName
-    name.O = "%d" % nrRings
+    name.O = "%d %f %f" % (maxGroupSize, pByz, faultTolerance)
     
     cert = GroupCertificate()
  
@@ -249,7 +249,7 @@ def identitySize():
     return DIGESTSIZE/8
 
 def computeKeyIdentifier(pkey):
-    client_serial = sha.new( pkey.as_der() ).hexdigest().upper()
+    client_serial = hashlib.new( pkey.as_der() ).hexdigest().upper()
     client_serial_hex = ''
     
     for byte in xrange(20):
