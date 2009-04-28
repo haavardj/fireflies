@@ -9,13 +9,13 @@
 ## Licence: GPL (see LICENCE file).
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: setrecon.py,v 1.7 2008/02/04 13:42:34 haavardj Exp $
+## $Id: setrecon.py,v 1.8 2009/04/28 08:07:24 haavardj Exp $
 ##                
 ######################################################################
 
 from setreconbase import *
 from fireflies.util import long_to_bytes, bytes_to_long
-import sha
+import hashlib 
 
 initialized = False
 bitsize = 0
@@ -340,7 +340,7 @@ class ReconSet:
     add = insert
         
     def hash(self):
-        hsh = sha.new()
+        hsh = hashlib.new()
         n = self.getRootPartition()
         hv = map(lambda x: str(x), n.hash_vector)
         hv.sort()
