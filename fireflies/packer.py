@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.13 2011/03/16 12:45:52 haavardj Exp $
+## $Id: packer.py,v 1.14 2011/03/16 14:48:14 haavardj Exp $
 ##                
 ######################################################################
 
@@ -16,9 +16,10 @@
 
 from fireflies.state import Note, Accusation
 from fireflies.crypto import identitySize
+from fireflies.util import long_to_bytes
 import M2Crypto
-
 import xdrlib, new, socket
+import struct
 
 
 import setrecon
