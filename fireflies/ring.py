@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.15 2009/04/28 07:35:23 haavardj Exp $
+## $Id: ring.py,v 1.16 2011/03/16 12:45:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -276,7 +276,7 @@ class NameHashedRing(NamedRing):
             return NameHashedRing.mRingIDCache[iId][self.identity()]
         except KeyError:
             ids = NameHashedRing.mRingIDCache.get(iId, {})
-            idOnRing = hashlib.new("%s-%s" % (iId, self.identity())).digest()
+            idOnRing = hashlib.new("sha1","%s-%s" % (iId, self.identity())).digest()
             ids[self.identity()] = idOnRing
             NameHashedRing.mRingIDCache[iId] = ids
             return idOnRing

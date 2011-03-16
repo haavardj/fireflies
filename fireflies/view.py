@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.17 2008/06/19 12:27:46 haavardj Exp $
+## $Id: view.py,v 1.18 2011/03/16 12:45:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -16,8 +16,7 @@
 as specified by the Fireflies protocol.
 """
 
-from Crypto.Hash import SHA
-from Crypto.Util.number import bytes_to_long
+
 #from math import *
 from twisted.internet import reactor
 import logging

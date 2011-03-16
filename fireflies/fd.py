@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.20 2008/06/18 13:43:11 haavardj Exp $
+## $Id: fd.py,v 1.21 2011/03/16 12:45:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -28,7 +28,6 @@ import fireflies
 import new, random
 
 from packer import FirefliesPacker, FirefliesUnpacker
-from Crypto.Util.number import long_to_bytes, bytes_to_long
 
 
 ROUNDTIME = 5

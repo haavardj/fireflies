@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.12 2007/09/13 14:36:02 haavardj Exp $
+## $Id: packer.py,v 1.13 2011/03/16 12:45:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -19,8 +19,8 @@ from fireflies.crypto import identitySize
 import M2Crypto
 
 import xdrlib, new, socket
-from Crypto.PublicKey import RSA
-from Crypto.Util.number import long_to_bytes, bytes_to_long
+
+
 import setrecon
 
 SERIAL_LENGTH = identitySize()

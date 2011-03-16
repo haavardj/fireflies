@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.19 2009/04/28 07:38:09 haavardj Exp $
+## $Id: crypto.py,v 1.20 2011/03/16 12:45:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -249,7 +249,7 @@ def identitySize():
     return DIGESTSIZE/8
 
 def computeKeyIdentifier(pkey):
-    client_serial = hashlib.new( pkey.as_der() ).hexdigest().upper()
+    client_serial = hashlib.new("sha1", pkey.as_der() ).hexdigest().upper()
     client_serial_hex = ''
     
     for byte in xrange(20):

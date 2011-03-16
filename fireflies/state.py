@@ -8,14 +8,12 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.12 2008/06/19 12:27:46 haavardj Exp $
+## $Id: state.py,v 1.13 2011/03/16 12:45:52 haavardj Exp $
 ##                
 ######################################################################
 
 """This module provides classes that are used to represent the state of members in a group."""
 
-
-from Crypto.Util.number import long_to_bytes, bytes_to_long
 from twisted.internet import reactor
 import fireflies
 from fireflies.stats import Stats

@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: persist.py,v 1.1 2007/09/22 17:45:21 haavardj Exp $
+## $Id: persist.py,v 1.2 2011/03/16 12:45:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -64,7 +64,7 @@ class Store:
         return M2Crypto.X509.load_cert(self.fileCaCert, format=M2Crypto.X509.FORMAT_PEM)
 
     def saveCaPrivKey(self, pkey, cipher='aes_128_cbc', callback=M2Crypto.util.passphrase_callback):
-        return pkey.get_rsa().save_key(self.fileCAPriv, cipher=cipher, callback=callback)                
+        return pkey.save_key(self.fileCAPriv, cipher=cipher, callback=callback)                
                 
     def hasCAKey(self):
         return exists(self.fileCAPriv)

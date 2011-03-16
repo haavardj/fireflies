@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.24 2009/04/16 07:25:29 haavardj Exp $
+## $Id: gossip.py,v 1.25 2011/03/16 12:45:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -18,7 +18,6 @@ from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFa
 from twisted.internet import ssl
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.internet import reactor, task, defer
-from Crypto.Hash import MD5
 import sha
 import copy, sys
 import M2Crypto
