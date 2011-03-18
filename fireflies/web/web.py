@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, University of Tromso, Norway)
 ##                
-## $Id: web.py,v 1.5 2007/08/20 07:47:57 haavardj Exp $
+## $Id: web.py,v 1.6 2011/03/18 12:09:28 haavardj Exp $
 ##                
 ######################################################################
 
@@ -112,6 +112,7 @@ class Grapher:
         g("set timefmt '%s'")
         #g("set size 1.34,1")
         g('set format x "%d\/%m\\n%H:%M"')
+        g("set style lines")
         
         g("set xlabel 'Time (UTC)'")
         xdata = map(lambda x: float(x['time']), self.stats)
@@ -126,7 +127,7 @@ class Grapher:
         maxr = max(max(ydata), 0.001) * 1.10
         g("set yrange [0:%f]" % maxr) 
         ydata = Numeric.asarray(ydata, Numeric.Float)
-        d = Gnuplot.Data(xdata, ydata, using="1:2", with="lines")
+        d = Gnuplot.Data(xdata, ydata, using="1:2")
         g.plot(d)
 
         g("set output '%s'" %os.path.join(self.outpath, "udp.png"))
@@ -137,8 +138,8 @@ class Grapher:
         g("set yrange [0:%f]" % maxr) 
         y1data = Numeric.asarray(y1data, Numeric.Float)
         y2data = Numeric.asarray(y2data, Numeric.Float)
-        d1 = Gnuplot.Data(xdata, y1data, using="1:2", with="lines", title="sent")
-        d2 = Gnuplot.Data(xdata, y2data, using="1:2", with="lines", title="received")
+        d1 = Gnuplot.Data(xdata, y1data, using="1:2", title="sent")
+        d2 = Gnuplot.Data(xdata, y2data, using="1:2", title="received")
         g.plot(d1, d2)
 
         g("set output '%s'" %os.path.join(self.outpath, "tcp.png"))
@@ -149,8 +150,8 @@ class Grapher:
         g("set yrange [0:%f]" % maxr) 
         y1data = Numeric.asarray(y1data, Numeric.Float)
         y2data = Numeric.asarray(y2data, Numeric.Float)
-        d1 = Gnuplot.Data(xdata, y1data, using="1:2", with="lines", title="sent")
-        d2 = Gnuplot.Data(xdata, y2data, using="1:2", with="lines", title="received")
+        d1 = Gnuplot.Data(xdata, y1data, using="1:2", title="sent")
+        d2 = Gnuplot.Data(xdata, y2data, using="1:2", title="received")
         g.plot(d1, d2)
 
         g("set output '%s'" %os.path.join(self.outpath, "cpu.png"))
@@ -159,7 +160,7 @@ class Grapher:
         maxr = max(max(y1data), 0.01) * 1.10
         g("set yrange [0:%f]" % maxr) 
         y1data = Numeric.asarray(y1data, Numeric.Float)
-        d1 = Gnuplot.Data(xdata, y1data, using="1:2", with="lines", title="load")
+        d1 = Gnuplot.Data(xdata, y1data, using="1:2", title="load")
         g.plot(d1)
 
         g("set output '%s'" %os.path.join(self.outpath, "createdacc.png"))
@@ -168,7 +169,7 @@ class Grapher:
         maxr = max(max(ydata), 0.001) * 1.10
         g("set yrange [0:%f]" % maxr) 
         ydata = Numeric.asarray(ydata, Numeric.Float)
-        d = Gnuplot.Data(xdata, ydata, using="1:2", with="lines")
+        d = Gnuplot.Data(xdata, ydata, using="1:2")
         g.plot(d)
 
         #g("set output '%s'" %os.path.join(self.outpath, "exchanges.png"))
@@ -177,7 +178,7 @@ class Grapher:
         #maxr = max(max(ydata), 0.001) * 1.10
         #g("set yrange [0:%f]" % maxr) 
         #ydata = Numeric.asarray(ydata, Numeric.Float)
-        #d = Gnuplot.Data(xdata, ydata, using="1:2", with="lines")
+        #d = Gnuplot.Data(xdata, ydata, using="1:2", dd="lines")
         #g.plot(d)
 
         g("set output '%s'" %os.path.join(self.outpath, "rebuttals.png"))
@@ -186,7 +187,7 @@ class Grapher:
         maxr = max(max(ydata), 0.001) * 1.10
         g("set yrange [0:%f]" % maxr) 
         ydata = Numeric.asarray(ydata, Numeric.Float)
-        d = Gnuplot.Data(xdata, ydata, using="1:2", with="lines")
+        d = Gnuplot.Data(xdata, ydata, using="1:2")
         g.plot(d)
 
         g("set output '%s'" %os.path.join(self.outpath, "tcpopen.png"))
@@ -195,7 +196,7 @@ class Grapher:
         maxr = max(max(ydata), 0.001) * 1.10
         g("set yrange [0:%f]" % maxr) 
         ydata = Numeric.asarray(ydata, Numeric.Float)
-        d = Gnuplot.Data(xdata, ydata, using="1:2", with="lines")
+        d = Gnuplot.Data(xdata, ydata, using="1:2")
         g.plot(d)
 
         g("set output '%s'" %os.path.join(self.outpath, "data.png"))
@@ -208,9 +209,9 @@ class Grapher:
         y1data = Numeric.asarray(y1data, Numeric.Float)
         y2data = Numeric.asarray(y2data, Numeric.Float)
         y3data = Numeric.asarray(y3data, Numeric.Float)
-        d1 = Gnuplot.Data(xdata, y1data, using="1:2", with="lines", title="Accusations")
-        d2 = Gnuplot.Data(xdata, y2data, using="1:2", with="lines", title="Notes")
-        d3 = Gnuplot.Data(xdata, y3data, using="1:2", with="lines", title="Certificates")
+        d1 = Gnuplot.Data(xdata, y1data, using="1:2", title="Accusations")
+        d2 = Gnuplot.Data(xdata, y2data, using="1:2", title="Notes")
+        d3 = Gnuplot.Data(xdata, y3data, using="1:2", title="Certificates")
         g.plot(d1, d2, d3)
         g.reset()
                
