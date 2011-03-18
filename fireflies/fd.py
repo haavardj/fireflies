@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.21 2011/03/16 12:45:52 haavardj Exp $
+## $Id: fd.py,v 1.22 2011/03/18 11:17:05 haavardj Exp $
 ##                
 ######################################################################
 
@@ -192,7 +192,7 @@ class FailureDetector(Service):
         nrRings = self.view.getNumberOfRings()
         me = self.group.getMe()
         view = self.group.view
-        
+ 
         #if me.getNote():
         #    myBadness = mpeer.getNote().badness
         #else:
@@ -211,7 +211,8 @@ class FailureDetector(Service):
         while mon.isFailed() or mon.isAccused():
             if mon == me: break
             mon = view.mRings[x].succ(mon)            
-            
+
+
         # It's me!
         if mon == me: return 
 
@@ -246,7 +247,7 @@ class FailureDetector(Service):
             view.addAccusation(accusation)
             self.logger.warning("created %s aggressive attack", self.peer.view.pprint(accusation))
         elif myBadness == 0:
-            
+                        
             #Do not accuse if this node has already made an accusation
             #on this ring.
             a = mon.vAccusations.get(x, None)

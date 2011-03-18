@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard Johansen (Norway)
 ##                
-## $Id: util.py,v 1.4 2008/06/18 13:55:01 haavardj Exp $
+## $Id: util.py,v 1.5 2011/03/18 11:17:05 haavardj Exp $
 ##                
 ######################################################################
 
@@ -22,7 +22,7 @@
 ## statistical distributions
 ## 10/2004 Wolfgang.Urban@schule.at
 ###################################
-import math
+import math, struct
 from twisted.internet import reactor
 
 # #######################

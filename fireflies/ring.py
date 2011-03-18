@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.16 2011/03/16 12:45:52 haavardj Exp $
+## $Id: ring.py,v 1.17 2011/03/18 11:17:05 haavardj Exp $
 ##                
 ######################################################################
 
@@ -305,6 +305,10 @@ class SetOfNamedRings(object):
     def __contains__(self, name):
         return name in self.masterRing #__rings
 
+    def rings(self):
+        """Return a list of all the rings."""
+        return self.__rings.values()
+    
     def succ(self, itm, func=lambda x: True):
         """Return for each ring the first successor of itm for which func evaluates to true."""
         return map(lambda x: x.succ(itm, func), self.__rings)
