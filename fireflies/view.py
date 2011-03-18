@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.18 2011/03/16 12:45:52 haavardj Exp $
+## $Id: view.py,v 1.19 2011/03/18 11:16:49 haavardj Exp $
 ##                
 ######################################################################
 
@@ -304,18 +304,17 @@ class View:
                 check = [m,]
                 while check:
                     m = check.pop()      
-                    for ring in self.mRings:     
+                    for ring in self.mRings.rings(): 
                         for q in ring.collectSucc(m, lambda x: not x.isAccused()):
-                            #isinstance(q, fireflies.member.Member)
-                            if not q.isAccusedOn(ring.nr): continue                        
-                            qa = q.getAccusation(ring.nr)
+                            if not q.isAccusedOn(ring.name): continue                        
+                            qa = q.getAccusation(ring.name)
                             assert isinstance(qa, Accusation)
                             accuser = self.getMemberByIdentity(qa.accuser)
                             accused = self.getMemberByIdentity(qa.accused)
                             if ring.isBetween(accuser, q, accused):
                                 assert q.isAccused()
-                                assert q.isAccusedOn(ring.nr)
-                                q.invalidateAccusationOnRing(ring.nr)
+                                assert q.isAccusedOn(ring.name)
+                                q.invalidateAccusationOnRing(ring.name)
                                 self.logger.debug("%s accusation invalidated", m)
                                 if not q.isAccused():                                 
                                     if q.isFailed():
