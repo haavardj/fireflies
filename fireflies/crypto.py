@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.20 2011/03/16 12:45:52 haavardj Exp $
+## $Id: crypto.py,v 1.21 2011/06/08 09:09:19 haavardj Exp $
 ##                
 ######################################################################
 
@@ -153,9 +153,11 @@ def makeCACert(pkey, groupName, maxGroupSize, pByz=0.10, faultTolerance=0.10):
     
     kid = computeKeyIdentifier(pkey)
     ext1 = M2Crypto.X509.new_extension('subjectKeyIdentifier', kid, 0)
-    ext2 = M2Crypto.X509.new_extension('basicConstraints', 'CA:TRUE')
+    ext2 = M2Crypto.X509.new_extension('basicConstraints', 'CA:TRUE')    
+    #ext3 = M2Crypto.X509.new_extension("subjectAltName", "IP:192.168.7.1")
     cert.add_ext(ext1)       
     cert.add_ext(ext2)       
+    #cert.add_ext(ext3)       
     cert.sign(pkey, 'sha1')
     assert cert.check_ca() != 0    
     return cert
