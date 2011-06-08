@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/bin/env python2.7
 
 import fireflies, os.path, sys, M2Crypto
 import fireflies.crypto
