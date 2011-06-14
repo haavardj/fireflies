@@ -8,14 +8,14 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.25 2011/03/16 12:45:52 haavardj Exp $
+## $Id: gossip.py,v 1.26 2011/06/14 12:25:54 haavardj Exp $
 ##                
 ######################################################################
 
 import logging
 from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFactory, ReconnectingClientFactory
 
-from twisted.internet import ssl
+#from twisted.internet import ssl
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.internet import reactor, task, defer
 import sha
