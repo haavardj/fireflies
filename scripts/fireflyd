@@ -1,4 +1,4 @@
-#!/usr/env python2.7
+#!/bin/env python2.7
 
 import warnings
 
@@ -11,7 +11,6 @@ import fireflies
 from fireflies import gossip, state, fd, crypto, group, stats, persist
 import M2Crypto
 
-from Crypto.Util.number import long_to_bytes, bytes_to_long
 
 random.seed()
 
