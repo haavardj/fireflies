@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, University of Tromso, Norway)
 ##                
-## $Id: web.py,v 1.6 2011/03/18 12:09:28 haavardj Exp $
+## $Id: web.py,v 1.7 2011/08/25 10:22:46 haavardj Exp $
 ##                
 ######################################################################
 
@@ -18,8 +18,9 @@ import logging, fireflies, StringIO, socket, os.path, datetime
 from nevow import appserver, static, loaders, rend
 from nevow import tags as T
 from math import log, ceil
-import Numeric, shutil
-from Crypto.Util.number import long_to_bytes, bytes_to_long
+import numpy
+
+from fireflies.util import long_to_bytes, bytes_to_long
 
 templatePath = os.path.join(os.path.dirname(fireflies.__file__), "web/")
 masterT = loaders.xmlfile("master.html", templateDir=templatePath)
@@ -119,14 +120,14 @@ class Grapher:
         maxr = xdata[-1]
         minr = maxr - (self.interval * self.length)
         g('set xrange ["%f":"%f"]'% (minr, maxr))
-        xdata = Numeric.asarray(xdata, Numeric.Float)
+        xdata = numpy.core.asarray(xdata, numpy.float)
         
         g("set output '%s'" %os.path.join(self.outpath, "members.png"))
         g("set ylabel '# members'")
         ydata = map(lambda x: x['members'], self.stats)
         maxr = max(max(ydata), 0.001) * 1.10
         g("set yrange [0:%f]" % maxr) 
-        ydata = Numeric.asarray(ydata, Numeric.Float)
+        ydata = numpy.core.asarray(ydata, numpy.float)
         d = Gnuplot.Data(xdata, ydata, using="1:2")
         g.plot(d)
 
@@ -136,8 +137,8 @@ class Grapher:
         y2data = map(lambda x: x['stats'].udpR/float(x['period']), self.stats)
         maxr = max(max(y1data), max(y2data), 0.01) * 1.10
         g("set yrange [0:%f]" % maxr) 
-        y1data = Numeric.asarray(y1data, Numeric.Float)
-        y2data = Numeric.asarray(y2data, Numeric.Float)
+        y1data = numpy.core.asarray(y1data, numpy.float)
+        y2data = numpy.core.asarray(y2data, numpy.float)
         d1 = Gnuplot.Data(xdata, y1data, using="1:2", title="sent")
         d2 = Gnuplot.Data(xdata, y2data, using="1:2", title="received")
         g.plot(d1, d2)
@@ -148,8 +149,8 @@ class Grapher:
         y2data = map(lambda x: x['stats'].tcpR/float(x['period']), self.stats)
         maxr = max(max(y1data), max(y2data), 0.01) * 1.10
         g("set yrange [0:%f]" % maxr) 
-        y1data = Numeric.asarray(y1data, Numeric.Float)
-        y2data = Numeric.asarray(y2data, Numeric.Float)
+        y1data = numpy.core.asarray(y1data, numpy.float)
+        y2data = numpy.core.asarray(y2data, numpy.float)
         d1 = Gnuplot.Data(xdata, y1data, using="1:2", title="sent")
         d2 = Gnuplot.Data(xdata, y2data, using="1:2", title="received")
         g.plot(d1, d2)
@@ -159,7 +160,7 @@ class Grapher:
         y1data = map(lambda x: x['stats'].cputime/float(x['period']), self.stats)
         maxr = max(max(y1data), 0.01) * 1.10
         g("set yrange [0:%f]" % maxr) 
-        y1data = Numeric.asarray(y1data, Numeric.Float)
+        y1data = numpy.core.asarray(y1data, numpy.float)
         d1 = Gnuplot.Data(xdata, y1data, using="1:2", title="load")
         g.plot(d1)
 
@@ -168,7 +169,7 @@ class Grapher:
         ydata = map(lambda x: x['stats'].accusationsCreated/float(x['period']), self.stats)
         maxr = max(max(ydata), 0.001) * 1.10
         g("set yrange [0:%f]" % maxr) 
-        ydata = Numeric.asarray(ydata, Numeric.Float)
+        ydata = numpy.core.asarray(ydata, numpy.float)
         d = Gnuplot.Data(xdata, ydata, using="1:2")
         g.plot(d)
 
@@ -177,7 +178,7 @@ class Grapher:
         #ydata = map(lambda x: x['stats'].exchanges/float(x['period']), self.stats)
         #maxr = max(max(ydata), 0.001) * 1.10
         #g("set yrange [0:%f]" % maxr) 
-        #ydata = Numeric.asarray(ydata, Numeric.Float)
+        #ydata = numpy.core.asarray(ydata, numpy.float)
         #d = Gnuplot.Data(xdata, ydata, using="1:2", dd="lines")
         #g.plot(d)
 
@@ -186,7 +187,7 @@ class Grapher:
         ydata = map(lambda x: x['stats'].notesCreated/float(x['period']), self.stats)
         maxr = max(max(ydata), 0.001) * 1.10
         g("set yrange [0:%f]" % maxr) 
-        ydata = Numeric.asarray(ydata, Numeric.Float)
+        ydata = numpy.core.asarray(ydata, numpy.float)
         d = Gnuplot.Data(xdata, ydata, using="1:2")
         g.plot(d)
 
@@ -195,7 +196,7 @@ class Grapher:
         ydata = map(lambda x: x['stats'].tcpOpen/float(x['period']), self.stats)
         maxr = max(max(ydata), 0.001) * 1.10
         g("set yrange [0:%f]" % maxr) 
-        ydata = Numeric.asarray(ydata, Numeric.Float)
+        ydata = numpy.core.asarray(ydata, numpy.float)
         d = Gnuplot.Data(xdata, ydata, using="1:2")
         g.plot(d)
 
@@ -206,9 +207,9 @@ class Grapher:
         y3data = map(lambda x: x['stats'].certsTotal/float(x['period']), self.stats)
         maxr = max(max(y1data), max(y2data), max(y3data), 0.001) * 1.10
         g("set yrange [0:%f]" % maxr) 
-        y1data = Numeric.asarray(y1data, Numeric.Float)
-        y2data = Numeric.asarray(y2data, Numeric.Float)
-        y3data = Numeric.asarray(y3data, Numeric.Float)
+        y1data = numpy.core.asarray(y1data, numpy.float)
+        y2data = numpy.core.asarray(y2data, numpy.float)
+        y3data = numpy.core.asarray(y3data, numpy.float)
         d1 = Gnuplot.Data(xdata, y1data, using="1:2", title="Accusations")
         d2 = Gnuplot.Data(xdata, y2data, using="1:2", title="Notes")
         d3 = Gnuplot.Data(xdata, y3data, using="1:2", title="Certificates")
