@@ -5,7 +5,7 @@
 ## Description:   Fireflies setup file.
 ## Author:        Håard Dagenborg Johansen <haavardj@cs.uit.no>
 ##                
-## $Id: setup.py,v 1.9 2011/03/18 12:25:32 haavardj Exp $
+## $Id: setup.py,v 1.10 2011/08/30 13:55:51 haavardj Exp $
 ##                
 ######################################################################
 
@@ -18,11 +18,13 @@ sourcePath = os.path.basename(__file__)
 
 
 module1 = Extension('fireflies.setrecon._setreconbase',
+                    #extra_compile_args=["-fno-dce",],
+                    swig_opts=["-c++",],
                     sources = ['fireflies/setrecon/constants.cpp',
                                'fireflies/setrecon/node.cpp',
                                'fireflies/setrecon/prob_recon_support.cpp',
                                'fireflies/setrecon/reconciled_set.cpp',
-			       'fireflies/setrecon/setreconbase_wrap.cxx'
+			       'fireflies/setrecon/setreconbase.i' #_wrap.cxx'
                                ],
                     libraries=['ntl', 'gmp'],
                     )
