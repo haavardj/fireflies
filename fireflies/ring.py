@@ -9,11 +9,11 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.17 2011/03/18 11:17:05 haavardj Exp $
+## $Id: ring.py,v 1.18 2011/08/31 11:01:13 haavardj Exp $
 ##                
 ######################################################################
 
-import bisect, hashlib
+import bisect, sha
 
 def _ringIterator(ring, start=0):
     for x in range(len(ring)):
@@ -58,7 +58,7 @@ class Ring(object):
         """Iterate the ring starting at the lowest number.
         
         The ring should not be modified during iteration."""
-        return iter(self.__key2itm.values()) #_ringIterator(self, 0)
+        return _ringIterator(self, 0)
 
     
     def traverse(self, item):
@@ -122,37 +122,36 @@ class Ring(object):
         del self.__key2itm[key]
     
     def isBetween(self, pred, item, succ):
-        """Retur True if item lies between (intercepts) pred and succ on the ring.
+        """Return True if item lies between (intercepts) pred and succ on the ring according to the succesor relationship.
 
         Please note the following semantic:
 
-          - An item lies between itself. That is, if pred == itm == succ, True is
-          returned.
+          - Rule: An item always intercepts a range contining itself. That is, if either pred or succ is item, True is returned.
 
-          - Everything lies between an item and item and itself. That is, if pred == succ, then 
+          - Rule: Everything lies between an item and and itself. That is, if pred == succ, then 
           this method always returns true.
                     
-          - An item is always between itself and any other item. That is, if
-          pred == item, or succ == item, this method returns True.
-
           - Raises a ValueError if succ, pred, or item is not in the ring.          
         """
         
         li = self.index(pred)
         bi = self.index(item)
         hi = self.index(succ)
-
-        if li == hi or li == bi or bi == hi: return True 
         
-        if hi > li:
-            if bi <= li or bi >= hi: return False
-            else: return True
-        elif hi < li:
-            if bi > li or bi < hi: return True
+        #Rule: An item always lies between itself. 
+        if li == bi or hi == bi:
+            return True         
+        
+        if li < hi:
+            if li < bi and bi < hi: return True 
             else: return False
-        else:
-            return False
-        
+        elif hi < li:            
+            if bi < hi or li < bi: return True
+            else: return False
+        else: # hi == li
+            #Rule: Nothing lies between an item and itself (a null range).
+            return True
+       
     def betweenSucc(self, start, stop):
         """Return all clockwise items between (but not including) start item and stop item."""
         lst = []
@@ -261,14 +260,11 @@ class NamedRing(Ring):
     def identity(self):
         return self.name
     
-
+import sha
 class NameHashedRing(NamedRing):
     """A named ring that will sort items differently for different ring names."""
     
-    mRingIDCache = {}
-    
-    def __init__(self, name):
-        super(NameHashedRing, self).__init__(name)
+    mRingIDCache = {}    
         
     def _sortKey(self, item):
         iId = item.identity()
@@ -276,75 +272,49 @@ class NameHashedRing(NamedRing):
             return NameHashedRing.mRingIDCache[iId][self.identity()]
         except KeyError:
             ids = NameHashedRing.mRingIDCache.get(iId, {})
-            idOnRing = hashlib.new("sha1","%s-%s" % (iId, self.identity())).digest()
+            idOnRing = sha.new("%s-%s" % (iId, self.identity())).digest()
             ids[self.identity()] = idOnRing
             NameHashedRing.mRingIDCache[iId] = ids
             return idOnRing
-                
-class SetOfNamedRings(object):
-    """A set of named rings. The constructor to the ring accept a
-    number as a parameter. The contained rings should not be modified directly."""
-    
-     
-    def __init__(self):
-        self.masterRing = Ring()
-        self.__rings = {}
-        
-    def __iter__(self):
-        """Iterate over all items."""
-        return iter(self.masterRing)
-    
-    def __getitem__(self, name):
-        """Return a ring by name ."""
-        return self.__rings[name]
-    
-    def __len__(self):
-        """Return the number of rings."""
-        return len(self.masterRing)
-    
-    def __contains__(self, name):
-        return name in self.masterRing #__rings
 
-    def rings(self):
-        """Return a list of all the rings."""
-        return self.__rings.values()
-    
+        
+class RingSet(set):
+    """A set of rings. The constructor to the ring accept a
+    number as a parameter. The contained rings should not be modified directly."""
+         
+    def __init__(self):
+        self._items = set()
+
     def succ(self, itm, func=lambda x: True):
         """Return for each ring the first successor of itm for which func evaluates to true."""
-        return map(lambda x: x.succ(itm, func), self.__rings)
+        return map(lambda x: x.succ(itm, func), self)
 
     def pred(self, itm, func=lambda x: True):        
         """Return for each ring the first predecessor of itm for which func evaluates to true."""
-        return map(lambda x: x.pred(itm, func), self.__rings)
+        return map(lambda x: x.pred(itm, func), self)
     
     def insertItem(self, itm):
         """Insert itm in all rings."""
-        self.masterRing.insert(itm)
-        for ring in self.__rings.values(): ring.insert(itm)
-    
-    insert = insertItem
+        self._items.add(itm)
+        for ring in self: ring.insert(itm)
         
     def removeItem(self, itm):
         """Remove itm from all rings."""        
-        self.masterRing.remove(itm)
-        for ring in self.__rings: ring.remove(itm)
-        
-    remove = removeItem
-                
-    def insertRing(self, ring):
+        self._items.remove(itm)
+        for ring in self: ring.remove(itm)
+                     
+    def add(self, ring):
         """Insert itm in all rings. Items in ring will be merged with contained items."""
         for itm in ring:
-            if itm not in self: self.insertItem(itm)                                    
-        for itm in self.masterRing:
+            if itm not in self._items: self.insertItem(itm)                                    
+        for itm in self._items:
             if itm not in ring: ring.insert(itm)            
-        self.__rings[ring.identity()] = ring
-            
-    def removeRing(self, ring):
-        """Remove itm from all rings."""        
-        return self.__rings.pop(ring.identity())
-
-        
-        
+        set.add(self, ring)
+   
+    def itemCount(self):
+        return len(self._items)
+           
+    
 class Relation:
     """A rule determining if item relate to otherItem in some manner on one particular ring.
     Implement relational rule in the isValid method in subclasses.""" 
@@ -376,5 +346,5 @@ class PredecessorRelation(Relation):
     
     def isValid(self):
         return self.ring.pred(item) == self.otherItem
-    
-    
+
+        
