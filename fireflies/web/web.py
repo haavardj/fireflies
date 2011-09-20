@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, University of Tromso, Norway)
 ##                
-## $Id: web.py,v 1.7 2011/08/25 10:22:46 haavardj Exp $
+## $Id: web.py,v 1.8 2011/09/20 08:02:16 haavardj Exp $
 ##                
 ######################################################################
 
@@ -638,11 +638,11 @@ class PartnersPage(MasterPage):
                   T.th["State"]]]
 
         mons = []
-        for x in range(len(self.peer.view.mRings)):
-            mon = self.peer.view.mRings[x].succ(self.peer)
+        for x in range(len(self.peer.view.mRings.getRings())):
+            mon = self.peer.view.mRings.getRings()[x].succ(self.peer)
             while mon.isAccused():
                 if mon == self.peer: break
-                mon = self.peer.view.mRings[x].succ(mon)
+                mon = self.peer.view.mRings.getRings()[x].succ(mon)
             mons.append(mon)
             
         #mons = map( lambda x: x.succ(self.peer), self.peer.view.mRings)
@@ -713,8 +713,8 @@ class RingsPage(MasterPage):
         l = []
 
         tables = []
-        for x in range(len(rings)):
-            column = rings[x]
+        for x in range(len(rings.getRings())):
+            column = rings.getRings()[x]
             rows = [ T.caption[x],
                      T.tr[ T.th["S"], T.th["B"], T.th["Address"] ] ]
             for peer in column:
