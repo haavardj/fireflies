@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, University of Tromso, Norway)
 ##                
-## $Id: web.py,v 1.8 2011/09/20 08:02:16 haavardj Exp $
+## $Id: web.py,v 1.9 2011/09/22 11:42:58 haavardj Exp $
 ##                
 ######################################################################
 
@@ -113,7 +113,7 @@ class Grapher:
         g("set timefmt '%s'")
         #g("set size 1.34,1")
         g('set format x "%d\/%m\\n%H:%M"')
-        g("set style lines")
+        g("set style data linespoint")
         
         g("set xlabel 'Time (UTC)'")
         xdata = map(lambda x: float(x['time']), self.stats)
@@ -328,7 +328,8 @@ class MasterPage(rend.Page):
         return context.tag.clear()[peer.getEpoch()]
 
     def render_mask(self, context, peer):
-        assert isinstance(peer, fireflies.members.Member)
+        #print "------------", peer
+        #assert isinstance(peer, fireflies.members.Member)
         t = context.tag.clear()
         if not peer.getNote(): return t["NA"]
         else: return t[str(peer.getNote().mask)]     
@@ -461,7 +462,7 @@ class PeerPage(MasterPage):
 
         t = context.tag.clear()
         l = peer.vAccusations
-        isinstance(peer, fireflies.Member)
+        isinstance(peer, fireflies.state.Member)
         nrRings = 2 * peer.group.getByzantineToleranceLevel() + 1
         
         rows = [
@@ -541,8 +542,7 @@ class RootPage(MasterPage):
     
     def childFactory(self, context, name):
         try:
-            i = long(name, 16)
-            peer = self.peer.view.sn2peer[long_to_bytes(i)]
+            peer = self.peer.view.sn2peer[long(name)]
             return PeerPage(self.peer, peer)
         except Exception:
             return None        
@@ -673,7 +673,7 @@ class PartnersPage(MasterPage):
 
                 d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
                 
-                if y.getNote().mask[x] == False:
+                if y.getNote().mask and y.getNote().mask[x] == False:
                     d7 = T.td["disabled"]
                     d5 = d6 = d8 = T.td[""]
                 elif y in mons[0:x]:
