@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.13 2011/03/16 12:45:52 haavardj Exp $
+## $Id: state.py,v 1.14 2011/09/22 13:13:37 haavardj Exp $
 ##                
 ######################################################################
 
@@ -364,7 +364,7 @@ class Member(object):
         @return: The requested accusation, if any.
         @rtype: L{Accusation}
         """
-        self.vAccusations[nr]
+        return self.vAccusations[nr]
     
     def getIdentity(self):
         """
@@ -461,7 +461,7 @@ class Member(object):
           - the accusation is made on a ring that this member has disabled.
         """ 
 
-        if not isinstance(accusation, Accusation): raise ValueError, accusation
+        if not isinstance(accusation, Accusation): raise ValueError
         nr = accusation.nr
         
         if accusation.epoch != self.getEpoch(): raise ByzantineError, "Note in accusation does not match current note."
@@ -471,11 +471,9 @@ class Member(object):
         if self.vAccusations.has_key(nr):
             a = self.vAccusations.pop(nr)
             self.group.notify("data.accusation", a, False)
-            #self.view.aSet.remove(a)
 
         self.hAccusations[nr] = fireflies.time.time()
         self.vAccusations[nr] = accusation
-        #self.view.aSet.append(accusation)
         self.group.notify("data.accusation", accusation, True)
 
     def invalidateAccusation(self, accusation):
