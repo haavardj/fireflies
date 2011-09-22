@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.22 2011/03/18 11:17:05 haavardj Exp $
+## $Id: fd.py,v 1.23 2011/09/22 07:51:42 haavardj Exp $
 ##                
 ######################################################################
 
@@ -206,11 +206,11 @@ class FailureDetector(Service):
         if len(view.getLiveMembers()) < 2:
             return
 
-        mon = view.mRings[x].succ(me)
+        mon = view.mRings.getRings()[x].succ(me)
         isinstance(mon, Member)
         while mon.isFailed() or mon.isAccused():
             if mon == me: break
-            mon = view.mRings[x].succ(mon)            
+            mon = view.mRings.getRings()[x].succ(mon)            
 
 
         # It's me!
