@@ -9,15 +9,15 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.18 2011/08/31 11:01:13 haavardj Exp $
+## $Id: ring.py,v 1.19 2011/09/22 07:53:41 haavardj Exp $
 ##                
 ######################################################################
 
 import bisect, sha
 
 def _ringIterator(ring, start=0):
-    for x in range(len(ring)):
-        yield ring[x]
+    for x in ring.items()[start:]:
+        yield x
         
 def __ringTraverse(ring, idx):
     l = len(ring)
@@ -80,6 +80,9 @@ class Ring(object):
         
         key = self._sortKey(item)
         return key in self.__key2itm
+    
+    def items(self):
+        return self.__key2itm.values()
 
     def index(self, item):
         """Return the item's index in the ring. 
@@ -278,41 +281,58 @@ class NameHashedRing(NamedRing):
             return idOnRing
 
         
-class RingSet(set):
+class RingSet:
     """A set of rings. The constructor to the ring accept a
     number as a parameter. The contained rings should not be modified directly."""
          
     def __init__(self):
-        self._items = set()
+        self._items = []
+        self._rings = []
 
     def succ(self, itm, func=lambda x: True):
         """Return for each ring the first successor of itm for which func evaluates to true."""
-        return map(lambda x: x.succ(itm, func), self)
+        return map(lambda x: x.succ(itm, func), self._rings)
 
     def pred(self, itm, func=lambda x: True):        
         """Return for each ring the first predecessor of itm for which func evaluates to true."""
-        return map(lambda x: x.pred(itm, func), self)
+        return map(lambda x: x.pred(itm, func), self._rings)
     
     def insertItem(self, itm):
         """Insert itm in all rings."""
-        self._items.add(itm)
-        for ring in self: ring.insert(itm)
+        if itm in self._items: raise ValueError("Item exist")
+        self._items.append(itm)
+        for ring in self._rings: ring.insert(itm)
         
-    def removeItem(self, itm):
-        """Remove itm from all rings."""        
-        self._items.remove(itm)
-        for ring in self: ring.remove(itm)
+#    def removeItem(self, itm):
+#        """Remove itm from all rings."""        
+#        self._items.remove(itm)
+#        for ring in self: ring.remove(itm)
                      
-    def add(self, ring):
+    def insertRing(self, ring):
         """Insert itm in all rings. Items in ring will be merged with contained items."""
         for itm in ring:
-            if itm not in self._items: self.insertItem(itm)                                    
+            if itm not in self._items: self.insertItem(itm)
         for itm in self._items:
             if itm not in ring: ring.insert(itm)            
-        set.add(self, ring)
-   
+
+        self._rings.append(ring)
+        
+    def getRings(self):
+        """Return a list of all contained rings."""
+        return self._rings
+    
+    def getItems(self):
+        """Return a list of all contained items."""
+        return self._items
+
+    def hasItem(self, item):
+        return item in self.getItems()
+    
+    def hadRing(self, ring):
+        return ring in self.getRings()
+    
     def itemCount(self):
-        return len(self._items)
+        return len(self.getItems())
            
     
 class Relation:
