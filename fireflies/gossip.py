@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.26 2011/06/14 12:25:54 haavardj Exp $
+## $Id: gossip.py,v 1.27 2011/09/22 07:51:11 haavardj Exp $
 ##                
 ######################################################################
 
@@ -124,7 +124,7 @@ class Gossip(Service):
         self.setServiceParent(group)
         isinstance(group, fireflies.group.Group)
         isinstance(self.parent, fireflies.group.Group)
-        self.rings = ring.SetOfNamedRings()
+        self.rings = ring.RingSet()
         for x in range(self.byzantineToleranceNumber):
             self.rings.insertRing(ring.NameHashedRing(x))
         
@@ -149,7 +149,7 @@ class Gossip(Service):
             
     def evMemberNew(self, name, member, status):
         if status == fireflies.EV_CRASH_NEW:
-            self.rings.insert(member)
+            self.rings.insertItem(member)
             self.logger.debug("adding %s to gossip rings", member)
 
     def startService(self):
@@ -157,7 +157,7 @@ class Gossip(Service):
 
         # Register all member in the gossip mesh
         for m in self.parent.view.getAllMembers():
-            self.rings.insert(m)
+            self.rings.insertItem(m)
 
         # Add all certificates, notes, and accusations to our data sets.
         for m in self.parent.view.getAllMembers():
@@ -182,7 +182,7 @@ class Gossip(Service):
 
         def _d():            
             self._task = task.LoopingCall(self.cFactory.update)
-            self._task.start(self.rate/len(self.rings)).addErrback(self._failback)
+            self._task.start(self.rate/len(self.rings.getRings())).addErrback(self._failback)
                              
         reactor.callLater(0.1, _d)
         
@@ -966,9 +966,9 @@ class GossipServerFactory(ServerFactory):
 
         me = self.service.parent.getMe()
         him = protocol.other
-        hisPartner = self.service.rings[rnr].succ(him)
+        hisPartner = self.service.rings.getRings()[rnr].succ(him)
         while hisPartner.isFailed():
-            hisPartner = self.service.rings[rnr].succ(hisPartner)
+            hisPartner = self.service.rings.getRings()[rnr].succ(hisPartner)
 
         cp = self.cons[rnr]
         if hisPartner.getIdentity() != me.getIdentity():
@@ -986,7 +986,7 @@ class GossipServerFactory(ServerFactory):
                 protocol.accept()
                 self.cons[rnr] = protocol
             else:                
-                if (cp.other == him) or self.service.rings[rnr].isBetween(cp.other, him, me):
+                if (cp.other == him) or self.service.rings.getRings()[rnr].isBetween(cp.other, him, me):
                     cp.hangup()
                     self.cons[rnr] = protocol
                     protocol.accept()
@@ -1113,7 +1113,7 @@ class GossipClientFactory(ClientFactory):
                 
     def update(self):
 
-        nrRings = len(self.service.rings)
+        nrRings = len(self.service.rings.getRings())
         x = self._last = (self._last + 1) % nrRings
         
         # Purge initializing protocols that terminated.
@@ -1123,7 +1123,7 @@ class GossipClientFactory(ClientFactory):
 
         cg = self.connections[x]
 
-        ring = self.service.rings[x]
+        ring = self.service.rings.getRings()[x]
         partnerOnX = ring.succ(self.peer)
         while partnerOnX.isFailed():
             partnerOnX = ring.succ(partnerOnX)
