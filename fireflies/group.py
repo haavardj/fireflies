@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.23 2009/04/20 13:12:53 haavardj Exp $
+## $Id: group.py,v 1.24 2011/09/23 08:14:33 haavardj Exp $
 ##                
 ######################################################################
 
@@ -55,7 +55,6 @@ class Group(MultiService):
         if not isinstance(groupCertificate,  M2Crypto.X509.X509): raise ValueError, groupCertificate
         self._groupCertificate = groupCertificate
         
-        print groupCertificate.as_text()
         maxSize, pByz, ftl = groupCertificate.get_issuer().organizationName.split()
         self.maxGroupSize = int(maxSize)
         self.pByz = float(pByz)
