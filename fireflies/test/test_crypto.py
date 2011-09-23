@@ -6,13 +6,35 @@ from fireflies import crypto
 
 def noGeygens(): pass
 
+class SubjectKeyIdentifierBugTest(unittest.TestCase):
+
+    def setUp(self):
+        self.caKey = crypto.makePrivateKey(callback=noGeygens)
+        self.caCert = crypto.makeCACert(self.caKey, "test", 25)         
+        self.mKey = crypto.makePrivateKey(callback=noGeygens)
+        self.req = fireflies.crypto.makeRequest(str(0), self.mKey)
+        self.mCert = fireflies.crypto.makeCert(self.req, self.caCert, self.caKey, sn=0)
+
+    
+    def testAccess(self):
+        
+        for x in range(10):
+            mKey = crypto.makePrivateKey(callback=noGeygens)
+            req = fireflies.crypto.makeRequest(str(x), mKey)
+            mCert = fireflies.crypto.makeCert(req, self.caCert, self.caKey, sn=x)            
+            mCert.verify(self.caCert.get_pubkey())
+
+        
+        
+
+
 class CertificateTest(unittest.TestCase):
         
     def setUp(self):
         self.caKey = crypto.makePrivateKey(callback=noGeygens)
         self.caCert = crypto.makeCACert(self.caKey, "test", 25)         
         self.mKey = crypto.makePrivateKey(callback=noGeygens)
-        self.req = fireflies.crypto.makeRequest(str(0), self.mKey)
+        self.req = fireflies.crypto.makeRequest("127.0.0.1:1", self.mKey)
         self.mCert = fireflies.crypto.makeCert(self.req, self.caCert, self.caKey, sn=0)
 
     def testRequest(self):
@@ -34,6 +56,9 @@ class CertificateTest(unittest.TestCase):
         self.failUnless(self.mCert.verify(self.caKey))
         self.failIf(self.mCert.verify(self.mCert.get_pubkey()))
         self.failIf(self.mCert.verify(self.mKey))
+        
+    def testCaCertSigned(self):
+        self.mCert.verify(self.caCert.get_pubkey())        
         
     def testIdentity(self):
         
