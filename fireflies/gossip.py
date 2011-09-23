@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.27 2011/09/22 07:51:11 haavardj Exp $
+## $Id: gossip.py,v 1.28 2011/09/23 08:15:11 haavardj Exp $
 ##                
 ######################################################################
 
@@ -163,7 +163,7 @@ class Gossip(Service):
         for m in self.parent.view.getAllMembers():
             self.cSet.insert(m.getCertificate())
             if m.getNote(): self.nSet.insert(m.getNote())
-            for a in m.getAccusations(): self.aSet.append(a)
+            for a in m.getAccusations(): self.aSet.add(a)
 
         #register to receive notification on group updates.
         self.parent.registerEventHandler("member.crash", self.evMemberNew)        
