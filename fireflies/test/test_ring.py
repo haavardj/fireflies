@@ -187,6 +187,9 @@ class NumberedRingQueryTest(RingQueryTest):
         random.shuffle(self.seq)
         for obj in self.seq: self.ring.insert(obj)        
 
+class RingQuery10MembersTest(RingQueryTest, unittest.TestCase):  
+    numMembers = 10                  
+        
 class RingQuery3MembersTest(RingQueryTest, unittest.TestCase):  
     numMembers = 3
         
@@ -196,9 +199,42 @@ class RingQuery2MembersTest(RingQueryTest, unittest.TestCase):
 class RingQuery1MembersTest(RingQueryTest, unittest.TestCase):  
     numMembers = 1
 
-class RingQuery10MembersTest(RingQueryTest, unittest.TestCase):  
-    numMembers = 10          
             
-            
+class BasicRingSetTest(unittest.TestCase):
+    
+    def setUp(self):
+        self.rings = ring.RingSet()
+        
+        for x in range(10):
+            self.rings.insertRing(ring.NamedRing(x))
+
+        self.objs = [RingObject(x) for x in range(200)]           
+        random.shuffle(self.objs)
+        for obj in self.objs: self.rings.insertItem(obj)  
+    
+    def testAllItemsArePresent(self):
+        for o in self.objs:
+            self.failUnless(o in self.rings.getItems())
+            for r in self.rings.getRings():
+                self.failUnless(o in r)
+        
+
+class MergedRingSetTest(BasicRingSetTest):           
+
+    def setUp(self):
+        self.rings = ring.RingSet()
+        
+        for x in range(0,5):
+            self.rings.insertRing(ring.NamedRing(x))
+
+        self.objs = [RingObject(x) for x in range(200)]           
+        random.shuffle(self.objs)
+        for obj in self.objs: self.rings.insertItem(obj)  
+
+        for x in range(5,10):
+            self.rings.insertRing(ring.NamedRing(x))
+
+        
+    
 if __name__ == "__main__":
     main()
