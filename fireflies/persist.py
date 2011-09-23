@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: persist.py,v 1.2 2011/03/16 12:45:52 haavardj Exp $
+## $Id: persist.py,v 1.3 2011/09/23 08:15:55 haavardj Exp $
 ##                
 ######################################################################
 
@@ -112,26 +112,26 @@ class Store:
         files = glob.glob(os.path.join(self.dirCert, "*"))
         return map(lambda x: M2Crypto.X509.load_cert(x), files)
 
-    def loadMemberCertificateByIdentity(self, id):                
+    def loadMemberCertificateByIdentity(self, iid):                
         for f in glob.glob(os.path.join(self.dirCert, "*")):
             cert = M2Crypto.X509.load_cert(f)
-            if identityFromCertificate(cert) == id:
+            if identityFromCertificate(cert) == iid:
                 return cert
-        raise KeyError, "No certificate matching L=%s found" % address  
+        raise KeyError, "No certificate matching ID=%s found" % iid  
 
     def loadMemberCertificateByAddress(self, address):
         for f in glob.glob(os.path.join(self.dirCert, "*")):
             cert = M2Crypto.X509.load_cert(f)
             if cert.get_subject().L == address:
                 return cert
-        raise KeyError, "No certificate matching L=%s found" % address  
+        raise KeyError, "No certificate matching Address=%s found" % address  
 
     def loadMemberCertificateByName(self, name):
         for f in glob.glob(os.path.join(self.dirCert, "*")):
             cert = M2Crypto.X509.load_cert(f)
             if cert.get_subject().CN == name:
                 return cert
-        raise KeyError, "No certificate matching L=%s found" % name 
+        raise KeyError, "No certificate matching Name=%s found" % name 
 
     def loadNotes(self):
         files = glob.glob(join(self.dirNote, "*"))
@@ -189,6 +189,7 @@ class Store:
         isinstance(group, fireflies.group.Group)
         self.clear()
         for member in group.getView().getAllMembers():
+            print member
             isinstance(member, fireflies.state.Member)
             self.saveMemberCertificate(member.getCertificate())
             n = member.getNote()

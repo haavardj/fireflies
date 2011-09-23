@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.19 2011/03/18 11:16:49 haavardj Exp $
+## $Id: view.py,v 1.20 2011/09/23 08:15:55 haavardj Exp $
 ##                
 ######################################################################
 
@@ -73,7 +73,7 @@ class View:
         self.pRing = ring.Ring() # List of all members.
         self.fRing = ring.Ring() # List of failed members. Sorted by their identity number.
 
-        self.mRings = ring.SetOfNamedRings()
+        self.mRings = ring.RingSet()
         for x in range(self.numberOfRings):
             self.mRings.insertRing(ring.NameHashedRing(x))
 
@@ -156,7 +156,7 @@ class View:
         self.sn2peer[member.getIdentity()] = member
         self.pRing.insert(member)
         self.fRing.insert(member)
-        self.mRings.insert(member)
+        self.mRings.insertItem(member)
 
     def _recover(self, member):
         """Transition member state from failed to live."""
@@ -165,7 +165,8 @@ class View:
         assert member in self.pRing
         assert member not in self.aRing
         assert member.getIdentity() in self.sn2peer
-        assert member in self.mRings
+        for r in self.mRings.getRings():
+            assert member in r
 
         self.fRing.remove(member)
         self.aRing.insert(member)
@@ -186,7 +187,7 @@ class View:
         assert member in self.pRing
         assert member in self.aRing
         assert member.getIdentity() in self.sn2peer
-        assert member in self.mRings
+        assert self.mRings.hasItem(member)
 
         self.aRing.remove(member)
         self.fRing.insert(member)
@@ -261,12 +262,9 @@ class View:
             #self.logger.warning("discard %s invalid mask", self.pprint(note))
             raise fireflies.ByzantineError("Invalid mask %s from %s" % (str(note.mask), note))
         
-        if m.getEpoch() > note.epoch:
+        if m.getEpoch() >= note.epoch:
             # Old note
             return
-        if m.getEpoch() == note.epoch:
-            # We have the note. Return silently.
-            return 
  
         if not m.isFailed():
             assert m.getEpoch() > 0
@@ -304,11 +302,10 @@ class View:
                 check = [m,]
                 while check:
                     m = check.pop()      
-                    for ring in self.mRings.rings(): 
+                    for ring in self.mRings.getRings(): 
                         for q in ring.collectSucc(m, lambda x: not x.isAccused()):
                             if not q.isAccusedOn(ring.name): continue                        
                             qa = q.getAccusation(ring.name)
-                            assert isinstance(qa, Accusation)
                             accuser = self.getMemberByIdentity(qa.accuser)
                             accused = self.getMemberByIdentity(qa.accused)
                             if ring.isBetween(accuser, q, accused):
@@ -320,7 +317,7 @@ class View:
                                     if q.isFailed():
                                         self._recover(q)
                                         self.logger.info("%s live (accusations invalidated)", q)
-                                        self.group.notify("member.recover", q, EV_RECOVER_INVALIDATED)
+                                        self.group.notify("member.recover", q, fireflies.EV_RECOVER_INVALIDATED)
                                     else:
                                         self._stopRebuttalTimer(q)
                                         self.logger.debug("%s rebuts (accusation invalidated)", m)
@@ -418,13 +415,14 @@ class View:
 
         # Make some shortcuts :-)
         rnr = accusation.nr
-        ring = self.mRings[rnr]
+        ring = self.mRings.getRings()[rnr]
  
         # If member currently is accused on ring, keep the new one only if it
         # is from a closer predecessor.
         if accused.hasAccusationOn(rnr):
             assert accused.isAccused()
             currentAccusation = accused.getAccusation(rnr)
+            assert currentAccusation
             currentAccuser = self.getMemberByIdentity(currentAccusation.accuser)
             assert isinstance(currentAccusation, Accusation)
             assert isinstance(currentAccuser, Member)
