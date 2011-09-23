@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.21 2011/06/08 09:09:19 haavardj Exp $
+## $Id: crypto.py,v 1.22 2011/09/23 08:11:23 haavardj Exp $
 ##                
 ######################################################################
 
@@ -261,7 +261,14 @@ def computeKeyIdentifier(pkey):
     return client_serial_hex
 
 def identityFromCertificate(cert):
-    return subjectKeyIdentifierToID(cert.get_ext("subjectKeyIdentifier").get_value())
+    if not isinstance(cert, M2Crypto.X509.X509): raise TypeError
+    try:
+        ext = cert.get_ext("subjectKeyIdentifier")
+    except LookupError, why:
+        print "Cannot locate subjectKeyIdentifier in\n%s" % cert.as_text()
+        raise
+    
+    return subjectKeyIdentifierToID(ext.get_value())
 
 def subjectKeyIdentifierToID(s):
     return int(s.replace(":",""), 16)
