@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.28 2011/09/23 08:15:11 haavardj Exp $
+## $Id: gossip.py,v 1.29 2011/09/28 10:57:59 haavardj Exp $
 ##                
 ######################################################################
 
@@ -767,10 +767,15 @@ class ServerProtocol(GossipBase):
         self.logger.debug("reconcile_done->%s", self)
         self.sendCommand("reconcile_done")
         self.state = self.STATE_IDLE
-        self.appendfunc(self.dataBuff)
+
+        tmpbuff = self.dataBuff
         self.dataBuff = []
-
-
+        for itm in tmpbuff:
+            try:
+                self.appendfunc(itm)
+            except ValueError, why:
+                self.logger.warning("reconcile_done error in data %s %s", itm, why) 
+        
 
         
 class ClientProtocol(GossipBase):
@@ -847,6 +852,7 @@ class ClientProtocol(GossipBase):
         self.logger.debug("redirect<- %s to %s", self, identityFromCertificate(crt))
         self.factory.view.addCertificate(crt)
         self.factory.view.addNote(note)
+            
         self.hangup()
 
     #
@@ -906,8 +912,15 @@ class ClientProtocol(GossipBase):
         assert self.state == self.STATE_GOSSIPING
         self.state = self.STATE_IDLE
         assert self.nodes == []
-        self.appendfunc(self.dataBuff)
-        self.dataBuff = []        
+        tmpbuff = self.dataBuff
+        self.dataBuff = []
+        
+        for itm in tmpbuff:
+            try:
+                self.appendfunc(itm)
+            except ValueError, why:
+                self.logger.warning("reconcile_done error in data %s %s", itm, why) 
+                
         self._d.callback(None)
 
 
@@ -948,14 +961,14 @@ class GossipServerFactory(ServerFactory):
     def getSet(self, name):
         if name == "cSet":
             s = self.service.cSet
-            f = lambda x: map(self.service.parent.view.addCertificate, x)
+            f = self.service.parent.view.addCertificate
         elif name == "nSet":
             s = self.service.nSet
-            f = lambda x: map(self.service.parent.view.addNote, x)
+            f = self.service.parent.view.addNote
 
         elif name == "aSet":
             s = self.service.aSet
-            f = lambda x: map(self.service.parent.view.addAccusation, x)
+            f = self.service.parent.view.addAccusation
         else:
             raise ValueError("No such set.")
         return s, f
@@ -1083,18 +1096,18 @@ class GossipClientFactory(ClientFactory):
             self.logger.error("Reconcile failed %s", reason)
         
         def _2(result):
-            d = protocol.reconcile("aSet", self.service.aSet, lambda x: map(self.peer.view.addAccusation, x))
+            d = protocol.reconcile("aSet", self.service.aSet, self.peer.view.addAccusation)
             d.addErrback(_f)
 
             #for m in self.peer.view.pRing:
             #    assert m.getNote()
             
         def _1(result):
-            d = protocol.reconcile("nSet", self.service.nSet, lambda x: map(self.peer.view.addNote, x))
+            d = protocol.reconcile("nSet", self.service.nSet, self.peer.view.addNote)
             d.addCallback(_2)
             d.addErrback(_f)
             
-        d = protocol.reconcile("cSet", self.service.cSet, lambda x: map(self.peer.view.addCertificate, x))
+        d = protocol.reconcile("cSet", self.service.cSet, self.peer.view.addCertificate)
         d.addCallback(_1)
         d.addErrback(_f)
         
