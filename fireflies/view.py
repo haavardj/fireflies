@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.20 2011/09/23 08:15:55 haavardj Exp $
+## $Id: view.py,v 1.21 2011/09/28 10:58:39 haavardj Exp $
 ##                
 ######################################################################
 
@@ -392,7 +392,7 @@ class View:
         
         if accusation.epoch > accused.getNote().epoch:
             #self.stats.accusationsInvalid += 1
-            self.logger.warning("discard %s accusing newer note.", saccusation)
+            self.logger.warning("discard %s accusing newer note.", accusation)
             raise None
 
         # Check that the accuser is not specifying an invalid ring.
@@ -407,9 +407,9 @@ class View:
         # Check that the ring is enabled.
         # No correct member should violate this.
         if not accused.getNote().mask[accusation.nr]:
-            self.stats.accusationInvalid += 1
-            accuser.accuseByzantine += 1
-            accused.accusedByzantine += 1
+            self.stats.accusationsInvalid += 1
+            self.stats.accuseByzantine += 1
+            self.stats.accusedByzantine += 1
             self.logger.warning("discard %s byzantine behavior. Ring disabled by accused", accusation)
             raise ByzantineError(accuserID)
 
