@@ -115,15 +115,18 @@ class RingQueryTest(unittest.TestCase):
             self.failUnlessEqual(self.ring.index(obj), obj.sn)
         
     def testItemBetweenFirstAndLast(self):
-        first = self.objs[0]
-        last = self.objs[-1]
         
-        if len(self.objs) == 1:
-            middle = first
-        elif len(self.objs) == 2:
-            middle = last
-        else: 
-            middle = random.choice(self.objs[1:-1])
+        if len(self.objs) < 3:
+            return 
+
+        first = self.ring[0]
+        last = self.ring.pred(first)
+
+        self.failUnlessEqual(self.ring.index(first), 0)        
+        self.failUnlessEqual(self.ring.index(last), len(self.ring)-1)        
+        
+    
+        middle = self.ring[random.randint(1,len(self.ring)-2)]
         
         self.failUnless(self.ring.isBetween(first, middle, last))
         self.failUnless(self.ring.isBetween(last, first, middle))
@@ -134,34 +137,39 @@ class RingQueryTest(unittest.TestCase):
         for j in self.ring:
             i = self.ring.pred(j)
             k = self.ring.succ(j)
-  
+                    
+        if len(self.ring) < 3:
+            self.failIf(self.ring.isBetween(i, j, k))
+            self.failIf(self.ring.isBetween(j, k, i))
+            self.failIf(self.ring.isBetween(k, i, j))            
+
+            self.failIf(self.ring.isBetween(k, j, i)  )
+            self.failIf(self.ring.isBetween(j, i, k)  )
+            self.failIf(self.ring.isBetween(i, k, j)  )
+        else:
+            
             self.failUnless(self.ring.isBetween(i, j, k))
             self.failUnless(self.ring.isBetween(j, k, i))
-            self.failUnless(self.ring.isBetween(k, i, j))
-        
-        if len(self.ring) < 3:
-            self.failUnless(self.ring.isBetween(k, j, i)  )
-            self.failUnless(self.ring.isBetween(j, i, k)  )
-            self.failUnless(self.ring.isBetween(i, k, j)  )
-        else:
+            self.failUnless(self.ring.isBetween(k, i, j))            
+            
             self.failIf(self.ring.isBetween(k, j, i)  )
             self.failIf(self.ring.isBetween(j, i, k)  )
             self.failIf(self.ring.isBetween(i, k, j)  )
     
         
-    def testEverythingIsBetweenItemAndItself(self):
+    def testNothingIsBetweenItemAndItself(self):
         
         for i in self.ring:        
             for j in self.objs:
-                self.failUnless(self.ring.isBetween(i, j, i))
+                self.failIf(self.ring.isBetween(i, j, i))
         
-    def testItemAlwaysBetweenItselfAndOther(self):
+    def testItemNeverBetweenItselfAndOther(self):
         middle = random.choice(self.objs)
         
         for obj in self.objs:
-            self.failUnless(self.ring.isBetween(middle, middle, obj), 
+            self.failIf(self.ring.isBetween(middle, middle, obj), 
                             "not between %s - %s - %s" %(middle, middle, obj))
-            self.failUnless(self.ring.isBetween(obj, middle, middle),
+            self.failIf(self.ring.isBetween(obj, middle, middle),
                             "not between %s - %s - %s" %(obj, middle, middle))
 
 

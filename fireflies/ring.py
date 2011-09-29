@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.19 2011/09/22 07:53:41 haavardj Exp $
+## $Id: ring.py,v 1.20 2011/09/29 10:34:08 haavardj Exp $
 ##                
 ######################################################################
 
@@ -129,10 +129,10 @@ class Ring(object):
 
         Please note the following semantic:
 
-          - Rule: An item always intercepts a range contining itself. That is, if either pred or succ is item, True is returned.
+          - Rule 1: An item never intercepts a range contining itself. That is, if either pred or succ is item, False is returned.
 
-          - Rule: Everything lies between an item and and itself. That is, if pred == succ, then 
-          this method always returns true.
+          - Rule: Nothing lies between an item and and itself. That is, if pred == succ, then 
+          this method always returns False.
                     
           - Raises a ValueError if succ, pred, or item is not in the ring.          
         """
@@ -141,9 +141,9 @@ class Ring(object):
         bi = self.index(item)
         hi = self.index(succ)
         
-        #Rule: An item always lies between itself. 
+        #Rule 1: An item always lies between itself. 
         if li == bi or hi == bi:
-            return True         
+            return False         
         
         if li < hi:
             if li < bi and bi < hi: return True 
@@ -153,7 +153,7 @@ class Ring(object):
             else: return False
         else: # hi == li
             #Rule: Nothing lies between an item and itself (a null range).
-            return True
+            return False
        
     def betweenSucc(self, start, stop):
         """Return all clockwise items between (but not including) start item and stop item."""
