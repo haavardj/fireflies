@@ -1,0 +1,64 @@
+#!/usr/bin/python
+
+import fireflies, os.path, sys, M2Crypto, socket
+import fireflies.crypto
+import fireflies.persist
+from optparse import OptionParser
+
+
+parser = OptionParser(usage="""%prog [options] <ca path> hostname
+
+Create a Fireflies X509 member key and certificate in the given ca path. The <ca path> arguments must contain the path to the CA's certificate repository. 
+The created X509 certificate and the corresponding key will be stored in the CA's repository.
+
+WARNING: This program is unsecure and is intented for testing of Fireflies. It should not be used in real deployments.
+
+Files:
+   <path>/certs/<member name>  - The created certificate.
+""")
+
+parser.add_option("-q",
+                  action="store_true", dest="quiet", default=False,
+                  help="Be quiet!")
+parser.add_option("-p", "--port", dest="port", type="int",
+                      help="Portnumber to assign. Defaults to %s." % fireflies.defaultConfig['port'], default=fireflies.defaultConfig['port'])
+parser.add_option("--password",
+                  dest="password", default=None,
+                  help="Password to use for reading the CA's private key. If not set, you will be prompted for one.")
+parser.add_option("-n",
+                  dest="nick", default=False,
+                  help="Use this nicname for the member.")
+
+
+(options, args) = parser.parse_args()
+
+ip = socket.gethostbyname(args[1])
+
+if len(args) != 2:
+ parser.print_help()
+ sys.exit()
+
+if not os.path.exists(args[0]):
+ print "CA does not exists."
+ sys.exit(0)
+    
+ 
+passwdcb = lambda x: options.password
+ 
+store = fireflies.persist.Store(args[0])
+
+mpkey = fireflies.crypto.makePrivateKey()
+store.savePrivateKey(mpkey, cipher=None, callback=lambda x: None)
+
+req = fireflies.crypto.makeRequest("%s:%d" %(ip, options.port), mpkey, nickname=options.nick)
+assert req.verify(mpkey)
+
+cert = store.newMemberCertificate(req, store.loadCAKey())
+
+store.saveMemberCertificate(cert)
+
+
+if not options.quiet:
+ print cert.as_text()
+ print "Saved to:", store.filenameCertificate(cert) 
+
