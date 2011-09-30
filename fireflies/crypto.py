@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.22 2011/09/23 08:11:23 haavardj Exp $
+## $Id: crypto.py,v 1.23 2011/09/30 09:42:41 haavardj Exp $
 ##                
 ######################################################################
 
@@ -116,16 +116,12 @@ def bytes_to_long(s):
         acc = (acc << 32) + unpack('>I', s[i:i+4])[0]
     return acc
 
-def generateRSAKey(size=1024, callback=M2Crypto.RSA.keygen_callback):
-    return M2Crypto.RSA.gen_key(size, M2Crypto.m2.RSA_F4, callback)
-
-def makePKey(key):
+def makePrivateKey(size=1024, callback=M2Crypto.RSA.keygen_callback):     
+    rsa = M2Crypto.RSA.gen_key(size, M2Crypto.m2.RSA_F4, callback)
     pkey = M2Crypto.EVP.PKey()
-    pkey.assign_rsa(key)
-    return pkey
+    pkey.assign_rsa(rsa)
 
-def makePrivateKey(size=1024, callback=M2Crypto.RSA.keygen_callback): 
-    return makePKey(generateRSAKey(size, callback))
+    return pkey
 
 def makeCACert(pkey, groupName, maxGroupSize, pByz=0.10, faultTolerance=0.10):
 
@@ -144,20 +140,13 @@ def makeCACert(pkey, groupName, maxGroupSize, pByz=0.10, faultTolerance=0.10):
     notAfter  = M2Crypto.m2.x509_get_not_after(cert.x509)
     M2Crypto.m2.x509_gmtime_adj(notBefore, 0)
     days = 30
-    M2Crypto.m2.x509_gmtime_adj(notAfter, 60*60*24*days)
-
-    newid4  = name.as_hash()
-    bytes = M2Crypto.Rand.rand_bytes(20)
-    newid = hex(M2Crypto.util.octx_to_num(bytes))[2:-1]
-    
+    M2Crypto.m2.x509_gmtime_adj(notAfter, 60*60*24*days)    
     
     kid = computeKeyIdentifier(pkey)
     ext1 = M2Crypto.X509.new_extension('subjectKeyIdentifier', kid, 0)
     ext2 = M2Crypto.X509.new_extension('basicConstraints', 'CA:TRUE')    
-    #ext3 = M2Crypto.X509.new_extension("subjectAltName", "IP:192.168.7.1")
     cert.add_ext(ext1)       
     cert.add_ext(ext2)       
-    #cert.add_ext(ext3)       
     cert.sign(pkey, 'sha1')
     assert cert.check_ca() != 0    
     return cert
@@ -217,9 +206,9 @@ def makeCert(req, caCert, caPkey, sn=0, notBefore=0, notAfter=60*60*24*30):
     newid = M2Crypto.Rand.rand_bytes(20)
     newid = hex(M2Crypto.util.octx_to_num(newid))[2:-1]
     ext1 = M2Crypto.X509.new_extension('subjectKeyIdentifier', newid ,critical=0)    
-    ext2 = M2Crypto.X509.new_extension('basicConstraints', 'CA:FALSE')
+
     cert.add_ext(ext1)
-    cert.add_ext(ext2)
+
     cert.sign(caPkey, DIGESTALG)
 
     return cert
