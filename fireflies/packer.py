@@ -8,11 +8,9 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.15 2011/03/18 11:17:05 haavardj Exp $
+## $Id: packer.py,v 1.16 2011/10/02 12:34:07 haavardj Exp $
 ##                
 ######################################################################
-
-
 
 from fireflies.state import Note, Accusation
 from fireflies.crypto import identitySize
@@ -20,12 +18,55 @@ from fireflies.util import long_to_bytes, bytes_to_long
 import M2Crypto
 import xdrlib, new, socket
 import struct
-
-
 import setrecon
 
 SERIAL_LENGTH = identitySize()
 HASH_LENGTH = identitySize()
+
+_ctxs = {}
+
+    
+
+class Referenceable:    
+    def uid(self): pass
+
+    
+class Broker:
+    def __init__(self):
+        self._uid2lobj = {}
+        self._lobj2uid = {}
+            
+    def register(self, uid, lobj):
+        if uid in self._uid2lobj:
+            assert obj in self._lobj2uid
+            raise KeyError(uid, lobj)
+        else:
+            assert not lobj in self._lobj2uid        
+        self._uid2lobj[uid] = lobj
+        self._lobj2uid[lobj] = uid
+
+    def resolve(self, uid):
+        return self._uid2lobj[uid]
+    
+    def rresolve(self, obj):
+        return self._lobj2uid[obj]
+        
+def getBroker(ctx=""):
+    if not ctx in _ctxs:
+        _ctxs[ctx] = Broker()
+    b = _ctxs[ctx]
+    isinstance(b, Broker)
+    return b
+
+def resolve(uid):
+    return getBroker().resolve(uid)
+
+def rresolve(obj):
+    return getBroker().resolve(obj)
+
+def register(uid, lobj):
+    return getBroker().register(uid, lobj)
+
 
 class FirefliesPacker(xdrlib.Packer):
 
@@ -127,14 +168,17 @@ class FirefliesPacker(xdrlib.Packer):
         self.pack_uint(accusation.nr)    
         self.pack_identity(accusation.accuser)
         self.pack_signature(accusation.signature)
-
+        
+    def pack_objectReference(self, obj, ctx=""):
+        broker = getBroker(ctx)
+        ref = broker.rresolve(obj)
+        self.pack_identity(ref)
 
 
 class FirefliesUnpacker(xdrlib.Unpacker):
 
     def __ini__(self, data):
         xdrlib.Unpacker.__init__(self, data)
-
 
     def unpack_ZZ(self):
         #l = self.unpack_fstring(1)
@@ -234,3 +278,9 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         c.__setstate__(state)        
         return c
 
+    def unpack_objectByReference(self, ctx=""):
+        identity = self.unpack_identity()
+        broker = getBroker(ctx)
+        return broker.resolve(identity)
+        
+        
