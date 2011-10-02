@@ -9,16 +9,15 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: persist.py,v 1.3 2011/09/23 08:15:55 haavardj Exp $
+## $Id: persist.py,v 1.4 2011/10/02 12:37:50 haavardj Exp $
 ##                
 ######################################################################
 
 """Classes for making a Fireflies group peristent."""
 
-import fireflies, glob, pickle, os, random, M2Crypto, struct
+import fireflies, glob, pickle, os, M2Crypto
 from fireflies.crypto import identityFromCertificate, makeCert, fingerprint
 from os.path import join, exists, isdir
-
 
 
 class Store:    
@@ -32,8 +31,7 @@ class Store:
         self.fileCAPriv = join(self.dirPriv, "cakey.pem") 
         self.fileCaCert = join(self.dirRoot, "cacert.pem")   
         self.fileSerial = join(self.dirRoot, "serial")
-
-        self.ensurePaths()   
+        self.ensurePaths()
       
     def ensurePaths(self):
         for path in [self.dirRoot, self.dirCert, self.dirPriv, self.dirNote, self.dirAccu]: 
@@ -64,7 +62,11 @@ class Store:
         return M2Crypto.X509.load_cert(self.fileCaCert, format=M2Crypto.X509.FORMAT_PEM)
 
     def saveCaPrivKey(self, pkey, cipher='aes_128_cbc', callback=M2Crypto.util.passphrase_callback):
+        isinstance(pkey, M2Crypto.RSA.RSA)
         return pkey.save_key(self.fileCAPriv, cipher=cipher, callback=callback)                
+ 
+    def hasCACertificate(self):
+        return exists(self.fileCaCert) 
                 
     def hasCAKey(self):
         return exists(self.fileCAPriv)
@@ -80,11 +82,17 @@ class Store:
         return True
 
     def hasKeyForCertificate(self, cert):
-        try:
-            self.loadPrivateForCert(cert)
-        except KeyError:
-            return False
-        return True
+        return exists(self.filenameKey(cert.get_pubkey()))
+
+    
+    def hasMemberCertificate(self, cert):
+        return exists(self.filenameCertificate(cert))
+    
+    def hasNote(self, note):
+        return exists(self.filenameNote(note))
+
+    def hasAccusation(self, accusation):
+        return exists(self.filenameAccusation(accusation))
 
     def filenameCertificate(self, cert):
         if not isinstance(cert, M2Crypto.X509.X509): raise ValueError
@@ -104,7 +112,7 @@ class Store:
         return join(self.dirNote, "%s-%d.pem" % (name, note.epoch))
     
     def filenameKey(self, pkey):
-        isinstance(pkey, M2Crypto.EVP.PKey)        
+        if not isinstance(pkey, M2Crypto.EVP.PKey): raise ValueError
         name = fingerprint(str(pkey.get_modulus()))
         return join(self.dirPriv, name + ".pem")   
 
@@ -124,7 +132,7 @@ class Store:
             cert = M2Crypto.X509.load_cert(f)
             if cert.get_subject().L == address:
                 return cert
-        raise KeyError, "No certificate matching Address=%s found" % address  
+        raise KeyError, "No certificate matching Address=%s found" % address
 
     def loadMemberCertificateByName(self, name):
         for f in glob.glob(os.path.join(self.dirCert, "*")):
@@ -146,12 +154,12 @@ class Store:
         cert.save_pem(self.filenameCertificate(cert))
 
     def saveNote(self, note):
-        if 0: isinstance(note, fireflies.state.Note)
+        if not isinstance(note, fireflies.state.Note): raise ValueError
         path = self.filenameNote(note)
         pickle.dump(note, file(path, "w"))
 
     def saveAccusation(self, accusation):
-        if 0: isinstance(accusation, fireflies.state.Accusation)
+        if not isinstance(accusation, fireflies.state.Accusation): raise ValueError
 
         path = self.filenameAccusation(accusation)
         pickle.dump(accusation, file(path, "w"))      
@@ -187,13 +195,13 @@ class Store:
 
     def saveGroup(self, group):
         isinstance(group, fireflies.group.Group)
-        self.clear()
         for member in group.getView().getAllMembers():
             print member
             isinstance(member, fireflies.state.Member)
             self.saveMemberCertificate(member.getCertificate())
             n = member.getNote()
             if n: self.saveNote(n)
+
             for acc in member.getAccusations():
                 self.saveAccusation(acc)
 
