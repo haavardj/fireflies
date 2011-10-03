@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.23 2011/09/30 09:42:41 haavardj Exp $
+## $Id: crypto.py,v 1.24 2011/10/03 08:16:27 haavardj Exp $
 ##                
 ######################################################################
 
@@ -175,6 +175,21 @@ def makeRequest(address, pkey, version=0, nickname=None):
     assert req.verify(pkey)
     return req
 
+def get_public_key_fingerprint(cert):
+    isinstance(cert, M2Crypto.X509.X509)
+    h = hashlib.new('sha1')
+    h.update(cert.get_pubkey().as_der())
+    client_serial = h.hexdigest().upper()
+    client_serial_hex = ''
+    
+    for byte in xrange(20):
+        client_serial_hex += client_serial[byte*2] + client_serial[byte*2+1]
+        if byte < 19:
+            client_serial_hex += ':'
+
+    return client_serial_hex
+
+
 def makeCert(req, caCert, caPkey, sn=0, notBefore=0, notAfter=60*60*24*30):
     """Create a X509 member certificate.
     @param req: X509 request.
@@ -203,13 +218,16 @@ def makeCert(req, caCert, caPkey, sn=0, notBefore=0, notAfter=60*60*24*30):
     M2Crypto.m2.x509_gmtime_adj(M2Crypto.m2.x509_get_not_before(cert.x509), notBefore)
     M2Crypto.m2.x509_gmtime_adj(M2Crypto.m2.x509_get_not_after(cert.x509), notAfter)
     
-    newid = M2Crypto.Rand.rand_bytes(20)
-    newid = hex(M2Crypto.util.octx_to_num(newid))[2:-1]
-    ext1 = M2Crypto.X509.new_extension('subjectKeyIdentifier', newid ,critical=0)    
-
+    ext1 = M2Crypto.X509.new_extension('subjectKeyIdentifier',  get_public_key_fingerprint(cert), critical=1)    
     cert.add_ext(ext1)
 
     cert.sign(caPkey, DIGESTALG)
+    
+    try:
+        identityFromCertificate(cert)
+    except LookupError:
+        print "subjectKeyIdentifier missing", newid, ext1.get_name(), ext1.get_value()
+        raise
 
     return cert
 
@@ -254,8 +272,7 @@ def identityFromCertificate(cert):
     try:
         ext = cert.get_ext("subjectKeyIdentifier")
     except LookupError, why:
-        print "Cannot locate subjectKeyIdentifier in\n%s" % cert.as_text()
-        raise
+        raise LookupError("No subjectKeyIdentifier in %s" % cert.as_text())
     
     return subjectKeyIdentifierToID(ext.get_value())
 
