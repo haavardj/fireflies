@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: persist.py,v 1.4 2011/10/02 12:37:50 haavardj Exp $
+## $Id: persist.py,v 1.5 2011/10/04 08:57:12 haavardj Exp $
 ##                
 ######################################################################
 
@@ -19,6 +19,9 @@ import fireflies, glob, pickle, os, M2Crypto
 from fireflies.crypto import identityFromCertificate, makeCert, fingerprint
 from os.path import join, exists, isdir
 
+
+def printIdentity(id):       
+    return id
 
 class Store:    
   
@@ -100,20 +103,23 @@ class Store:
 
     def filenameAccusation(self, accusation):
         if not isinstance(accusation, fireflies.state.Accusation): raise ValueError
-        name1 = self.loadMemberCertificateByIdentity(accusation.accused).get_subject().L
-        name2 = self.loadMemberCertificateByIdentity(accusation.accuser).get_subject().L
-        d = (name1, name2, accusation.epoch, accusation.nr)
+        d = (printIdentity(accusation.accused), 
+             printIdentity(accusation.accuser),
+             accusation.epoch, 
+             accusation.nr)
         return join(self.dirAccu, "%s-%s-%d-%d" %d)
 
     def filenameNote(self, note):
         if not isinstance(note, fireflies.state.Note): raise ValueError
-        cert = self.loadMemberCertificateByIdentity(note.identity)
-        name = cert.get_subject().L
-        return join(self.dirNote, "%s-%d.pem" % (name, note.epoch))
+        #cert = self.loadMemberCertificateByIdentity(note.identity)
+        #name = cert.get_subject().L
+        return join(self.dirNote, "%s-%d.pem" % (printIdentity(note.identity),
+                                                 note.epoch))
     
     def filenameKey(self, pkey):
-        if not isinstance(pkey, M2Crypto.EVP.PKey): raise ValueError
-        name = fingerprint(str(pkey.get_modulus()))
+        if not isinstance(pkey, M2Crypto.EVP.PKey): raise ValueError        
+        name = fireflies.crypto.computeSubjectKeyIdentifier(pkey)
+        name = fireflies.crypto.subjectKeyIdentifierToID(name)
         return join(self.dirPriv, name + ".pem")   
 
     def loadMemberCertificates(self):
@@ -123,6 +129,7 @@ class Store:
     def loadMemberCertificateByIdentity(self, iid):                
         for f in glob.glob(os.path.join(self.dirCert, "*")):
             cert = M2Crypto.X509.load_cert(f)
+            print "Comparing", identityFromCertificate(cert), iid
             if identityFromCertificate(cert) == iid:
                 return cert
         raise KeyError, "No certificate matching ID=%s found" % iid  
@@ -196,7 +203,6 @@ class Store:
     def saveGroup(self, group):
         isinstance(group, fireflies.group.Group)
         for member in group.getView().getAllMembers():
-            print member
             isinstance(member, fireflies.state.Member)
             self.saveMemberCertificate(member.getCertificate())
             n = member.getNote()
