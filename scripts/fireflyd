@@ -22,6 +22,9 @@ del threadable
 M2Crypto.util.passphrase_callback
 M2Crypto.EVP.load_key
 
+groupCert = groupKey = myCert = myKey = myNote = None
+
+
 def askPassword(prompt=""):
     pass
 
@@ -59,7 +62,7 @@ if __name__ == "__main__":
     parser.add_option("-a", "--address", dest="address",
                       help="Bind to ADDRESS. Defaults to %s." % hostaddr, default=hostaddr )
     parser.add_option("-p", "--port", dest="port", type="int",
-                      help="Bind PORT. Defaults to 14377", default=14377)
+                      help="Bind PORT. Defaults to %s." % fireflies.defaultConfig['port'], default=fireflies.defaultConfig['port'])
     parser.add_option("--capriv",
                       dest="capriv", default=None,
                       help="Path to CA's repository. This enables fireflyd to create a X509 certificate for itself.")
@@ -77,12 +80,16 @@ if __name__ == "__main__":
     parser.add_option("-d", "--daemon",
                       action="store_true", dest="daemon", default=False,
                       help="Run as daemon.")
+    parser.add_option("-o", "--overwrite",
+                      action="store_true", dest="overwrite", default=False,
+                      help="Overwrite existing X509 structures on startup.")
     parser.add_option("--readonly",
                       action="store_true", dest="storero", default=False,
                       help="Do not write state to store.")
     parser.add_option("-r", "--rundir",
                       dest="rundir", default="./",
                       help="Rundir.")
+    
     parser.add_option("-s", "--stats",
                       action="store_true", dest="stats", default=False,
                       help="Enable the web-stats.")
@@ -139,25 +146,6 @@ if __name__ == "__main__":
             name, behaviour = line.split()
             if name == myAddress:
                 byzantine = int(behaviour)
-
-    # Init private store.
-    try:
-        store = persist.Store(args[0])
-    except Exception, why:
-        print "Unable to initialize store.", why
-        sys.exit(0)
-
-    # Import data from other stores.
-    for path in args[1:]:        
-        try:
-            extStore = persist.Store(path)
-            for cert in extStore.loadMemberCertificates(): store.saveMemberCertificate(cert)
-            for note in extStore.loadNotes(): store.saveNote(note)
-            for accu in extStore.loadAccusations(): store.saveAccusation(accu)
-        except Exception, why:
-            print "Error importing from external data repository: ", path, why
-            pass
-
                                                
     #
     # Load own keys and notes.
@@ -185,40 +173,72 @@ if __name__ == "__main__":
     log_hdlr.setFormatter(formatter)
     logging.getLogger().addHandler(log_hdlr)
 
-    groupCert = groupKey = myCert = myKey = myNote = None
-    
+    # Init Store.
     try:
-        if options.cacert: 
-            groupCert = M2Crypto.X509.load_cert(options.cacert)
-            store.saveCACert(groupCert)
-        else:
-            groupCert = store.loadCACertificate()
+        store = persist.Store(args[0])
+        extStores = map(lambda x: persist.Store(x), args[1:])
     except Exception, why:
-        print "Unable to load group certificate: ", why
-        sys.exit(0)       
+        print "Unable to initialize store.", why
+        sys.exit(0)
+
+         
         
+    # Load Group Cert 
+    if store.hasCACertificate():    
+        groupCert = store.loadCACertificate()
+    else:
+        for extstore in extStores:
+            if extstore.hasCACertificate():
+                groupCert = extstore.loadCACertificate()
+                store.saveCACert(groupCert)
+                logging.info("Import group certificate from %s", extstore.fileCaCert)
+                break
+        if not groupCert:    
+            if options.cacert:
+                groupCert = M2Crypto.X509.load_cert(options.cacert)
+                store.saveCACert(groupCert)
+                logging.info("Import group certificate from %s", options.cacert)
+            else:                
+                logging.error("Unable to load group certificate.")
+                sys.exit(0)
+
+        
+    # Load Member Certificate
     if store.hasMemberCertificateWithAddress(myAddress):        
         myCert = store.loadMemberCertificateByAddress(myAddress)
     else:
-        if not options.capriv:
-            print "Unable to find or create member certificate for address=%s" % myAddress
-            sys.exit(0)
 
+        for extstore in extStores:
+            if extstore.hasMemberCertificateWithAddress(myAddress):
+                myCert = extstore.loadMemberCertificateByAddress(myAddress)       
+                break
 
-        print "Loading CA's private key", options.capriv
-        groupKey = M2Crypto.EVP.load_key(options.capriv, passwdcb)
-        if not groupCert.verify(groupKey): raise ValueError, "CA cert and CA key do not match."
-        print "Creating new member key:"
-        myKey = fireflies.crypto.makePrivateKey()
-        
-        req = fireflies.crypto.makeRequest(myAddress, myKey)
-        myCert = store.newMemberCertificate(req, groupKey)          
-        #myCert = fireflies.crypto.makeMemberCert(myAddress, myKey, groupCert, groupKey)
-        assert myCert.verify(groupKey)
-        print myCert.as_text()
-        print "Saving private key", store.filenameKey(myKey) 
-        store.saveMemberCertificate(myCert)
-        store.savePrivateKey(myKey, cipher, passwdcb)
+        # Try to generate certificate.
+        if not myCert:        
+            if not options.capriv:
+                print "Unable to find or create member certificate for address=%s" % myAddress
+                sys.exit(0)
+
+            groupKey = M2Crypto.EVP.load_key(options.capriv, passwdcb)
+            if not groupCert.verify(groupKey): raise ValueError, "CA cert and CA key do not match."
+            myKey = fireflies.crypto.makePrivateKey()
+            
+            req = fireflies.crypto.makeRequest(myAddress, myKey)
+            myCert = store.newMemberCertificate(req, groupKey)          
+            assert myCert.verify(groupKey)
+            #print myCert.as_text()
+            logging.info("Saving private key %s", store.filenameKey(myKey))
+            logging.info("Saving new certificate %s", store.filenameCertificate(myCert))
+            store.saveMemberCertificate(myCert)
+            store.savePrivateKey(myKey, cipher, passwdcb)
+
+    if not store.hasKeyForCertificate(myCert):
+        for extstore in extStores:
+            if extstore.hasKeyForCertificate(myCert):
+                logging.info("Found suitable key in %s", extstore.dirRoot)
+                store.savePrivateKey(extstore.loadPrivateKeyForCert(myCert, passwdcb), cipher, passwdcb)
+                break
+                                
     try:
         myKey = store.loadPrivateKeyForCert(myCert, passwdcb)
     except KeyError, why:
@@ -235,25 +255,44 @@ if __name__ == "__main__":
     mgroup = group.Group(groupCert, myKey, myCert, myNote)
     logging.info("Me = %s on %s", mgroup.getMe().getIdentity(), mgroup.getMe().getAddress())
     fd = fireflies.fd.FailureDetector(mgroup)
-    
-    
-    
+
     gossip = fireflies.gossip.Gossip(mgroup)
-    mgroup.startService()
 
 
     #
-    # Load other certificates and notes.
+    # Load other certificates and notes.   
     #
     
     for cert in store.loadMemberCertificates():
         mgroup.view.addCertificate(cert)
         
     for note in store.loadNotes():
-        mgroup.view.addNote(note)
+        try:
+            mgroup.view.addNote(note)
+        except ValueError, e:
+            print "Error loading note %s %s" % (note, e)
+            
         
     for acc in store.loadAccusations():
         mgroup.view.addAccusation(acc)
+
+
+   # Import membership data from other stores
+
+    for extstore in extStores:
+        logging.info("Importing data from %s", extstore.dirRoot)
+        for cert in extstore.loadMemberCertificates(): 
+            mgroup.view.addCertificate(cert)
+                
+        for note in extstore.loadNotes(): 
+            mgroup.view.addNote(note)
+                
+        for accu in extstore.loadAccusations(): 
+            mgroup.view.addAccusation(accu)
+
+
+    store.saveGroup(mgroup)
+    
 
     # Start the web-stat server. The web-stat server modifies
     # checkpoints the stats to the log. If it's not running, we need
@@ -329,6 +368,7 @@ if __name__ == "__main__":
 
   
 
+    reactor.callLater(0, mgroup.startService)
 
     try:
         reactor.run()
