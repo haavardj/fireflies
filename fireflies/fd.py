@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.23 2011/09/22 07:51:42 haavardj Exp $
+## $Id: fd.py,v 1.24 2011/10/04 09:00:26 haavardj Exp $
 ##                
 ######################################################################
 
@@ -20,6 +20,7 @@ from twisted.internet.protocol import Factory, DatagramProtocol, Protocol, Clien
 from twisted.internet import reactor, task
 from twisted.application.service import Service
 from fireflies.state import Accusation, Note, Member
+from fireflies import channel
 import socket
 from math import *
 
@@ -50,7 +51,7 @@ class PingMsg(crypto.Signable):
         self.signature = 0
         
     def uidstr(self):
-        return "ping-%x-%x-%d" % (self.fromSn, self.toSn, self.noun)
+        return "ping-%s-%s-%d" % (self.fromSn, self.toSn, self.noun)
 
 class PongMsg(crypto.Signable):
     msgType = MSG_PONG
@@ -62,7 +63,7 @@ class PongMsg(crypto.Signable):
         self.signature = 0
     
     def uidstr(self):
-        return "pong-%x-%x-%d" % (self.fromSn, self.toSn, self.noun)
+        return "pong-%s-%s-%d" % (self.fromSn, self.toSn, self.noun)
 
 
 class FDMsgPacker(FirefliesPacker):
@@ -133,6 +134,51 @@ class FDMsgUnpacker(FirefliesUnpacker):
             raise Exception
 
 
+class MemberMonitor(channel.TypedChannel):
+    
+    avgLoss = .1
+    pMistake = 0.001
+    smooting = 0.999
+    tMin = 3
+    nPing = 0
+    interval = 2
+
+    def __init__(self, member):
+        self.member = member
+        self.name = member.identity()
+            
+    def startService(self):
+        self._task = task.LoopingCall(self.update)
+        self._task.start(self.interval, now=False)
+        super(TypedChannel, self).startService()
+    
+    def stopService(self):
+        self._task.stop()
+        super(TypedChannel, self).stopService()
+        
+    def update(self):
+        self.ping()
+        
+    def recv_pong(self, nounce):
+        assert self.avgLoss >= 1.0
+        self.avgLoss = (self.smooting * self.avgLoss) + ( (1. - self.smoothing) * (self.nPing))
+        self.nPing = 0
+    
+    def send_Ping(self):        
+        p = min( 1./self.avgLoss, 1. - self.pMistake**(1./float(max(self.tMin, 1))))
+        assert p < 1.0 and p > 0.0, "Psuc out of bounds."
+            
+        t = log(self.pMistake) / log(1. - p)
+
+        if self.nPing > t:
+            self.member.accuse()                  
+            self.nPing = 0
+            
+        else:
+            self.parent.sendMessage(self.member, "ping")
+            self.nPing += 1
+
+
 class FailureDetector(Service):
     
     name = "fd"
@@ -186,17 +232,17 @@ class FailureDetector(Service):
             self._udpport.stopListening()
             self._udpport = None
         self.protocol = None
+
+    def handle_pong(self, frmIP, frmSN, toSN, nounce):
+        pass
+    
+    def handle_ping(self, frmIP, frmSN, toSN, nounce):
+        pass
         
     def update(self):
-
         nrRings = self.view.getNumberOfRings()
         me = self.group.getMe()
         view = self.group.view
- 
-        #if me.getNote():
-        #    myBadness = mpeer.getNote().badness
-        #else:
-        #    self.logger.warning("Mynote is empty")
         
         myBadness = 0
             
@@ -211,7 +257,6 @@ class FailureDetector(Service):
         while mon.isFailed() or mon.isAccused():
             if mon == me: break
             mon = view.mRings.getRings()[x].succ(mon)            
-
 
         # It's me!
         if mon == me: return 
@@ -306,10 +351,10 @@ class PingPong(DatagramProtocol):
         
         toSn, fromSn, noun = msg.toSn, msg.fromSn, msg.noun
         if not toSn == self.factory.group.getMe().getIdentity():
-            self.logger.warning("ping<- %x wrong receiver %x", fromSn, toSn)
+            self.logger.warning("ping<- %s wrong receiver %s", fromSn, toSn)
             return        
         if not fromSn in view.sn2peer:
-            self.logger.debug("ping<- %x Unknown host", fromSn)
+            self.logger.debug("ping<- %s Unknown host", fromSn)
             return
 
         sender = view.sn2peer[fromSn]
@@ -324,7 +369,7 @@ class PingPong(DatagramProtocol):
         view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
         
         if msg.toSn != self.factory.group.getMe().getIdentity():
-            self.logger.warning("pong<- %x wrong receiver %x", msg.fromSn, msg.toSn)
+            self.logger.warning("pong<- %s wrong receiver %s", msg.fromSn, msg.toSn)
             return        
         sender = view.sn2peer.get(msg.fromSn, None)
         if sender:
@@ -335,7 +380,7 @@ class PingPong(DatagramProtocol):
             sender.avgLoss = (smoothing * sender.avgLoss) + ( (1. - smoothing) * (sender.nPing))
             sender.nPing = 0
         else:
-            self.logger.debug("pong<- %x Unknown peer", msg.fromSn)
+            self.logger.debug("pong<- %s Unknown peer", msg.fromSn)
             
     def ping(self, receiver):
         isinstance(self.factory, FailureDetector)
@@ -357,13 +402,6 @@ class PingPong(DatagramProtocol):
         msg.sign(self.factory.group.getMyKey())
         self.sendCommand(sender, msg)
 
-    def dispatch(self, msg):        
-        try:
-            getattr(self, "handle_" + msg.__class__.__name__)(msg)
-        except KeyboardInterrupt:
-            raise
-        except Exception, why:
-            self.logger.exception("Command error %s", why)
 
     def sendCommand(self, receiver, msg):
 
@@ -385,9 +423,9 @@ class PingPong(DatagramProtocol):
             p = FDMsgUnpacker(data)
             msg = p.unpack_msg()
             p.done()
-            self.dispatch(msg)
+            getattr(self, "handle_" + msg.__class__.__name__)(msg)            
         except KeyboardInterrupt:
-            raise
+            return
         except Exception, why:
             self.logger.warning("Error in message from %s:%d: %s", host, port, why)            
 
