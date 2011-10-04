@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.24 2011/10/03 08:16:27 haavardj Exp $
+## $Id: crypto.py,v 1.25 2011/10/04 08:59:14 haavardj Exp $
 ##                
 ######################################################################
 
@@ -142,11 +142,17 @@ def makeCACert(pkey, groupName, maxGroupSize, pByz=0.10, faultTolerance=0.10):
     days = 30
     M2Crypto.m2.x509_gmtime_adj(notAfter, 60*60*24*days)    
     
-    kid = computeKeyIdentifier(pkey)
-    ext1 = M2Crypto.X509.new_extension('subjectKeyIdentifier', kid, 0)
-    ext2 = M2Crypto.X509.new_extension('basicConstraints', 'CA:TRUE')    
-    cert.add_ext(ext1)       
-    cert.add_ext(ext2)       
+    kid = computeSubjectKeyIdentifier(pkey)
+    ext = M2Crypto.X509.new_extension('subjectKeyIdentifier', kid, 0)
+    cert.add_ext(ext)       
+
+    ext = M2Crypto.X509.new_extension('basicConstraints', 'CA:TRUE')    
+    cert.add_ext(ext)      
+    
+    # Does not work yet due to M2Crypto issues
+    #ext3 = M2Crypto.X509.new_extension('authorityKeyIdentifier', 'keyid,issuer:always', 0)
+    #cert.add_ext(ext3)       
+
     cert.sign(pkey, 'sha1')
     assert cert.check_ca() != 0    
     return cert
@@ -175,20 +181,6 @@ def makeRequest(address, pkey, version=0, nickname=None):
     assert req.verify(pkey)
     return req
 
-def get_public_key_fingerprint(cert):
-    isinstance(cert, M2Crypto.X509.X509)
-    h = hashlib.new('sha1')
-    h.update(cert.get_pubkey().as_der())
-    client_serial = h.hexdigest().upper()
-    client_serial_hex = ''
-    
-    for byte in xrange(20):
-        client_serial_hex += client_serial[byte*2] + client_serial[byte*2+1]
-        if byte < 19:
-            client_serial_hex += ':'
-
-    return client_serial_hex
-
 
 def makeCert(req, caCert, caPkey, sn=0, notBefore=0, notAfter=60*60*24*30):
     """Create a X509 member certificate.
@@ -203,6 +195,7 @@ def makeCert(req, caCert, caPkey, sn=0, notBefore=0, notAfter=60*60*24*30):
     @rtype: L{M2Crypto.X509.X509}
     """
     
+    isinstance(caCert, M2Crypto.X509.X509)
     pkey = req.get_pubkey()
     if not req.verify(pkey):
         raise ValueError, 'Error verifying request.'
@@ -218,8 +211,12 @@ def makeCert(req, caCert, caPkey, sn=0, notBefore=0, notAfter=60*60*24*30):
     M2Crypto.m2.x509_gmtime_adj(M2Crypto.m2.x509_get_not_before(cert.x509), notBefore)
     M2Crypto.m2.x509_gmtime_adj(M2Crypto.m2.x509_get_not_after(cert.x509), notAfter)
     
-    ext1 = M2Crypto.X509.new_extension('subjectKeyIdentifier',  get_public_key_fingerprint(cert), critical=1)    
-    cert.add_ext(ext1)
+    ext = M2Crypto.X509.new_extension('subjectKeyIdentifier',  computeSubjectKeyIdentifierFromCertificate(cert), critical=0)    
+    cert.add_ext(ext)
+    
+    # Does not work due to M2Crypto issues
+    #ext = M2Crypto.X509.new_extension('authorityKeyIdentifier',  "keyid,issuer", critical=0)    
+    #cert.add_ext(ext)
 
     cert.sign(caPkey, DIGESTALG)
     
@@ -257,7 +254,12 @@ def identitySize():
     """Returns the size (in bytes) of identity numbers."""    
     return DIGESTSIZE/8
 
-def computeKeyIdentifier(pkey):
+def computeSubjectKeyIdentifierFromCertificate(cert):
+    if not isinstance(cert, M2Crypto.X509.X509): raise ValueError
+    return computeSubjectKeyIdentifier(cert.get_pubkey())
+
+def computeSubjectKeyIdentifier(pkey):
+    if not isinstance(pkey, M2Crypto.EVP.PKey): raise ValueError
     client_serial = hashlib.new("sha1", pkey.as_der() ).hexdigest().upper()
     client_serial_hex = ''
     
@@ -277,7 +279,8 @@ def identityFromCertificate(cert):
     return subjectKeyIdentifierToID(ext.get_value())
 
 def subjectKeyIdentifierToID(s):
-    return int(s.replace(":",""), 16)
+    return s.replace(":","")
+    #return s#int(s.replace(":",""), 16)
 
 class ImmutableMixin:
     """Mixin for immutable classes."""
