@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.21 2011/09/28 10:58:39 haavardj Exp $
+## $Id: view.py,v 1.22 2011/10/04 08:53:58 haavardj Exp $
 ##                
 ######################################################################
 
@@ -42,6 +42,23 @@ def _mRingID(member, ringNr):
         _mRingIDCache[memberId] = ids
         return idOnRing
 
+
+def CanAccuseOnRing(accuser, accused, ring):
+    """Return true if accuser is allowed to accuse the accused on the given ring. 
+    This implies that the accused is the first live predecessor of the accuser on the given ring.
+    """    
+        
+    isinstance(accuser, Member)
+    isinstance(accused, Member)
+    isinstance(ring, fireflies.ring.Ring)
+    
+    return accuser == ring.pred(accused, func=lambda x: x.isLive() or x==accuser)
+
+def isBetterAccuserOnRing(new, old, member, ring):
+    """Returns true if new is a closer/better accuser than old for member on the given ring."""
+
+    return ring.isBetween(old, new, member)
+    
 
 class View:
     """
@@ -416,26 +433,31 @@ class View:
         # Make some shortcuts :-)
         rnr = accusation.nr
         ring = self.mRings.getRings()[rnr]
+        assert isinstance(ring, fireflies.ring.NamedRing)
  
         # If member currently is accused on ring, keep the new one only if it
         # is from a closer predecessor.
         if accused.hasAccusationOn(rnr):
             assert accused.isAccused()
             currentAccusation = accused.getAccusation(rnr)
-            assert currentAccusation
             currentAccuser = self.getMemberByIdentity(currentAccusation.accuser)
             assert isinstance(currentAccusation, Accusation)
             assert isinstance(currentAccuser, Member)
             
-            if ring.isBetween(currentAccuser, accuser, accused):
+            if isBetterAccuserOnRing(accuser, currentAccuser, accused, ring):
                 accused.setAccusation(accusation)
                 self.logger.info("%s accused by %s on ring %d (replacing %s)", accused, accuser, accusation.nr, currentAccuser)
+            else:
+                self.logger.debug("%s accused by %s on ring %d (have closer accusation)", accused, accuser, accusation.nr)
 
-        elif accuser == ring.pred(accused, func=lambda x: (not x.isAccused()) or (x == accuser)):
+        elif CanAccuseOnRing(accuser, accused, ring):
             accused.setAccusation(accusation)
             if (not self.hasActiveTimer(accused)) and accused.isLive():
                 self.logger.info("%s accused by %s on ring %d (timer started)", accused, accuser, accusation.nr)
                 self._startRebuttalTimer(accused)
+        else:
+            self.logger.debug("%s accused by %s on ring %d (accuser not monitor)", accused, accuser, accusation.nr)
+
 
 
     def pprint(self, data):
