@@ -18,11 +18,12 @@ class SubjectKeyIdentifierBugTest(unittest.TestCase):
     
     def testAccess(self):
         
-        for x in range(10):
+        for x in range(100):
             mKey = crypto.makePrivateKey(callback=noGeygens)
             req = fireflies.crypto.makeRequest(str(x), mKey)
             mCert = fireflies.crypto.makeCert(req, self.caCert, self.caKey, sn=x)            
             mCert.verify(self.caCert.get_pubkey())
+            crypto.identityFromCertificate(mCert)
 
         
         
