@@ -64,12 +64,12 @@ class CertificateTest(unittest.TestCase):
     def testIdentity(self):
         
         pkey = self.caCert.get_pubkey()        
-        id1 = crypto.subjectKeyIdentifierToID(crypto.computeKeyIdentifier(pkey))
+        id1 = crypto.subjectKeyIdentifierToID(crypto.computeSubjectKeyIdentifier(pkey))
         id2 = crypto.identityFromCertificate(self.caCert)
         self.failUnless(id2 == id1)
 
         pkey = self.mCert.get_pubkey()        
-        id3 = crypto.subjectKeyIdentifierToID(crypto.computeKeyIdentifier(pkey))
+        id3 = crypto.subjectKeyIdentifierToID(crypto.computeSubjectKeyIdentifier(pkey))
         id4 = crypto.identityFromCertificate(self.mCert)
         self.failUnless(id2 == id1)
         
