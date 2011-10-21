@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.15 2011/10/04 08:55:51 haavardj Exp $
+## $Id: state.py,v 1.16 2011/10/21 09:36:17 haavardj Exp $
 ##                
 ######################################################################
 
@@ -73,7 +73,7 @@ def createInitialNote(member):
     random.shuffle(mask)
     return Note(member.getIdentity(), 1, mask)
 
-
+    
 
 class Accusation(object, crypto.Signable):
     """
@@ -126,7 +126,7 @@ class Accusation(object, crypto.Signable):
         
     def uidstr(self):
         return "Accusation:%s,%d,%d-%s" % (self.accused, self.epoch,
-                                           self.nr, self.accuser)
+                                  self.nr, self.accuser)
 
         
 
@@ -144,8 +144,6 @@ class Note(object, crypto.Signable):
     @ivar signature: Signed with the member's private key.
     @type signature: str
     """
-
-    signature = "0"
 
     def __init__(self, identity, epoch, mask):        
         self.identity = identity
@@ -177,9 +175,11 @@ class Note(object, crypto.Signable):
 
     def uidstr(self):
         return "Note:%s-%d-%s" % (self.identity, self.epoch,
-                                  str(self.mask))
+                               str(self.mask))
 
         
+def shortIdentity(member):
+    return member.getIdentity()[-4:]
 
 class Member(object):
     """Encapsulates known state of a group member.
@@ -531,9 +531,11 @@ class Member(object):
 
     def __repr__(self):
         #return "%x" % bytes_to_long(self.identity)
-        return  "P:%s,%d" % (self.getAddress(), len(filter(None, self.vAccusations)))
+        return  "P:%s:%d:%s" % (shortIdentity(self), self.getEpoch(), self.getCommonName())
 
     def __cmp__(self, other):
-        return cmp(self.getIdentity(), other.getIdentity())
-
+        try:
+            return cmp(self.getIdentity(), other.getIdentity())
+        except AttributeError:
+            return False
 #  LocalWords:  param
