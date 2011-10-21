@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.17 2011/10/04 09:01:26 haavardj Exp $
+## $Id: packer.py,v 1.18 2011/10/21 08:25:22 haavardj Exp $
 ##                
 ######################################################################
 
@@ -23,13 +23,10 @@ import setrecon
 SERIAL_LENGTH = identitySize()
 HASH_LENGTH = identitySize()
 
-_ctxs = {}
-
-    
+_ctxs = {} 
 
 class Referenceable:    
     def uid(self): pass
-
     
 class Broker:
     def __init__(self):
@@ -67,6 +64,225 @@ def rresolve(obj):
 def register(uid, lobj):
     return getBroker().register(uid, lobj)
 
+
+DATA_CERTIFICATE_ID = 0x1
+DATA_NOTE_ID = 0x2
+DATA_ACCUSATION_ID = 0x3
+
+cmd2code = {
+    'partner': 0x1,
+    'accepted': 0x4,
+    'gossip': 0x5,
+    'authenticate': 0x6,
+    'redirect': 0x7,
+    'note': 0x8,
+    'accusation': 0x9,
+    'certificate': 0x10,
+    'version': 0x11,
+    'data': 0x12,
+    'dataRequest':0x13,
+
+    'reconcile': 0x20,
+    'reconcile_next': 0x21,
+    'reconcile_next_req': 0x22,
+    'reconcile_done': 0x27,
+    'reconcile_data': 0x28,
+    'reconcile_data_req': 0x29,
+    'digest_match': 0x2F
+    }
+
+code2cmd = {}
+for k, v in cmd2code.items():
+    code2cmd[v] = k
+
+
+def PackMessage(cmd, *args):
+
+    p = FirefliesPacker()
+    p.pack_fstring(1, chr(cmd2code[cmd]))
+
+    if cmd == "partner":
+        note, = args
+        p.pack_note(note)
+
+    elif cmd == "authenticate":
+        crt, note = args
+        p.pack_cert(crt)
+        p.pack_note(note)
+
+    elif cmd == "redirect":
+        for cert, note in args,:
+            p.pack_bool(True)                        
+            p.pack_cert(cert)
+            p.pack_note(note)
+        p.pack_bool(False)            
+
+    elif cmd == "version":
+        major, minor, patchl = args
+        p.pack_short(major)
+        p.pack_short(minor)
+        p.pack_short(patchl)
+
+    elif cmd == "reconcile":
+        name, digest = args
+        p.pack_string(name)
+        p.pack_string(digest)
+
+    elif cmd == "digest_match":
+        match, = args
+        p.pack_bool(match)
+
+    elif cmd == "reconcile_next":
+        node_type, hash_vector, extra_hashes, setsize = args
+        p.pack_uint(node_type)
+
+        if node_type > 0:
+            p.pack_vec_ZZ_p(hash_vector)
+        if node_type > 1:
+            p.pack_vec_ZZ_p(extra_hashes)
+            p.pack_uint(setsize)
+
+    elif cmd == "reconcile_extra":
+        vec, size = args
+        p.pack_vec_ZZ_p(vec)
+        p.pack_uint(size)
+
+    elif cmd == "data":
+        data, = args
+        if isinstance(data, Accusation):
+            p.pack_uint(DATA_ACCUSATION_ID)
+            p.pack_accusation(data)
+        elif isinstance(data, Note):
+            p.pack_uint(DATA_NOTE_ID)
+            p.pack_note(data)
+        elif isinstance(data, M2Crypto.X509.X509):
+            p.pack_uint(DATA_CERTIFICATE_ID)
+            p.pack_cert(data)
+        else:
+            raise ValueError, "Unknown data type", data
+        # note, accus, or cert
+
+    elif cmd == "reconcile_data":
+        data, = args
+        if isinstance(data, Accusation):
+            p.pack_uint(DATA_ACCUSATION_ID)
+            p.pack_accusation(data)
+        elif isinstance(data, Note):
+            p.pack_uint(DATA_NOTE_ID)
+            p.pack_note(data)
+        elif isinstance(data, M2Crypto.X509.X509):
+            p.pack_uint(DATA_CERTIFICATE_ID)
+            p.pack_cert(data)
+        else:
+            raise ValueError, "Unknown data type", data
+        # note, accus, or cert
+
+    elif cmd in ["reconcile_data_req",]:
+        vec, = args
+        l = len(vec)
+        p.pack_uint(l)
+        for x in range(l):                    
+            p.pack_ZZ(vec[x].rep())
+            
+    elif cmd in ["reconcile_next_req",
+                 "reconcile_done",
+                 "accepted",
+                 "dataRequest"]:
+        # No arguments.
+        pass                
+    else:
+        raise RuntimeError, "Unknown command."
+
+    return p.get_buffer()
+
+def unpackMessage(data):
+    cmd = "N/A"
+    p = FirefliesUnpacker(data)
+    cmd = code2cmd[ord(p.unpack_fstring(1))]
+    args = ()
+    if cmd == "partner":
+        args = (p.unpack_note(),)
+
+    elif cmd == "authenticate":
+        args = (p.unpack_cert(), p.unpack_note())
+
+    elif cmd == "redirect":
+        args = []
+        while p.unpack_bool():
+            args.append( (p.unpack_cert(), p.unpack_note() ))
+
+    elif cmd == "version":
+        args = (p.unpack_short(),
+                p.unpack_short(),
+                p.unpack_short())
+
+    elif cmd == "reconcile":
+        args = (p.unpack_string(),
+                p.unpack_string()
+                )
+    elif cmd == "digest_match":
+        args = (bool(p.unpack_bool()),)
+
+    elif cmd == "reconcile_next":
+        node_type = p.unpack_uint()
+        hash_vector = None
+        extra_hashes = None
+        setsize = -1
+        if node_type > 0:
+            hash_vector = p.unpack_vec_ZZ_p()
+        if node_type > 1:
+            extra_hashes = p.unpack_vec_ZZ_p()
+            setsize = p.unpack_uint()
+        args = (node_type,
+                hash_vector,
+                extra_hashes,
+                setsize)
+
+    elif cmd == "data":
+        t = p.unpack_uint()
+        if t == DATA_ACCUSATION_ID:
+            args = (p.unpack_accusation(),)
+        elif t == DATA_NOTE_ID:
+            args = (p.unpack_note(),)
+        elif t == DATA_CERTIFICATE_ID:
+            args = (p.unpack_cert(),)
+        else:
+            raise ValueError("Unknown data.")
+
+    elif cmd == "reconcile_data":
+        t = p.unpack_uint()
+        if t == DATA_ACCUSATION_ID:
+            args = (p.unpack_accusation(),)
+        elif t == DATA_NOTE_ID:
+            args = (p.unpack_note(),)
+        elif t == DATA_CERTIFICATE_ID:
+            args = (p.unpack_cert(),)
+        else:
+            raise ValueError("Unknown data.")
+
+    elif cmd in ["reconcile_data_req"]:
+        l = p.unpack_uint()
+        r = []
+        for x in range(l):
+            r.append(setrecon.to_ZZ_p(p.unpack_ZZ()))
+            
+        args = (r,)
+
+            
+    elif cmd in ["reconcile_done",
+                 "accepted",
+                 "dataRequest"]:
+
+        # No arguments.
+        args = ()
+            
+    else:
+        raise Exception, "unknown command."
+
+    p.done()    
+    return cmd, args
+
+    
 
 class FirefliesPacker(xdrlib.Packer):
 

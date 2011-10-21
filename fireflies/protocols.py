@@ -2,25 +2,20 @@
 #import fireflies.group, fireflies.members
 
 import twisted
-from twisted.spread import pb 
 from twisted.internet import reactor, task, defer, protocol
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.protocols.policies import ProtocolWrapper, WrappingFactory
 from twisted.application import service
+from twisted.protocols import policies
+
 import logging, random, os, tempfile
 import M2Crypto
-import M2Crypto
 import M2Crypto.SSL.TwistedProtocolWrapper as wrapper
-from twisted.protocols import policies
-import struct
 from M2Crypto.SSL.Checker import WrongHost, WrongCertificate, NoCertificate 
-from M2Crypto import m2
+
 from zope.interface import implements, Interface, Attribute
-
+import fireflies
 from fireflies import state, crypto, ring, view
-import xdrlib
-
-from twisted.conch import client
 
 debug = False
 noiselevel = 0
@@ -28,8 +23,6 @@ noiselevel = 0
 # A nicer print function for addresses
 
 twisted.internet.address.IPv4Address.__str__ = lambda x: "%s:%d" % (x.host, x.port)
-
-
             
 def connect(member, factory, timeout=30, bindAddress=None):
     """
@@ -147,6 +140,222 @@ class ClientConnectionChecker:
             raise WrongCertificate('peer did return wrong certificate')        
         return True
 
+class IPeerNetworkingService(Interface):
+    
+    ServerProtocolClass = Attribute("""Class for server protocols""")
+    ClientProtocolClass = Attribute("""Class for client protocols""")
+    rings = Attribute("""Set of membership rings.""")
+    group = Attribute("""Group object.""")
+    
+    def getPerFactoryFromProtocol(protocol):
+        pass
+    
+    def peerConnected(self, peer): 
+        pass
+    
+    
+
+
+class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactory):
+    """If activated, this factory will always try to maintain an active connection to the specified member.
+    It will also handle inbound connections so that only a single inbound or outbound connection will be allowed."""
+    
+    logger = logging.getLogger()
+    protocol = None
+    member = None
+    continueTrying = 0
+    
+    def __init__(self, service):
+        self.service = service
+        
+    def startFactory(self):
+        if not self.member: raise RuntimeError("Member not set")
+    
+    def isActive(self):
+        return self.continueTrying
+    
+    def activate(self):
+        if self.isActive(): 
+            self.logger.warning("already activated %s", self.member)
+            assert self.continueTrying
+            raise RuntimeError("Already activated")        
+
+        self.continueTrying = 1
+        self.logger.info("activating %s", self.member)                
+        self._connect()
+
+    def deactivate(self):
+        self.logger.info("deactivating %s", self.member)
+        if not self.isActive(): raise RuntimeError("Already deactivated")
+        self.stopTrying()
+
+    #
+    # Client connection stuff.
+    #
+    def clientConnectionFailed(self, connector, reason):
+        self.logger.info("clientConnectionFailed %s", self.member)
+        if self.continueTrying and not self.protocol:
+            self.connector = connector
+            self.retry()
+
+    def clientConnectionLost(self, connector, reason):
+        self.logger.info("clientConnectionLost %s", self.member)
+        self.connector = connector
+        if self.continueTrying and not self.protocol: 
+            self.connector = connector
+            self.retry()                     
+                
+    def startedConnecting(self, connector):
+        #assert not self.protocol # Never start trying while a protocol is running.
+        
+        self.logger.debug("startedConnecting %s", self.member)                
+
+    def connectionLost(self, protocol):
+        
+        if self.protocol != protocol:
+            self.logger.info("connectionLost %s non-attached protocol", self.member)
+        else:
+            self.protocol = None
+            
+            if protocol.master:
+                # clientConnectionLost will be called
+                pass
+            else:
+                self.logger.info("connectionLost %s attached client", self.member)
+                if self.isActive():
+                    self._connect()
+                              
+    def _connect(self):
+        assert not self.protocol
+        host, port = self.member.getAddress().split(":")
+        port = int(port)
+        fireflies.protocols.connect(self.member, self)
+              
+
+    def serverConnected(self, protocol):
+        """Server Connected"""
+        
+        assert protocol.master
+        me = self.service.group.getMe()
+        him = protocol.other
+
+        self.logger.info("serverConnected %s", him)
+
+        if not self.isActive():
+            protocol.hangup()
+            self.logger.info("hangup -> %s Not active.", him)
+
+        elif self.protocol:
+            assert self.protocol.master == False
+            assert self in self.service.connectedAsServer
+            
+            hisOutbound = self.service.rings.succ(him, lambda x: x.isLive() or x == me)
+            myOutbound = self.service.rings.succ(me, lambda x: x.isLive() or x == him)
+            hisConnectionRing = hisOutbound.index(me)            
+            myconnectionRing = myOutbound.index(him)
+            
+            if hisConnectionRing < myconnectionRing:
+                protocol.hangup()
+                self.logger.info("hangup -> %s My connection use his", him)
+            else:
+                self.protocol.hangup()
+                self.logger.info("hangup -> %s His Connection use mine", him)
+                self.protocol = protocol
+                self.resetDelay()
+                self.service.peerConnected(self)                
+        else:
+            self.protocol = protocol
+            self.logger.info("connected %s as client.", self.member)            
+            self.service.peerConnected(self)
+
+    def isConnected(self):
+        return self.protocol != None
+
+    def disconnect(self):
+        if not self.isConnected(): raise RuntimeError("Not connected")
+        self.protocol.hangup()
+        self.protocol = None
+        if self.isActive():
+            if self.connector:
+                self.retry()
+            else:
+                self._connect()
+
+    def clientConnected(self, protocol):
+        """Client connected. Upcall from server-side factory."""
+
+        assert not protocol.master
+        assert protocol.other == self.member
+        protocol.factory = self
+        
+        me = self.service.group.getMe()
+        him = protocol.other               
+        hisOutbound = self.service.rings.succ(him, lambda x: x.isLive() or x == me)
+        myOutbound = self.service.rings.succ(me, lambda x: x.isLive() or x == him)
+
+        self.logger.info("clientConnected %s", him)
+
+        if not me in hisOutbound:
+            # Not a partner of him, redirect. set() removes duplicate entries.            
+            protocol.redirect(set(hisOutbound))            
+            self.logger.info("redirect -> %s", him)
+        elif not self.protocol:
+            self.protocol = protocol
+            protocol.accept()
+            self.service.peerConnected(self)
+            self.logger.info("accept -> %s No connection", him)
+
+        elif self.protocol.master == False:
+            protocol.hangup()
+            self.logger.info("hangup -> %s Already connected as client", him)
+        
+        else:
+            assert him in myOutbound
+            
+            hisConnectionRing = hisOutbound.index(me)            
+            myconnectionRing = myOutbound.index(him)            
+            
+            if hisConnectionRing < myconnectionRing:
+                self.disconnect()
+                self.protocol = protocol
+                protocol.accept()
+                self.service.peerConnected(self)
+                self.logger.info("accept -> %s In hisConnectionRing < myConnectionRing", him)  
+            else:
+                protocol.hangup()
+                self.logger.info("hangup -> %s hisConnectionRing > myConnectionRing", him)
+
+
+    def buildProtocol(self, address):
+        p = self.service.ClientProtocolClass()
+        p.other = self.member
+        p.master = True
+        p.group = self.service.group
+        p.factory = self
+        p.logger = self.logger
+        return p
+
+
+class PeerServerFactory(twisted.internet.protocol.ServerFactory):
+    
+    logger = logging.getLogger()
+
+    def __init__(self, service):
+        self.service = service
+
+    def clientConnected(self, protocol):            
+        self.service.getPeerFactoryFromProtocol(protocol).clientConnected(protocol)
+        
+    def connectionLost(self, protocol):
+        self.logger.debug("connectionLost %s server", protocol)
+
+    def buildProtocol(self, address):
+        p = self.service.ServerProtocolClass()
+        p.master = False
+        p.factory = self
+        p.service = self.service
+        return p
+
 
 import pickle    
 class SSLAuthenticatedProtocol(Int32StringReceiver):
@@ -189,6 +398,22 @@ class SSLAuthenticatedProtocol(Int32StringReceiver):
         s = pickle.dumps( (localOID, remoteOID, args, kwargs))
         #self.log.debug("%s->%s %s", self.factory.node.getMe(), self.factory, s)
         self.sendString(s)
+        
+            
+    def dataReceived(self, recd):
+        if self.state == self.STATE_TERMINATED:
+            self.logger.warning("traffic after hangup.")
+            return
+        self.factory.service.parent.view.stats.tcpR += len(recd)
+        return Int32StringReceiver.dataReceived(self, recd)
+
+    def sendString(self, data):
+        if self.state == self.STATE_TERMINATED:
+            self.logger.warning("traffic after hangup.")
+            return        
+        self.factory.service.parent.view.stats.tcpW += (len(data) + 4)
+        return Int32StringReceiver.sendString(self, data)
+
 
 
 class UnsecuredDatagramProtocol(protocol.DatagramProtocol):
@@ -207,98 +432,6 @@ class UnsecuredDatagramProtocol(protocol.DatagramProtocol):
         self.transport.write( s, (member.address.host, member.address.port))
         
 
-
-class UDPNetwork(service.MultiService):
-    
-    name = "UDP"
-    
-    def __init__(self, group):
-        super(UDPNetwork, self).__init__()
-        self.group = group
-        
-    def startService(self):
-        super(UDPNetwork, self).startService()   
-        me = self.getRootService().me
-        self.log.info("Binding to UDP:%s", me.address)
-        
-        self.protocol = UnsecuredDatagramProtocol()
-        self.protocol.factory = self
-        self._port = reactor.listenUDP(me.address.port, self.protocol, interface=me.address.host)        
-        
-    def stopService(self):
-        super(FailureDetector, self).stopService()
-        self._port.stopListening()
-
-    def send(self, member, *args, **kwargs):
-        self.protocol.sendMessage(member, *args, **kwargs)
-        
-    def receive(self, protocol, member, *args, **kwargs):
-        pass
-
-class Network(service.MultiService):
-
-    log = logging.getLogger("Network")
-    name = "TCP"
-    
-    def __init__(self, group):
-        super(Network, self).__init__()
-        self._pool = {}
-        self.group = group
-        
-    def startService(self):
-   
-        for m in group.members:
-            self._pool[m] = Peer(m.certificate)
-            
-        addr = self.group.me.address
-        self._port = listen(addr.port,
-                            FirefliesServerFactory(self),
-                            self.sslCtx,
-                            interface=addr.host,
-                            postConnectionCheck=sslPostConnectionCheck)
-        super(Network, self).startService()
-        self.log.debug("listen %s", addr)
-        return self._port
-        
-    def stopService(self):
-        d = super(Network, self).stopService()
-        d = TypedChannel.stopService(self)
-        d.addCallback(lambda x: self._port.stopListening())
-        
-        def deactivateClients():
-            for x in self.members:
-                x.deactivate()
-
-        d.addCallback(lambda x: deactivateClients())
-        return d    
-    
-    def send(self, member, *args, **kwargs):        
-        pass
-    
-    def receive(self, protocol, member, *args, **kwargs):
-        pass
-    
-    
-    
-        
-class FirefliesServerFactory(protocol.ServerFactory):
-
-    unsafeTracebacks = 1
-    protocol = SSLAuthenticatedProtocol
-
-    def __init__(self, node, unsafeTracebacks=False):
-        self.node = node 
-        self.unsafeTracebacks = unsafeTracebacks
-
-    def buildProtocol(self, addr):
-        proto = self.protocol()
-        proto.factory = self
-        return proto
-
-    def clientConnectionMade(self, proto):
-        m = self.node.addCertificate(proto.x509)
-        proto.factory = m
-        return m.clientConnectionMade(proto)
 
     
 class AuthenticatedReliableFiFO(protocol.ReconnectingClientFactory):
