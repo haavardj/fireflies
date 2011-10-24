@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.20 2011/09/29 10:34:08 haavardj Exp $
+## $Id: ring.py,v 1.21 2011/10/24 08:59:17 haavardj Exp $
 ##                
 ######################################################################
 
@@ -183,6 +183,7 @@ class Ring(object):
         lst = []
         s = self.pred(start)
         while s:
+            if s.identity() == start.identity(): break
             if stopFunc(s): break
             lst.append(s)
             s = self.ped(s)
@@ -197,6 +198,7 @@ class Ring(object):
         s = self.succ(start)
         while s:
             if s.identity() == start.identity(): break
+            if stopFunc(s): break
             lst.append(s)
             s = self.succ(s)
         return lst            
