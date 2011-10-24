@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.22 2011/10/04 08:53:58 haavardj Exp $
+## $Id: view.py,v 1.23 2011/10/24 09:01:29 haavardj Exp $
 ##                
 ######################################################################
 
@@ -27,20 +27,6 @@ import fireflies.stats
 from fireflies import ring
 from fireflies.util import minMajority
 import M2Crypto
-
-_mRingIDCache = {}
-def _mRingID(member, ringNr):
-    """Return the hash of member's identifier concatenated with ringNr."""
-    
-    try:
-        return _mRingIDCache[member.getIdentity()][ringNr]
-    except KeyError:
-        memberId = member.getIdentity()
-        ids = _mRingIDCache.get(memberId, {})
-        idOnRing = SHA.new("%s-gossip-%d" % (memberId, ringNr)).digest()
-        ids[ringNr] = idOnRing
-        _mRingIDCache[memberId] = ids
-        return idOnRing
 
 
 def CanAccuseOnRing(accuser, accused, ring):
@@ -65,9 +51,9 @@ class View:
     A member's view of a process group.  
     """
 
-    timeout = 10
+    timeout = 30
     
-    def __init__(self, group, rebuttalTimeout=10):
+    def __init__(self, group, rebuttalTimeout=30):
         """
         @param group: The group to wich this view belongs.
         @type group: fireflies.group.Group
@@ -107,7 +93,7 @@ class View:
         
     def _toRebuttalTimer(self, member):
         assert isinstance(member, Member)
-        self.logger.info("%s failed", member)
+
         assert member.isLive()
         assert member.isAccused()
         self._timers.pop(member)
@@ -188,6 +174,8 @@ class View:
         self.fRing.remove(member)
         self.aRing.insert(member)
         member.setFailed(False)
+        self.logger.info("%s recover", member)
+                
 
         #if member.isAccused():
         #    self.logger.warning("revived peer is accused. Setting timeout.")
@@ -205,10 +193,11 @@ class View:
         assert member in self.aRing
         assert member.getIdentity() in self.sn2peer
         assert self.mRings.hasItem(member)
-
         self.aRing.remove(member)
         self.fRing.insert(member)
         member.setFailed(True)
+        self.logger.info("%s fail", member)
+
 
     def addCertificate(self, elm):
         """Adds a member certificate to a view.
@@ -278,9 +267,30 @@ class View:
         if not fireflies.state.isValidMask(note.mask, self.group.getByzantineToleranceLevel()): 
             #self.logger.warning("discard %s invalid mask", self.pprint(note))
             raise fireflies.ByzantineError("Invalid mask %s from %s" % (str(note.mask), note))
+
+        # Old note        
+        if m.getEpoch() > note.epoch:
+            #self.logger.info("discard %s old", self.pprint(note))
+            return
         
-        if m.getEpoch() >= note.epoch:
-            # Old note
+        if m.getEpoch() == note.epoch:
+
+            # I have two notes with same epoch but different content. This is wrong behaviour as 
+            # notes epochs should be monotonically increasing. However, if local state is deleted 
+            # from disk during a restart, this could happen. If note is mine, then we rebutt, which will
+            # incalidate both of the inconsistent notes.
+            
+            if m.getNote().uidstr() != note.uidstr():
+                self.logger.warning("error %s note with same epoch but different content.", note)
+                
+                if m == self.group.getMe():
+                    n = self.group.getMe().nextNote()
+                    n.sign(self.group.getMyKey())
+                    reactor.callLater(0, self.addNote, n)
+                    self.logger.warning("add %s rebuttal", note)
+            else:
+                pass
+                #self.logger.debug("discard %s current", self.pprint(note))
             return
  
         if not m.isFailed():
@@ -289,56 +299,61 @@ class View:
                 assert self.hasActiveTimer(m)
                 self._stopRebuttalTimer(m)
                 m.clearAccusations()
-                self.logger.info("note received %s (timer stopped)", note)
+                self.logger.info("add %s timer stopped", note)
             else:
-                self.logger.info("note received %s (not accused)", note)
+                self.logger.info("add %s", note)
             m.setNote(note)
             
         else:
             
             assert not self.hasActiveTimer(m)
-
+            
             if m.getEpoch() == 0: 
-                assert not m.isAccused()
-                self.logger.info("recover %s first note", m)
-                m.setNote(note)
-                self._recover(m)
+                self.logger.info("add %s first note", m)
             else:
                 assert m.isAccused()
-                m.clearAccusations()
-                m.setNote(note)
-                self._recover(m)
-                self.group.notify("member.recover", m, fireflies.EV_RECOVER_REBUTTAL)
- 
-                # The member goes from an accused to not accused state. As such,
-                # it may invalidate other accusations. 
-                # Let m_j be m's first live successor on ring r.
-                # All accusations for members between m and m_j
-                #   If m between accuser and accuse: invalidate accusation.  
-                #   If accused now is cleared, rerun for this member.            
-                check = [m,]
-                while check:
-                    m = check.pop()      
-                    for ring in self.mRings.getRings(): 
-                        for q in ring.collectSucc(m, lambda x: not x.isAccused()):
-                            if not q.isAccusedOn(ring.name): continue                        
-                            qa = q.getAccusation(ring.name)
-                            accuser = self.getMemberByIdentity(qa.accuser)
-                            accused = self.getMemberByIdentity(qa.accused)
-                            if ring.isBetween(accuser, q, accused):
-                                assert q.isAccused()
-                                assert q.isAccusedOn(ring.name)
-                                q.invalidateAccusationOnRing(ring.name)
-                                self.logger.debug("%s accusation invalidated", m)
-                                if not q.isAccused():                                 
-                                    if q.isFailed():
-                                        self._recover(q)
-                                        self.logger.info("%s live (accusations invalidated)", q)
-                                        self.group.notify("member.recover", q, fireflies.EV_RECOVER_INVALIDATED)
-                                    else:
-                                        self._stopRebuttalTimer(q)
-                                        self.logger.debug("%s rebuts (accusation invalidated)", m)
-                                    check.append(q)
+                self.logger.info("add %s rebuttal", m)                
+            
+            m.clearAccusations()
+            m.setNote(note)
+            self._recover(m)            
+            self.group.notify("member.recover", m, fireflies.EV_RECOVER_REBUTTAL)
+                
+            # The member goes from an accused to not accused state. As such,
+            # it may invalidate other accusations. 
+            # Let m_j be m's first live successor on ring r.
+            # All accusations for members between m and m_j
+            #   If m between accuser and accuse: invalidate accusation.  
+            #   If accused now is cleared, rerun for this member.            
+            check = [m,]
+            while check:
+                m = check.pop()      
+                #print "check", m
+                for ring in self.mRings.getRings(): 
+                    
+                    # Locate accusations that m might invalidate.
+                    for q in ring.collectSucc(m, lambda x: x.isLive() and not x.isAccused()):
+
+                        if not q.isAccusedOn(ring.name): continue
+                        qa = q.getAccusation(ring.name)
+                        accuser = self.getMemberByIdentity(qa.accuser)
+                        accused = self.getMemberByIdentity(qa.accused)
+
+                        assert accused == q
+                        if ring.isBetween(accuser, m, accused):
+                            assert q.isAccused()
+                            assert q.isAccusedOn(ring.name)
+                            q.invalidateAccusationOnRing(ring.name)
+                            self.logger.debug("del %s invalidated by %s", qa, m)
+                            if not q.isAccused():                                 
+                                if q.isFailed():
+                                    self._recover(q)
+                                    self.logger.info("%s live (accusations invalidated)", q)
+                                    self.group.notify("member.recover", q, fireflies.EV_RECOVER_INVALIDATED)
+                                else:
+                                    self._stopRebuttalTimer(q)
+                                    self.logger.debug("%s accusation invalidated", qa)
+                                check.append(q)
   
 
     def addAccusation(self, accusation): 
@@ -389,7 +404,7 @@ class View:
             #    accused.stats.accusedByzantine += 1
             #    self.stats.accusationsInvalid += 1
             self.logger.warning("discard %s Invalid signature", accusation)
-            raise fireflies.ByzantineError("Invalid signature")
+            return None #raise fireflies.ByzantineError("Invalid signature")
         
         if not accuser.getNote():
             #self.stats.accusationsInvalid += 1
@@ -404,13 +419,13 @@ class View:
         
         if accusation.epoch < accused.getNote().epoch:
             #self.stats.accusationsRedundant += 1
-            self.logger.warning("discard %s newer note", accusation)
+            self.logger.warning("discard %s old note", accusation)
             return None
         
         if accusation.epoch > accused.getNote().epoch:
             #self.stats.accusationsInvalid += 1
-            self.logger.warning("discard %s accusing newer note.", accusation)
-            raise None
+            self.logger.error("discard %s newer note", accusation)
+            return None
 
         # Check that the accuser is not specifying an invalid ring.
         # No correct member should do this.
@@ -419,7 +434,7 @@ class View:
             accuser.accuseByzantine += 1
             accused.accusedByzantine += 1
             self.logger.warning("discard %s byzantine behavior. Not on a valid ring", accusation)
-            raise ByzantineError(accuserID)
+            return None #raise ByzantineError(accuserID)
 
         # Check that the ring is enabled.
         # No correct member should violate this.
@@ -427,8 +442,17 @@ class View:
             self.stats.accusationsInvalid += 1
             self.stats.accuseByzantine += 1
             self.stats.accusedByzantine += 1
-            self.logger.warning("discard %s byzantine behavior. Ring disabled by accused", accusation)
-            raise ByzantineError(accuserID)
+            
+            if accuser == self.group.getMe() and self.group.getMe().getNote().epoch == 1:
+                n = self.getMe().nextNote()
+                isinstance(n, Note)
+                n.sign(self.getMyKey())
+                reactor.callLater(0, self.view.addNote, n)
+                self.logger.warning("add %s but ring disabled, lost note?", accusation)
+            else:
+                self.logger.warning("discard %s Byzantine behavior. Ring disabled by accused", accusation)                
+                
+            return None #raise ByzantineError(accuserID)
 
         # Make some shortcuts :-)
         rnr = accusation.nr
@@ -446,17 +470,21 @@ class View:
             
             if isBetterAccuserOnRing(accuser, currentAccuser, accused, ring):
                 accused.setAccusation(accusation)
-                self.logger.info("%s accused by %s on ring %d (replacing %s)", accused, accuser, accusation.nr, currentAccuser)
+                self.logger.info("add %s", accusation)
+                self.logger.info("del %s replaced", currentAccusation)
+                #self.logger.info("%s accused by %s on ring %d (replacing %s)", accused, accuser, accusation.nr, currentAccuser)
             else:
-                self.logger.debug("%s accused by %s on ring %d (have closer accusation)", accused, accuser, accusation.nr)
+                self.logger.debug("discard %s have closer ", accusation)
 
         elif CanAccuseOnRing(accuser, accused, ring):
             accused.setAccusation(accusation)
             if (not self.hasActiveTimer(accused)) and accused.isLive():
-                self.logger.info("%s accused by %s on ring %d (timer started)", accused, accuser, accusation.nr)
+                self.logger.info("add %s timer started", accusation)
                 self._startRebuttalTimer(accused)
+            else:
+                self.logger.info("add %s", accusation)
         else:
-            self.logger.debug("%s accused by %s on ring %d (accuser not monitor)", accused, accuser, accusation.nr)
+            self.logger.debug("dicard %s accuser not current monitor)", accusation)
 
 
 
