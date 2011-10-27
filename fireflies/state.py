@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.16 2011/10/21 09:36:17 haavardj Exp $
+## $Id: state.py,v 1.17 2011/10/27 09:36:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -283,6 +283,9 @@ class Member(object):
         @rtype: L{Note}
         """
         return self._note
+    
+    def isEnabledOnRing(self, ring):
+        return bool(self._note.mask[ring.name])
     
     def nextNote(self):
         """Compute a new note for the member based on any previous note and previous accusations. 
