@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.23 2011/10/24 09:01:29 haavardj Exp $
+## $Id: view.py,v 1.24 2011/11/07 13:24:51 haavardj Exp $
 ##                
 ######################################################################
 
@@ -38,7 +38,9 @@ def CanAccuseOnRing(accuser, accused, ring):
     isinstance(accused, Member)
     isinstance(ring, fireflies.ring.Ring)
     
-    return accuser == ring.pred(accused, func=lambda x: x.isLive() or x==accuser)
+    if not accuser.isEnabledOnRing(ring): return False
+    
+    return accuser == ring.pred(accused, func=lambda x: x.isLive() or x==accuser or (not x.isEnabledOnRing(ring)))
 
 def isBetterAccuserOnRing(new, old, member, ring):
     """Returns true if new is a closer/better accuser than old for member on the given ring."""
@@ -61,8 +63,6 @@ class View:
 
         isinstance(group, fireflies.group.Group)
         self.rebuttalTimeout = rebuttalTimeout
-
- 
         
         self.toleranceLevel = minMajority(group.pByz, group.maxGroupSize, group.faultToleranceLevel)
         self.numberOfRings = self.toleranceLevel* 2 + 1
