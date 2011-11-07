@@ -9,7 +9,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: __init__.py,v 1.17 2007/09/23 12:12:54 haavardj Exp $
+## $Id: __init__.py,v 1.18 2011/11/07 13:23:52 haavardj Exp $
 ##                
 ######################################################################
 
@@ -25,7 +25,7 @@ with eventual probabilistic guarantees.
 """
 
 
-protocol_version = (0,1,0)
+protocol_version = (0,1,1)
 
 __version__ = "%d.%d.%d" % protocol_version
 version = __version__
@@ -52,9 +52,11 @@ defaultConfig = {
     #'BITSIZE': 160,
 
     # Length of encryption keys.
+    'port': 14377,
     'RSA_SIZE': 1024,
 
     'maxGroupSize': 10000, 
+    'tcptimeout': 360,
 
     # NOMGOSSIPRINGS and T reflects how many Byzantine members the
     # protocol can handle. Their values depend on the probability that
