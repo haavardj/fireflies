@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.25 2011/10/04 08:59:14 haavardj Exp $
+## $Id: crypto.py,v 1.26 2011/11/07 13:27:31 haavardj Exp $
 ##                
 ######################################################################
 
@@ -302,6 +302,7 @@ class Signable:
     to be recomputed."""
 
     signature = ""
+    _fingerprint = None
 
     def uidstr(self):
         """Return a unique string identifier for this object.
@@ -327,9 +328,11 @@ class Signable:
         return result
 
     def get_fingerprint(self):
-        dig = M2Crypto.EVP.MessageDigest("sha1")
-        dig.update(self.uidstr())
-        return dig.final()
+        if not self._fingerprint:       
+            dig = M2Crypto.EVP.MessageDigest("sha1")
+            dig.update(self.uidstr())
+            self._fingerprint = dig.final()
+        return self._fingerprint
 
 
 class SignableString(Signable):
