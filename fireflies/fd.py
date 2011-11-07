@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.24 2011/10/04 09:00:26 haavardj Exp $
+## $Id: fd.py,v 1.25 2011/11/07 13:26:25 haavardj Exp $
 ##                
 ######################################################################
 
@@ -186,6 +186,7 @@ class FailureDetector(Service):
     pmistake = 0.001
     smoothing = 0.999
     tmin = 3
+    logger = logging.getLogger()
     
 
     def __init__(self, group):
@@ -194,11 +195,8 @@ class FailureDetector(Service):
         self.peer = group.getMe()
         self.setServiceParent(group) 
         self.group = group
-        self.mkey = group.getMyKey()
-        self.view = group.getView()
-        self.logger = logging.getLogger(group.getMe().getAddress())
          
-        nrRings = self.view.getNumberOfRings()
+        nrRings = self.group.view.getNumberOfRings()
         self.last = -1 % nrRings
         self._pinglist = [None] * nrRings
         isinstance(self.parent, fireflies.group.Group)
@@ -216,7 +214,7 @@ class FailureDetector(Service):
 
         def _d():            
             self._task = task.LoopingCall(self.update)
-            self._task.start(float(self.roundtime)/float(self.view.getNumberOfRings())).addErrback(self._failback)
+            self._task.start(float(self.roundtime)/float(self.group.view.getNumberOfRings())).addErrback(self._failback)
         reactor.callLater(0.1, _d)
 
     def _failback(self, reason):
@@ -232,15 +230,9 @@ class FailureDetector(Service):
             self._udpport.stopListening()
             self._udpport = None
         self.protocol = None
-
-    def handle_pong(self, frmIP, frmSN, toSN, nounce):
-        pass
-    
-    def handle_ping(self, frmIP, frmSN, toSN, nounce):
-        pass
         
     def update(self):
-        nrRings = self.view.getNumberOfRings()
+        nrRings = self.group.view.getNumberOfRings()
         me = self.group.getMe()
         view = self.group.view
         
@@ -307,15 +299,14 @@ class FailureDetector(Service):
             
             t = log(self.pmistake) / log(1. - p)
 
-            #if (mon.nPing - t) >= random.random():
             if mon.nPing > t:
                 accusation =  Accusation(mon.getIdentity(),
-                                                 mon.getNote().epoch,
-                                                 x,
-                                                 me.getIdentity())
+                                         mon.getNote().epoch,
+                                         x,
+                                         me.getIdentity())
                 accusation.sign(self.group.getMyKey())
                 self.logger.warning("created %s t=%.2f nPing=%d", self.peer.view.pprint(accusation), t, mon.nPing)
-                view.addAccusation(accusation)                
+                view.addAccusation(accusation)
                 view.stats.accusationsCreated += 1
 
                 #assert mon.nPing > 0
@@ -335,10 +326,6 @@ class FailureDetector(Service):
                     self.logger.exception("error pinging: %s", why)
 
                 mon.nPing += 1
-            
-            #if ((self.peer.crypto.address == "127.0.0.1:12000") and
-            #    (mon.crypto.address == "127.0.0.1:12001")):
-            #    fireflies.stats.gStats.avgLoss = [mon.avgLoss, p, t]
 
 
 class PingPong(DatagramProtocol):
