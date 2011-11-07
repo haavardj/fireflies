@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd2.py,v 1.1 2011/10/02 12:34:53 haavardj Exp $
+## $Id: fd2.py,v 1.2 2011/11/07 13:26:34 haavardj Exp $
 ##                
 ######################################################################
 
@@ -201,8 +201,7 @@ class SignedDatagramProtocol(DatagramProtocol):
         pass
                         
     def sendSignedDatagram(self, receiver, data):
-        pass
-        
+        pass        
             
     def makeConnection(self, transport):
         print transport, type(transport), id(transport)
