@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.24 2011/09/23 08:14:33 haavardj Exp $
+## $Id: group.py,v 1.25 2011/11/07 13:31:17 haavardj Exp $
 ##                
 ######################################################################
 
@@ -22,8 +22,43 @@ from fireflies.view import View
 from fireflies.crypto import identityFromCertificate
 import fireflies.stats
 import M2Crypto
-           
 
+_defaultGroup = None
+_groupByFID = {}
+_groupCertificate = None
+
+def setGroupCertificate(groupCertificate):
+    if _groupCertificate == None:
+        _groupCertificate = groupCertificate
+    elif _groupCertificate == groupCertificate: 
+        return
+    else:
+        raise RuntimeError("Different group certificate is set.")
+
+def getGroupCertificate():
+    return _groupCertificate    
+
+def setDefultGroup(group):
+    _defaultGroup = group
+    
+def getMemberByIdentity(fid, ctx=None):
+    """Resolve a member identity to a member object."""
+    
+    if not ctx: ctx = _defaultGroup
+    if not cxt: raise RuntimeError("No group object available")
+    if not isinstance(ctx, Group): raise ValueError
+    
+    return ctx.getMemberByIdentity(fid)
+    
+def getMemberByAddress(address, ctx=None):
+    """Resolve a member identity to a member object."""
+    
+    if not ctx: ctx = _defaultGroup
+    if not cxt: raise RuntimeError("No group object available")
+    if not isinstance(ctx, Group): raise ValueError
+    
+    return ctx.getMemberByIdentity(fid)
+        
 
 class Group(MultiService):
     """A Fireflies group. This class is the main interface to the Firelifes runtime. 
@@ -87,6 +122,34 @@ class Group(MultiService):
 
         self.stats = fireflies.stats.Stats()
         
+        
+        global _defaultGroup
+        if not _defaultGroup:
+            _defaultGroup=self
+        
+    def getMemberByIdentity(self, fid):
+        return self.view.getMemberByIdentity()
+    
+    def getLiveMembers(self):
+        """@return: Return an iterable object of all currently live members."""
+        return self.view.aRing
+
+    def getFailedMembers(self):
+        """@return: Return an iterable object of all currently failed members."""
+        return self.view.fRing
+
+    def getAllMembers(self):
+        """@return: Return an iterable object of of all (live + failed) members."""
+        return self.view.pRing
+
+    def getMemberByCertificate(self, cert):
+        return self.view.getMemberByIdentity(identityFromCertificate(cert))
+
+    def getMemberByIdentity(self, id):
+        return self.view.sn2peer[id]
+
+    def getMembersByAddress(self, address):
+        return filter(lambda x: x.cert.address == address, self.view.pRing)        
     
     def registerEventHandler(self, name, func, *args, **kwargs):
         """Register a function to receive events (callbacks). Events have
@@ -160,7 +223,6 @@ class Group(MultiService):
             isinstance(n, Note)
             n.sign(self.getMyKey())
             reactor.callLater(0, self.view.addNote, n)
-
             
     def __len__(self):
         """@return: Return the number of all members."""
@@ -236,6 +298,13 @@ class Group(MultiService):
     def stopService(self):
         MultiService.stopService(self)
         self.logger.info("leave group %s", self.getGroupName())
+        
+        
+    def verify(self, item, member):        
+        pass
+    
+    def sign(self, item):
+        pass
                 
     def getContext(self):
         return self._sslCtx
