@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.17 2011/10/27 09:36:52 haavardj Exp $
+## $Id: state.py,v 1.18 2011/11/07 13:32:45 haavardj Exp $
 ##                
 ######################################################################
 
@@ -218,10 +218,6 @@ class Member(object):
         pSucc = (1 - initLRate)**2 
         self.avgLoss = ((1-pSucc)/pSucc) + 1
 
-        #self.lastPong = 0
-        #self.firstAccused = 0
-        #self._lastPinged = -1
-
         # Used by the web status displayer        
         self.allAccusations = []
 
@@ -312,7 +308,7 @@ class Member(object):
         # build a random mask.
         
         # p1 is a list of the ring numbers we are to disable. p1 is
-        # sorted according to which rings are to be disabled first.         
+        # sorted according to which rings are to be disabled first.
                 
         p1 = map(lambda x: (self.hAccusations[x], x), self.hAccusations.keys())
         p1.sort()
