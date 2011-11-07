@@ -42,8 +42,7 @@ def connect(member, factory, timeout=30, bindAddress=None):
                                       client=1,
                                       contextFactory=ctx,
                                       postConnectionCheck=ClientConnectionChecker(member.getCertificate()))
-    
-    
+        
     return reactor.connectTCP(address.host, address.port, wrappingFactory, timeout, bindAddress)
                               
 
@@ -154,8 +153,6 @@ class IPeerNetworkingService(Interface):
         pass
     
     
-
-
 class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactory):
     """If activated, this factory will always try to maintain an active connection to the specified member.
     It will also handle inbound connections so that only a single inbound or outbound connection will be allowed."""
@@ -182,7 +179,10 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
 
         self.continueTrying = 1
         self.logger.info("activating %s", self.member)                
-        self._connect()
+        if not self.protocol:
+            self._connect()
+        else:
+            assert not self.protocol.master
 
     def deactivate(self):
         self.logger.info("deactivating %s", self.member)
@@ -357,49 +357,53 @@ class PeerServerFactory(twisted.internet.protocol.ServerFactory):
         return p
 
 
-import pickle    
-class SSLAuthenticatedProtocol(Int32StringReceiver):
-    
+class FirefliesProtocol(Int32StringReceiver):
+    STATE_IDLE = "idle"
+    STATE_CONNECTING = "conn"
+    STATE_HOLDING = "hold"
+    STATE_GOSSIPING = "gossip"
+    STATE_TERMINATED = "term"
+    MAX_LENGTH = 100000000
+
+    other = None
+    state = STATE_CONNECTING
+    master = False
+    connectionTimeout = fireflies.defaultConfig['tcptimeout']
     factory = None
-    certificate = None
-    log = logging.getLogger("SSLAuthenticatedProtocol")
+    logger = logging.getLogger()
+
     
-    def postConnection(self, x509, host):
-        #logging.debug("postConnection %s %s", x509, host)
-        if not x509: return False 
+    def postConnectionCheck(self, x509, host):
         isinstance(x509, M2Crypto.X509.X509)
-        self.x509 = crypto.MemberCertificate(x509.x509)
-        self.factory.clientConnectionMade(self)
-        reactor.callLater(0, self.next)
-        return True 
-     
+        service = self.factory.service.parent
+        isinstance(service, fireflies.group.Group)
+        service.view.addCertificate(x509)
+        peer = service.getView().getMemberByCertificate(x509)
         
-    def getCertificate(self):
-        return self.x509
+        if self.other != None and self.other != peer:
+            raise WrongCertificate('peer did not authenticate with correct certificate')
+        else:
+            self.other = peer
+        
+        if self.master:
+            reactor.callLater(0, self._sendPartner, self.factory.service.parent.getMe().getNote())
+        else:
+            self.setTimeout()          
+        return True
     
-    def connectionMade(self):  
-        #logging.debug("%s connectionMade", self.factory.node.getMe().address)
-        self.transport.postConnectionCheck = self.postConnection
+    def connectionMade(self):
+        self.transport.postConnectionCheck = self.postConnectionCheck
 
     def connectionLost(self, reason):
-        if self in self.factory._connections:
-            self.factory._connections.remove(self)
-                         
-    def stringReceived(self, msg):
-        if noiselevel > 0: self.log.debug("%s<-%s %s ", self.factory.node.me, self.factory, msg)
-
+        self.state = self.STATE_TERMINATED
         try:
-            remoteOID, localOID, args, kwargs = pickle.loads(msg)
-            self.factory.receiveMessage(self, remoteOID, localOID, *args, **kwargs)
+            if self._timer: self.cancelTimeout()
+        except KeyboardInterrupt:
+            raise
         except:
-            self.log.exception("%s<-%s Error processing message: %s", self.factory.node.me, self.factory, msg)            
-            
-    def sendMessage(self, localOID, remoteOID, *args, **kwargs):
-        s = pickle.dumps( (localOID, remoteOID, args, kwargs))
-        #self.log.debug("%s->%s %s", self.factory.node.getMe(), self.factory, s)
-        self.sendString(s)
-        
-            
+            pass
+        self.factory.connectionLost(self)
+
     def dataReceived(self, recd):
         if self.state == self.STATE_TERMINATED:
             self.logger.warning("traffic after hangup.")
@@ -414,184 +418,122 @@ class SSLAuthenticatedProtocol(Int32StringReceiver):
         self.factory.service.parent.view.stats.tcpW += (len(data) + 4)
         return Int32StringReceiver.sendString(self, data)
 
-
-
-class UnsecuredDatagramProtocol(protocol.DatagramProtocol):
-
-    log = logging.getLogger("UnAuthenticatedDatagramProtocol")
-    
-    
-    def datagramReceived(self, data, (host, port)):      
-        memberID, remoteOID, localOID, args, kwargs = pickle.loads(data)    
-        root = self.factory.getRootService()        
-        m = root.getMemberByIdentity(memberID)
-        m.receiveMessage(self, remoteOID, localOID, *args, **kwargs)
-               
-    def sendMessage(self, member, localOID, remoteOID, *args, **kwargs):        
-        s = pickle.dumps( (member.identity, localOID, remoteOID, args, kwargs))
-        self.transport.write( s, (member.address.host, member.address.port))
-        
-
-
-    
-class AuthenticatedReliableFiFO(protocol.ReconnectingClientFactory):
-
-    protocol = SSLAuthenticatedProtocol
-    unsafeTracebacks = 1
-    continueTrying = 0
-    _active = False
-    _allowConnectionFrom = False
-    _allowConnectionTo = False
-    
-    def __init__(self, member):
-        
-        if 0: isinstance(certificate, state.MemberCertificate)
-        if 0: isinstance(self.node, Node)
-        self._pendingActivation = set()
-        self._msgQueue = defer.DeferredQueue()
-        self._connections = set()
-        self.member = member
-        self.certificate = member.certificate
-        self.log = logging.getLogger("protocols.peer")
-        
-    def sendMessage(self, *args, **kwargs):
-        self.log.debug("%s->%s %s %s", self.node.me, self, args, kwargs)
-        #self.activate()
-        self._msgQueue.put( (args, kwargs))
-            
-    def receiveMessage(self, protocol, remoteOID, localOID, *args, **kwargs):
-        self.log.debug("%s:%s<-%s:%s %s %s", 
-                       self.node.me, localOID,
-                       self, remoteOID,
-                       args, 
-                       kwargs)
-
-        try:
-            service = self.node.getServiceNamed(localOID)
-        except KeyError:
-            self.log.warning("%s:%s<-%s:%s no such service", 
-                             self.node.me, localOID,
-                             self, remoteOID)
+    def sendCommand(self, cmd, *args):
+        try:        
+            self.sendString(fireflies.packer.PackMessage(cmd, *args))
+        except KeyboardInterrupt:
             raise
-        else:
-            service.receiveMessage(self, remoteOID, *args, **kwargs)
-                
-    def clientConnectionFailed(self, connector, reason):
-        #self.log.debug("clientConnectionFailed")
-
-        if self.continueTrying:
-            self.connector = connector
-            self.retry()
-                
-    def clientConnectionLost(self, connector, reason):
-        #self.log.debug("clientConnectionLost %s", reason)
-
-        if self.continueTrying:
-            self.connector = connector
-            self.retry()
-
-    def clientConnectionMade(self, protocol):
-        self.log.debug("%s clientConnectionMade %s", self.node.me.address, self.address)
-        self._connections.add(protocol)
-        
-        while self._pendingActivation:
-            d = self._pendingActivation.pop()
-            d.callback(self)                    
-        
-    def isActive(self):
-        return self._active
-                
-    def activate(self):
-        """Start connecting to this peer."""
-
-        if self.isActive():
-            #assert self._connections
-            assert self.continueTrying
-            #assert self._callID
-            self.log.debug("%s activate %s (multiple)", self.node.me.address, self.address)
-            return defer.succeed(self)
-        else:
-            self.log.info("%s activate %s", self.node.me.address, self.address)
-
-        assert not self._connections
-        assert not self.continueTrying
-        assert not self._callID
-
-        self._active = True
-        self.continueTrying = 1
-        
-        if self.connector:
-            self.retry()
-        else:
-            self.connect()
-
-        d = defer.Deferred()
-        self._pendingActivation.add(d)
-        return d
-                
-    def deactivate(self, reason=None):
-        """Deactivate a connection to this peer."""
-        
-        if not self.isActive(): 
-            #self.log.debug("%s deactivate %s (multiple).", self.node.getMe().address, self.address)
-            #assert not self._connections
-            return
-        else:
-            self.log.debug("%s deactivate %s", self.node.me.address, self.address)
+        except Exception, why:
+            self.logger.exception("Unable to send command %s. %s", cmd, why)
             
-        self._active = False
-        
+    def stringReceived(self, data):
         try:
-            self.stopTrying()
-        except twisted.internet.error.NotConnectingError:
-            pass
+            cmd, args = fireflies.packer.unpackMessage(data)
+            getattr(self, "handle_" + cmd)(*args)
+        except KeyboardInterrupt:
+            raise
+        except Exception, why:
+            self.logger.exception("Unable to run command %s: %s", cmd, why)
+                    
+    def hangup(self, hard=True):
+        if hard or (self.state != self.STATE_GOSSIPING):
+            if not self.transport: return
+            self.transport.loseConnection()
+            self.state = self.STATE_TERMINATED                
+        else:
+            self._stop = True
+        self.logger.debug("hangup %s", self)
+
+    def timedout(self):
+        assert self._timer and self._timer.active()           
+        self._timer = None
+        self.logger.warning("timeout %s", self)
+        self.hangup()
+
+    def __repr__(self):
+        if self.other:
+            return "%s,%s" % (self.factory.service.parent.view.pprint(self.other.getNote()), self.state) 
+        elif self.transport:
+            addr = self.transport.getPeer()
+            return "%s:%d,%s" % (addr.host, addr.port, self.state)
+        else:
+            return "-:-(%s)" % (self.state)
+
+    def setTimeout(self):
+        if self._timer and self._timer.active():
+            raise Exception, "Timer already set."
+        self._timer = reactor.callLater(self.connectionTimeout, self.timedout)
+
+    def cancelTimeout(self):
+        assert self._timer and self._timer.active()        
+        self._timer.cancel()
+        self._timer = None
+
+    def sendData(self, data):
+        assert self.state == self.STATE_IDLE
+        self.sendCommand("data", data)       
         
-        while self._connections:
-            x = self._connections.pop()
-            x.transport.loseConnection()
-
-        while self._pendingActivation:
-            d = self._pendingActivation.pop()
-            d.errback()        
-    
-    def isConnected(self):
-        return bool(self._connections) 
-    
-    @property
-    def identity(self):
-        return self.certificate.identity()
-
-    @property
-    def address(self):
-        host, port = self.certificate.get_subject().CN.split(":")
-        return twisted.internet.address.IPv4Address("TCP", host, int(port))        
-           
-    def connect(self):
-        self.log.debug("connect")
-        adr = self.address
-        return connect(adr.host, adr.port, self, self.node)
-    
-    def isAllowedConnectionFrom(self):
-        return self._allowConnectionFrom   
-    
-    def allowConnectionFrom(self):
-        self._allowConnectionFrom = True
-
-    def denyConnectionFrom(self):
-        self._allowConnectionFrom = False
-
-    def isAllowedConnectionTo(self):
-        return self._allowConnectionTo   
-    
-    def allowConnectionTo(self):
-        self._allowConnectionTo = True
-
-    def denyConnectionTo(self):
-        self._allowConnectionTo = False
+    def handle_version(self, major, minor, patchlevel):
+        #
+        # TODO: The node will die if it has an old version
+        # number. This is VERY INSECURE and will be removed. However,
+        # it is nice for testing on PlanetLab.
+        #
         
-    def __str__(self):
-        return str(self.address)
+        if (major, minor, patchlevel) > fireflies.protocol_version:
+            self.logger.warning("version<- %s Version error. I have an old version. Exiting.", self)
+            reactor.callLater(2, reactor.stop)
+        elif (major, minor, patchlevel) < fireflies.protocol_version:
+            self.logger.warning("version<- %s Version error. Other have an old version.", self)
+            
+        if not self.master:
+            self.cancelTimeout()
+            self.sendCommand("version", *fireflies.protocol_version)
+
+    def _sendPartner(self, note):
+        self.logger.debug("partner > %s", self)
+        self.setTimeout()
+        self.sendCommand("partner", note)
         
+    def handle_accepted(self):   
+        self.state = self.STATE_IDLE
+        self.cancelTimeout()
+        self.logger.debug("accepted < %s", self)
+        reactor.callLater(0, self.factory.serverConnected, self)
+        reactor.callLater(0, self.idle)
+        
+    def handle_redirect(self, data):
+        self.cancelTimeout()
+        self.logger.debug("redirect < %s", self)
+        for cert, note in data:
+            self.factory.view.addCertificate(crt)
+            self.factory.view.addNote(note)   
+        self.hangup()
 
+    def redirect(self, members):
+        #self.factory.peer.view.stats.redirect += 1
+        pprint = self.factory.service.parent.view.pprint
+        self.logger.debug("redirect-> %s", self)
+        self.setTimeout()
+        lst = []
+        for m in members:
+            lst.append( (m.getCertificate(), m.getNote() ))
+        self.sendCommand("redirect", lst)
 
+    def accept(self):
+        self.logger.debug("accepted-> %s", self)
+        self.sendCommand("accepted")
+        self.state = self.STATE_IDLE        
+ 
+    def handle_dataRequest(self):
+        while self.factory.msgQueue.waiting:
+            d = self.factory.msgQueue.get()
+            d.addCallback(lambda x: self.sendData(x))
+            
+    def handle_partner(self, hisNote):
+        self.cancelTimeout()
+        self.factory.service.parent.getView().addNote(hisNote)    
+        self.logger.debug("partner<- %s", self)
+        reactor.callLater(0, self.factory.clientConnected, self)
 
+        
