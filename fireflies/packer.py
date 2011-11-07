@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.18 2011/10/21 08:25:22 haavardj Exp $
+## $Id: packer.py,v 1.19 2011/11/07 13:32:07 haavardj Exp $
 ##                
 ######################################################################
 
@@ -111,7 +111,9 @@ def PackMessage(cmd, *args):
         p.pack_note(note)
 
     elif cmd == "redirect":
-        for cert, note in args,:
+        lst, = args
+        for cn in lst:
+            cert, note = cn
             p.pack_bool(True)                        
             p.pack_cert(cert)
             p.pack_note(note)
@@ -207,9 +209,10 @@ def unpackMessage(data):
         args = (p.unpack_cert(), p.unpack_note())
 
     elif cmd == "redirect":
-        args = []
+        lst = []
         while p.unpack_bool():
-            args.append( (p.unpack_cert(), p.unpack_note() ))
+            lst.append( (p.unpack_cert(), p.unpack_note() ))
+        args = (lst,)
 
     elif cmd == "version":
         args = (p.unpack_short(),
