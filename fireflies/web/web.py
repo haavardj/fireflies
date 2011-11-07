@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, University of Tromso, Norway)
 ##                
-## $Id: web.py,v 1.9 2011/09/22 11:42:58 haavardj Exp $
+## $Id: web.py,v 1.10 2011/11/07 13:22:15 haavardj Exp $
 ##                
 ######################################################################
 
@@ -537,12 +537,25 @@ class RootPage(MasterPage):
     def child_stats(self, context):
         return StatsPage(self.peer)
     
+    def child_live(self, context):
+        s = ""
+        for member in self.peer.view.getLiveMembers():
+            s = s + "\n" + member.getCommonName()        
+        return s
+
+    def child_failed(self, context):
+        s = ""
+        for member in self.peer.view.getFailedMembers():
+            s = s + "\n" + member.getCommonName()        
+        return s
+
+    
     def child_rings(self, context):
         return RingsPage(self.peer)
     
     def childFactory(self, context, name):
         try:
-            peer = self.peer.view.sn2peer[long(name)]
+            peer = self.peer.view.sn2peer[name]
             return PeerPage(self.peer, peer)
         except Exception:
             return None        
@@ -673,7 +686,7 @@ class PartnersPage(MasterPage):
 
                 d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
                 
-                if y.getNote().mask and y.getNote().mask[x] == False:
+                if y.getNote() and y.getNote().mask and y.getNote().mask[x] == False:
                     d7 = T.td["disabled"]
                     d5 = d6 = d8 = T.td[""]
                 elif y in mons[0:x]:
