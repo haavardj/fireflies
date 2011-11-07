@@ -44,18 +44,22 @@ store = fireflies.persist.Store(args[0])
 
 if options.password:
  passwdcb = passwd
+ cipher = 'aes_128_cbc'
 elif options.nopass:
  passwdcb = None
+ cipher = None
 else:
  passwdcb= M2Crypto.util.passphrase_callback
+ cipher = 'aes_128_cbc'
 
+ 
 caCert = M2Crypto.X509.load_cert(args[1])
 store.saveCACert(caCert)
 
 if not options.quiet:
  print "Generating private key"
 mPKey = fireflies.crypto.makePrivateKey()
-store.savePrivateKey(mPKey, callback=passwdcb)
+store.savePrivateKey(mPKey, cipher=cipher, callback=passwdcb)
 req = fireflies.crypto.makeRequest(args[2], mPKey, nickname=options.nick)
 
 assert req.verify(mPKey)
