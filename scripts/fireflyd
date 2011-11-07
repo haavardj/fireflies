@@ -331,7 +331,10 @@ if __name__ == "__main__":
         global sold, snew
         snew = stats.collect(mgroup)
         snew.cputime = os.times()[0] * bogomips
-        logging.info("checkpoint %s %d %d" % (str( (snew - sold)), snew.members, snew.fmembers) )
+        sdiff = snew - sold
+        sdiff.members = snew.members
+        sdiff.fmembers = snew.fmembers
+        logging.info("checkpoint %s %d %d" % (str(sdiff), snew.members, snew.fmembers))
         sold = snew
         
 
