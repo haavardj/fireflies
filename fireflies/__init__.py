@@ -9,7 +9,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: __init__.py,v 1.19 2011/11/07 13:34:35 haavardj Exp $
+## $Id: __init__.py,v 1.20 2011/11/18 12:07:23 haavardj Exp $
 ##                
 ######################################################################
 
@@ -48,14 +48,11 @@ EV_DATA_INVALID = False
 
 defaultConfig = {
 
-    #'MBAR': 10,
-    #'BITSIZE': 160,
-
-    # Length of encryption keys.
+     # Length of encryption keys.
     'port': 14377,
     'RSA_SIZE': 1024,
 
-    'maxGroupSize': 10000, 
+
     'tcptimeout': 360,
 
     # NOMGOSSIPRINGS and T reflects how many Byzantine members the
@@ -69,31 +66,8 @@ defaultConfig = {
     # Byzantine. There gossip mesh is connected with a probability of
     # 0.999.
     
-    #'NUM_GOSSIPRINGS': 8,
-    #'NUMMONRINGS': 13,
-    'pByz': 0.20,
 
-    # The probability of accusing a live member due to packet
-    # loss. Lower number is better but increases the time it takes to
-    # detect a failed member.
-    #'PMISTAKE': 0.00001,
 
-    # Do not accuse a member unless it has been pinged this many times.    
-    #'TMIN': 3,
-
-    # What factor the pinging protocol will use to smooth the expected
-    # average loss rate.
-    #'SMOOTHING': 0.999,
-
-    # Time to wait between receiving an accusation and failing the
-    # accused member. 
-    #'REBUTTAL_TIME': 600,
-
-    # How often gossip partner should exchange state (seconds).
-    #'GOSSIP_ROUNDTIME': 60,
-
-    # How often a monitor should ping (seconds).
-    #'PING_ROUNDTIME': 30
     }
 
 class ByzantineError(Exception):
