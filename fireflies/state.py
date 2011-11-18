@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.18 2011/11/07 13:32:45 haavardj Exp $
+## $Id: state.py,v 1.19 2011/11/18 12:19:27 haavardj Exp $
 ##                
 ######################################################################
 
@@ -22,7 +22,6 @@ import bisect, logging, setrecon, random, stats
 import M2Crypto
 import twisted
 
-INITIAL_LRATE = 0.10
 
 def isValidMask(mask, t):
     """
@@ -100,7 +99,6 @@ class Accusation(object, crypto.Signable):
         self.epoch = ll
         self.nr = nr
         self.accuser = accuser 
-        self.signature = 0
 
     def __getstate__(self):
         return {"accused": self.accused,
@@ -181,14 +179,17 @@ class Note(object, crypto.Signable):
 def shortIdentity(member):
     return member.getIdentity()[-4:]
 
+import fireflies
 class Member(object):
     """Encapsulates known state of a group member.
 
     @ivar group: The group in which this member is a member of.
     @type group: L{fireflies.group.Group}
     """
+    
+    initialLossRate = 0.001 
 
-    def __init__(self, cert, group, initLRate=INITIAL_LRATE):
+    def __init__(self, cert, group):
 
         isinstance(group, fireflies.group.Group)
         isinstance(cert, M2Crypto.X509.X509)
@@ -215,7 +216,7 @@ class Member(object):
         # binomial experiment with r = 1 and the probability, pSucc,
         # for a successful ping and pong exchange. Lossrate is
         # expected to be independent.
-        pSucc = (1 - initLRate)**2 
+        pSucc = (1 - self.initialLossRate)**2 
         self.avgLoss = ((1-pSucc)/pSucc) + 1
 
         # Used by the web status displayer        
@@ -509,15 +510,7 @@ class Member(object):
     
         return bool(self.vAccusations)
 
-    def hasAccusationOn(self, rnr):
-        """
-        Check for valid accusations on a given ring.
-        
-        @param rnr: Ring number
-        @type rnr: int
-        @return:True if there is is an accusations on the given ring. """
-        
-        return self.vAccusations.has_key(rnr)
+
         
     def clearAccusations(self):
         """
