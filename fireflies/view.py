@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.24 2011/11/07 13:24:51 haavardj Exp $
+## $Id: view.py,v 1.25 2011/11/18 12:14:57 haavardj Exp $
 ##                
 ######################################################################
 
@@ -38,9 +38,17 @@ def CanAccuseOnRing(accuser, accused, ring):
     isinstance(accused, Member)
     isinstance(ring, fireflies.ring.Ring)
     
-    if not accuser.isEnabledOnRing(ring): return False
+    if not accused.isEnabledOnRing(ring): return False
+    assert accuser.group == accused.group
     
-    return accuser == ring.pred(accused, func=lambda x: x.isLive() or x==accuser or (not x.isEnabledOnRing(ring)))
+    succ = ring.succ(accuser)
+    while succ != accused:    
+        if succ.isLive(): return False
+        succ = ring.succ(succ)
+        
+    return True
+                
+
 
 def isBetterAccuserOnRing(new, old, member, ring):
     """Returns true if new is a closer/better accuser than old for member on the given ring."""
@@ -53,16 +61,15 @@ class View:
     A member's view of a process group.  
     """
 
-    timeout = 30
+
     
-    def __init__(self, group, rebuttalTimeout=30):
+    def __init__(self, group):
         """
         @param group: The group to wich this view belongs.
         @type group: fireflies.group.Group
         """
 
         isinstance(group, fireflies.group.Group)
-        self.rebuttalTimeout = rebuttalTimeout
         
         self.toleranceLevel = minMajority(group.pByz, group.maxGroupSize, group.faultToleranceLevel)
         self.numberOfRings = self.toleranceLevel* 2 + 1
@@ -80,7 +87,6 @@ class View:
         for x in range(self.numberOfRings):
             self.mRings.insertRing(ring.NameHashedRing(x))
 
-        self.logger = logging.getLogger(self.group.getGroupName())
         self._timers = {}
 
     def _startRebuttalTimer(self, member):
@@ -89,7 +95,7 @@ class View:
         @type member: fireflies.state.Member
         """
         if member in self._timers.keys(): raise ValueError("Timer already started.")
-        self._timers[member] = reactor.callLater(self.rebuttalTimeout, self._toRebuttalTimer, member)
+        self._timers[member] = reactor.callLater(self.group.tRebuttal, self._toRebuttalTimer, member)
         
     def _toRebuttalTimer(self, member):
         assert isinstance(member, Member)
@@ -107,6 +113,10 @@ class View:
 
         t = self._timers.pop(member)
         t.cancel()
+
+    @property
+    def logger(self):
+        return self.group.logger
 
     def hasActiveTimer(self, member):
         """Check if a timer is actove for a member.
@@ -461,7 +471,7 @@ class View:
  
         # If member currently is accused on ring, keep the new one only if it
         # is from a closer predecessor.
-        if accused.hasAccusationOn(rnr):
+        if accused.isAccusedOn(rnr):
             assert accused.isAccused()
             currentAccusation = accused.getAccusation(rnr)
             currentAccuser = self.getMemberByIdentity(currentAccusation.accuser)
@@ -474,7 +484,7 @@ class View:
                 self.logger.info("del %s replaced", currentAccusation)
                 #self.logger.info("%s accused by %s on ring %d (replacing %s)", accused, accuser, accusation.nr, currentAccuser)
             else:
-                self.logger.debug("discard %s have closer ", accusation)
+                self.logger.info("discard %s have closer ", accusation)
 
         elif CanAccuseOnRing(accuser, accused, ring):
             accused.setAccusation(accusation)
@@ -484,7 +494,7 @@ class View:
             else:
                 self.logger.info("add %s", accusation)
         else:
-            self.logger.debug("dicard %s accuser not current monitor)", accusation)
+            self.logger.info("dicard %s accuser not current monitor)", accusation)
 
 
 
