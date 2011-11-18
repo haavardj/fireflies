@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.25 2011/11/07 13:26:25 haavardj Exp $
+## $Id: fd.py,v 1.26 2011/11/18 12:18:00 haavardj Exp $
 ##                
 ######################################################################
 
@@ -30,11 +30,6 @@ import new, random
 
 from packer import FirefliesPacker, FirefliesUnpacker
 
-
-ROUNDTIME = 5
-PMISTAKE = 0.001
-SMOOTHING = 0.999
-TMIN = 3
 
 MSG_PING = 0x23
 MSG_PONG = 0x24    
@@ -138,7 +133,7 @@ class MemberMonitor(channel.TypedChannel):
     
     avgLoss = .1
     pMistake = 0.001
-    smooting = 0.999
+    smoothing = 0.999
     tMin = 3
     nPing = 0
     interval = 2
@@ -172,27 +167,39 @@ class MemberMonitor(channel.TypedChannel):
 
         if self.nPing > t:
             self.member.accuse()                  
-            self.nPing = 0
-            
+            self.nPing = 0            
         else:
             self.parent.sendMessage(self.member, "ping")
             self.nPing += 1
+
+  
 
 
 class FailureDetector(Service):
     
     name = "fd"
-    roundtime = 5
-    pmistake = 0.001
+    
+    # How often a monitor should ping (seconds).
+    roundtime = 30 
+    
+    # The probability of accusing a live member due to packet
+    # loss. Lower number is better but increases the time it takes to
+    # detect a failed member.
+    pMistake = 0.0001
+    
+    # What factor the pinging protocol will use to smooth the expected
+    # average loss rate.
     smoothing = 0.999
+    
+    # Do not accuse a member unless it has been pinged this many times.    
     tmin = 3
+    
     logger = logging.getLogger()
     
 
     def __init__(self, group):
         
         isinstance(group, fireflies.group.Group)
-        self.peer = group.getMe()
         self.setServiceParent(group) 
         self.group = group
          
@@ -212,10 +219,12 @@ class FailureDetector(Service):
         self.logger.info("Binding fd to udp %s:%d", address, port)
         self._udpport = reactor.listenUDP(port, self.protocol, interface=address)
 
-        def _d():            
-            self._task = task.LoopingCall(self.update)
-            self._task.start(float(self.roundtime)/float(self.group.view.getNumberOfRings())).addErrback(self._failback)
-        reactor.callLater(0.1, _d)
+        self._task = task.LoopingCall(self.update)
+        
+        interval = self.roundtime / float(self.group.view.getNumberOfRings())
+        self._task.start(interval, now=False).addErrback(self._failback)
+
+
 
     def _failback(self, reason):
         self.logger.exception(reason)
@@ -235,6 +244,7 @@ class FailureDetector(Service):
         nrRings = self.group.view.getNumberOfRings()
         me = self.group.getMe()
         view = self.group.view
+        assert view.group == self.group
         
         myBadness = 0
             
@@ -244,11 +254,14 @@ class FailureDetector(Service):
         if len(view.getLiveMembers()) < 2:
             return
 
-        mon = view.mRings.getRings()[x].succ(me)
+        ring = view.mRings.getRings()[x]
+        mon = ring.succ(me)
         isinstance(mon, Member)
-        while mon.isFailed() or mon.isAccused():
+        assert mon.group == self.group
+        while mon.isFailed() or mon.isAccusedOn(x):
+            assert mon.group == self.group
             if mon == me: break
-            mon = view.mRings.getRings()[x].succ(mon)            
+            mon = ring.succ(mon)            
 
         # It's me!
         if mon == me: return 
@@ -272,6 +285,9 @@ class FailureDetector(Service):
             if a and a.accuser == me.getIdentity():
                 return
             
+
+            assert fireflies.view.CanAccuseOnRing(self.group.getMe(), mon, ring)
+            
             accusation = Accusation(mon.getIdentity(),
                                             mon.getNote().epoch,
                                             x,
@@ -282,7 +298,7 @@ class FailureDetector(Service):
             view.stats.accusationsCreated += 1
             view.stats.accusationsCreatedByzantine += 1
             view.addAccusation(accusation)
-            self.logger.warning("created %s aggressive attack", self.peer.view.pprint(accusation))
+            self.logger.warning("created %s aggressive attack", self.group.view.pprint(accusation))
         elif myBadness == 0:
                         
             #Do not accuse if this node has already made an accusation
@@ -294,22 +310,25 @@ class FailureDetector(Service):
             if a and (a.accuser == me.getIdentity()):
                 return
             
-            p = min( 1./mon.avgLoss, 1. - self.pmistake**(1./float(max(self.tmin, 1))))
+            p = min( 1./mon.avgLoss, 1. - self.pMistake**(1./float(max(self.tmin, 1))))
             assert p < 1.0 and p > 0.0, "Psuc out of bounds."
             
-            t = log(self.pmistake) / log(1. - p)
+            t = log(self.pMistake) / log(1. - p)
 
             if mon.nPing > t:
+                assert fireflies.view.CanAccuseOnRing(self.group.getMe(), mon, ring)
+
                 accusation =  Accusation(mon.getIdentity(),
                                          mon.getNote().epoch,
                                          x,
                                          me.getIdentity())
+                
                 accusation.sign(self.group.getMyKey())
-                self.logger.warning("created %s t=%.2f nPing=%d", self.peer.view.pprint(accusation), t, mon.nPing)
+                self.logger.warning("created %s t=%.2f nPing=%d", self.group.view.pprint(accusation), t, mon.nPing)
                 view.addAccusation(accusation)
                 view.stats.accusationsCreated += 1
 
-                #assert mon.nPing > 0
+                assert mon.nPing > 0
                 #mon.avgLoss = (g.SMOOTHING * mon.avgLoss) + ( (1. - g.SMOOTHING) * (mon.nPing))                
                 mon.nPing = 0
                 
@@ -333,15 +352,15 @@ class PingPong(DatagramProtocol):
     factory = None
         
     def handle_PingMsg(self, msg):
-        view = self.factory.view
-        mkey = self.factory.mkey
+        view = self.factory.group.view
+        mkey = self.factory.group.getMyKey()
         
         toSn, fromSn, noun = msg.toSn, msg.fromSn, msg.noun
         if not toSn == self.factory.group.getMe().getIdentity():
             self.logger.warning("ping<- %s wrong receiver %s", fromSn, toSn)
             return        
         if not fromSn in view.sn2peer:
-            self.logger.debug("ping<- %s Unknown host", fromSn)
+            self.logger.info("ping<- %s Unknown host", fromSn)
             return
 
         sender = view.sn2peer[fromSn]
@@ -349,18 +368,18 @@ class PingPong(DatagramProtocol):
         if not msg.verify(sender.getPublicKey()):
             self.logger.warning("ping<- %s Invalid ping", fromSn)
             return
-        #self.logger.debug("ping<- %s", self.factory.peer)
+        #self.logger.debug("ping<- %s", sender)
         self.pong(msg)
                 
     def handle_PongMsg(self, msg):
-        view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
+        view, smoothing, mkey = self.factory.group.view, self.factory.smoothing, self.factory.group.getMyKey()
         
         if msg.toSn != self.factory.group.getMe().getIdentity():
             self.logger.warning("pong<- %s wrong receiver %s", msg.fromSn, msg.toSn)
             return        
         sender = view.sn2peer.get(msg.fromSn, None)
         if sender:
-            #self.logger.debug("pong<- %s", self.factory.peer)
+            #self.logger.debug("pong<- %s", sender)
             if sender.nPing == 0:
                 return
             assert sender.avgLoss >= 1.0
@@ -373,20 +392,21 @@ class PingPong(DatagramProtocol):
         isinstance(self.factory, FailureDetector)
         me = self.factory.group.getMe()
         
-        self.logger.debug("ping-> %s", receiver.getAddress())
+        #self.logger.debug("ping-> %s", receiver)
         
         msg = PingMsg(me.getIdentity(), receiver.getIdentity())
         msg.sign(self.factory.group.getMyKey())
         self.sendCommand(receiver, msg)
         
     def pong(self, pingMsg):
-        view, smoothing, mkey = self.factory.view, self.factory.smoothing, self.factory.mkey
+        view, smoothing, mkey = self.factory.group.view, self.factory.smoothing, self.factory.group.getMyKey()
         sender = view.sn2peer[pingMsg.fromSn]        
         assert isinstance(sender, Member)
-        #self.logger.debug("pong-> %s", self.factory.peer)
         
         msg = PongMsg(pingMsg)
         msg.sign(self.factory.group.getMyKey())
+        #self.logger.debug("ping-> %s", sender)
+
         self.sendCommand(sender, msg)
 
 
@@ -398,11 +418,11 @@ class PingPong(DatagramProtocol):
         h, p = receiver.getAddress().split(":")
         p = int(p)
         
-        self.factory.peer.view.stats.udpW += len(data)
+        self.factory.group.stats.udpW += len(data)
         self.transport.write(data, (h, p))
 
     def datagramReceived(self, data, (host, port)):
-        self.factory.peer.view.stats.udpR += len(data)
+        self.factory.group.stats.udpR += len(data)
         if len(data) < 1:
             self.logger.warning("Dropped invalid datagram")
             return        
