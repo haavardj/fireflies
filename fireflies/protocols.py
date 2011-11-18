@@ -158,7 +158,7 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
     It will also handle inbound connections so that only a single inbound or outbound connection will be allowed."""
     
     logger = logging.getLogger()
-    protocol = None
+    connectedProtocol = None
     member = None
     continueTrying = 0
     
@@ -179,10 +179,10 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
 
         self.continueTrying = 1
         self.logger.info("activating %s", self.member)                
-        if not self.protocol:
+        if not self.connectedProtocol:
             self._connect()
         else:
-            assert not self.protocol.master
+            assert not self.connectedProtocol.master
 
     def deactivate(self):
         self.logger.info("deactivating %s", self.member)
@@ -194,28 +194,28 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
     #
     def clientConnectionFailed(self, connector, reason):
         self.logger.info("clientConnectionFailed %s", self.member)
-        if self.continueTrying and not self.protocol:
+        if self.continueTrying and not self.connectedProtocol:
             self.connector = connector
             self.retry()
 
     def clientConnectionLost(self, connector, reason):
         self.logger.info("clientConnectionLost %s", self.member)
         self.connector = connector
-        if self.continueTrying and not self.protocol: 
+        if self.continueTrying and not self.connectedProtocol: 
             self.connector = connector
             self.retry()                     
                 
     def startedConnecting(self, connector):
-        #assert not self.protocol # Never start trying while a protocol is running.
+        #assert not self.connectedProtocol # Never start trying while a connectedProtocol is running.
         
         self.logger.debug("startedConnecting %s", self.member)                
 
     def connectionLost(self, protocol):
         
-        if self.protocol != protocol:
+        if self.connectedProtocol != protocol:
             self.logger.info("connectionLost %s non-attached protocol", self.member)
         else:
-            self.protocol = None
+            self.connectedProtocol = None
             
             if protocol.master:
                 # clientConnectionLost will be called
@@ -226,7 +226,7 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
                     self._connect()
                               
     def _connect(self):
-        assert not self.protocol
+        assert not self.connectedProtocol
         host, port = self.member.getAddress().split(":")
         port = int(port)
         fireflies.protocols.connect(self.member, self)
@@ -245,8 +245,8 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
             protocol.hangup()
             self.logger.info("hangup -> %s Not active.", him)
 
-        elif self.protocol:
-            assert self.protocol.master == False
+        elif self.connectedProtocol:
+            assert self.connectedProtocol.master == False
             assert self in self.service.connectedAsServer
             
             hisOutbound = self.service.rings.succ(him, lambda x: x.isLive() or x == me)
@@ -258,23 +258,23 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
                 protocol.hangup()
                 self.logger.info("hangup -> %s My connection use his", him)
             else:
-                self.protocol.hangup()
+                self.connectedProtocol.hangup()
                 self.logger.info("hangup -> %s His Connection use mine", him)
-                self.protocol = protocol
+                self.connectedProtocol = protocol
                 self.resetDelay()
                 self.service.peerConnected(self)                
         else:
-            self.protocol = protocol
+            self.connectedProtocol = protocol
             self.logger.info("connected %s as client.", self.member)            
             self.service.peerConnected(self)
 
     def isConnected(self):
-        return self.protocol != None
+        return self.connectedProtocol != None
 
     def disconnect(self):
         if not self.isConnected(): raise RuntimeError("Not connected")
-        self.protocol.hangup()
-        self.protocol = None
+        self.connectedProtocol.hangup()
+        self.connectedProtocol = None
         if self.isActive():
             if self.connector:
                 self.retry()
@@ -299,13 +299,13 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
             # Not a partner of him, redirect. set() removes duplicate entries.            
             protocol.redirect(set(hisOutbound))            
             self.logger.info("redirect -> %s", him)
-        elif not self.protocol:
-            self.protocol = protocol
+        elif not self.connectedProtocol:
+            self.connectedProtocol = protocol
             protocol.accept()
             self.service.peerConnected(self)
             self.logger.info("accept -> %s No connection", him)
 
-        elif self.protocol.master == False:
+        elif self.connectedProtocol.master == False:
             protocol.hangup()
             self.logger.info("hangup -> %s Already connected as client", him)
         
@@ -317,7 +317,7 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
             
             if hisConnectionRing < myconnectionRing:
                 self.disconnect()
-                self.protocol = protocol
+                self.connectedProtocol = protocol
                 protocol.accept()
                 self.service.peerConnected(self)
                 self.logger.info("accept -> %s In hisConnectionRing < myConnectionRing", him)  
@@ -354,6 +354,7 @@ class PeerServerFactory(twisted.internet.protocol.ServerFactory):
         p.master = False
         p.factory = self
         p.service = self.service
+        p.group = self.service.group
         return p
 
 

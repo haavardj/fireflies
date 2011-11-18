@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.25 2011/11/07 13:31:17 haavardj Exp $
+## $Id: group.py,v 1.26 2011/11/18 12:20:37 haavardj Exp $
 ##                
 ######################################################################
 
@@ -21,52 +21,22 @@ from fireflies.state import Accusation, Note, Member, createInitialNote
 from fireflies.view import View
 from fireflies.crypto import identityFromCertificate
 import fireflies.stats
+import fireflies.protocols
 import M2Crypto
 
-_defaultGroup = None
-_groupByFID = {}
-_groupCertificate = None
 
-def setGroupCertificate(groupCertificate):
-    if _groupCertificate == None:
-        _groupCertificate = groupCertificate
-    elif _groupCertificate == groupCertificate: 
-        return
-    else:
-        raise RuntimeError("Different group certificate is set.")
-
-def getGroupCertificate():
-    return _groupCertificate    
-
-def setDefultGroup(group):
-    _defaultGroup = group
-    
-def getMemberByIdentity(fid, ctx=None):
-    """Resolve a member identity to a member object."""
-    
-    if not ctx: ctx = _defaultGroup
-    if not cxt: raise RuntimeError("No group object available")
-    if not isinstance(ctx, Group): raise ValueError
-    
-    return ctx.getMemberByIdentity(fid)
-    
-def getMemberByAddress(address, ctx=None):
-    """Resolve a member identity to a member object."""
-    
-    if not ctx: ctx = _defaultGroup
-    if not cxt: raise RuntimeError("No group object available")
-    if not isinstance(ctx, Group): raise ValueError
-    
-    return ctx.getMemberByIdentity(fid)
-        
 
 class Group(MultiService):
     """A Fireflies group. This class is the main interface to the Firelifes runtime. 
     """
 
+    #maxGroupSize = 1000 
+    #pByz = 0.20    
+    tRebuttal = 60
+
     name = "group"
     
-    def __init__(self, groupCertificate, myKey, myCertificate, myNote=None):
+    def __init__(self, groupCertificate, myKey, myCertificate, myNote=None, logger=logging.getLogger()):
         """
         A group must be initialized with a group certificate and your member certificate and 
         private key.
@@ -86,30 +56,32 @@ class Group(MultiService):
         """
 
         MultiService.__init__(self)
+        self.logger = logger
         
         if not isinstance(groupCertificate,  M2Crypto.X509.X509): raise ValueError, groupCertificate
         self._groupCertificate = groupCertificate
         
         maxSize, pByz, ftl = groupCertificate.get_issuer().organizationName.split()
+        
         self.maxGroupSize = int(maxSize)
         self.pByz = float(pByz)
         self.faultToleranceLevel = float(ftl)
+        
         self.name = groupCertificate.get_subject().commonName
 
         if not isinstance(myKey, M2Crypto.EVP.PKey): raise ValueError, myKey
         self._myKey = myKey
         
         if not isinstance(myCertificate, M2Crypto.X509.X509): raise ValueError, myCertificate
-        self.logger = logging.getLogger()
-        
+
         self.view = View(self)
-        self.view.logger = self.logger
 
         self._eventSinkRegistry = {}
         self.registerEventHandler("data.accusation", self.evSelfRebuttal)        
         
         self.view.addCertificate(myCertificate)
         self._me = self.view.getMemberByCertificate(myCertificate)
+        
         assert isinstance(self._me, Member)
         if myNote: self.view.addNote(myNote)
         else:
@@ -120,12 +92,7 @@ class Group(MultiService):
         self.joined = False        
         self.badness = 0
 
-        self.stats = fireflies.stats.Stats()
-        
-        
-        global _defaultGroup
-        if not _defaultGroup:
-            _defaultGroup=self
+        self.stats = fireflies.stats.Stats()            
         
     def getMemberByIdentity(self, fid):
         return self.view.getMemberByIdentity()
@@ -297,14 +264,7 @@ class Group(MultiService):
 
     def stopService(self):
         MultiService.stopService(self)
-        self.logger.info("leave group %s", self.getGroupName())
-        
-        
-    def verify(self, item, member):        
-        pass
-    
-    def sign(self, item):
-        pass
+        self.logger.info("leave group %s", self.getGroupName())      
                 
     def getContext(self):
         return self._sslCtx
