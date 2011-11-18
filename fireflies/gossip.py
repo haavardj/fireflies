@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.31 2011/11/07 13:28:55 haavardj Exp $
+## $Id: gossip.py,v 1.32 2011/11/18 12:10:16 haavardj Exp $
 ##                
 ######################################################################
 
@@ -97,9 +97,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
     other = None
     state = STATE_CONNECTING
     master = False
-    connectionTimeout = fireflies.defaultConfig['tcptimeout']
     factory = None
-    logger = logging.getLogger()
     _timer = None
     
     isinstance(factory, ReconciliationPeer)    
@@ -111,7 +109,12 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
         self.reqBuff = []
         self.outBuff = []
     
-
+    @property
+    def logger(self):
+        if self.factory:
+            return self.factory.logger
+        else: 
+            return logging.getLogger()
 
     def reconcile_next(self):
         """Moves to the next partition available partition, or marks
@@ -381,7 +384,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
             hsh.update(x)
         
         self.logger.debug("reconcile->%s %s hash=%s", self, name, str(hsh.hexdigest()))                
-        self.sendCommand("reconcile", name, hsh.digest())        
+        self.sendCommand("reconcile", name, hsh.digest())
         self.setTimeout()
         return self._d
 
@@ -448,7 +451,6 @@ class ServerProtocol(GossipBase):
 
 class ClientProtocol(GossipBase):
     
-    interval = 10
     task = None
     
     def __init__(self):
@@ -467,7 +469,7 @@ class ClientProtocol(GossipBase):
         
         if not d.called:
 
-            idleCL = reactor.callLater(self.interval, self._cbidle)
+            idleCL = reactor.callLater(self.factory.service.rate, self._cbidle)
         
             def _cancelIdle(data, idleCL):
                 if idleCL.active():
@@ -523,7 +525,7 @@ class Gossip(Service):
     implements(fireflies.protocols.IPeerNetworkingService)
     
     name = "gossip"
-    logger = logging.getLogger(name)
+    logger = logging.getLogger()
     byzantineToleranceNumber = 7
     rate = 30.0
     TCPTimeout = 360.0
@@ -542,8 +544,7 @@ class Gossip(Service):
         self.rings = ring.RingSet()
         for x in range(self.byzantineToleranceNumber):
             self.rings.insertRing(ring.NameHashedRing(x))
-        
-        self.sFactory = fireflies.protocols.PeerServerFactory(self)
+    
 
         self.cSet = X509Set(PARTITION_FACTOR, RECON_EXTRA)
         self.nSet = NoteSet(PARTITION_FACTOR, RECON_EXTRA)
@@ -571,7 +572,7 @@ class Gossip(Service):
             factory = ReconciliationPeer(self)
             factory.protocolClass = ClientProtocol
             factory.member = member
-            
+            factory.logger = self.logger
             self.neighborPool[member] = factory
     
     def getPeerFactoryFromProtocol(self, protocol):
@@ -579,6 +580,9 @@ class Gossip(Service):
 
     def startService(self):
         Service.startService(self)
+        
+        self.sFactory = fireflies.protocols.PeerServerFactory(self)
+        self.sFactory.logger = self.logger
 
         # Register all member in the gossip mesh
         for m in self.parent.view.getAllMembers():
@@ -613,7 +617,7 @@ class Gossip(Service):
         self._task.stop()
         self._port.stopListening()
 
-        for factory in self.factories.values():
+        for factory in self.connectedAsServer:
             factory.doStop()   
         self.sFactory.doStop()
 
@@ -644,10 +648,10 @@ class Gossip(Service):
                 factory.activate()
             else:
                 assert factory in self.active
-                #if factory.protocol and factory.protocol.master:
-                #    factory.protocol.taskQ.put(self.cSet)
-                #    factory.protocol.taskQ.put(self.nSet)
-                #    factory.protocol.taskQ.put(self.aSet)
+                if factory.connectedProtocol and factory.connectedProtocol.master:
+                    factory.connectedProtocol.taskQ.put(self.cSet)
+                    factory.connectedProtocol.taskQ.put(self.nSet)
+                    factory.connectedProtocol.taskQ.put(self.aSet)
                                                 
     def _failback(self, reason):
         self.logger.exception(reason)
@@ -655,14 +659,14 @@ class Gossip(Service):
     def peerConnected(self, factory):
         """Called when a new connection is accepted."""
         
-        assert factory.protocol
+        assert factory.connectedProtocol
         isinstance(factory, ReconciliationPeer)
-        if factory.protocol.master:
+        if factory.connectedProtocol.master:
             assert factory in self.active
             assert factory.isActive()
-            factory.protocol.taskQ.put(self.cSet)
-            factory.protocol.taskQ.put(self.nSet)
-            factory.protocol.taskQ.put(self.aSet)
+            factory.connectedProtocol.taskQ.put(self.cSet)
+            factory.connectedProtocol.taskQ.put(self.nSet)
+            factory.connectedProtocol.taskQ.put(self.aSet)
 
         else:
             self.connectedAsServer.add(factory)
