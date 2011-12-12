@@ -9,7 +9,7 @@
 ## Licence: GPL (see LICENCE file).
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: setrecon.py,v 1.8 2009/04/28 08:07:24 haavardj Exp $
+## $Id: setrecon.py,v 1.9 2011/12/12 14:18:29 haavardj Exp $
 ##                
 ######################################################################
 
@@ -357,7 +357,7 @@ class ReconSet:
         zz_p = self.elmToZZp(elm)
         if zz_p not in self._data:
             assert not zz_p in self._recon, "%s in set" %elm
-            raise ValueError("Element not in set.")
+            raise ValueError("Element not in set %s." % elm)
         else:
             assert zz_p in self._recon, "%s not in set" %elm
             del self._data[zz_p]
