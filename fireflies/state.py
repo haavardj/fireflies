@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.20 2011/12/12 12:20:28 haavardj Exp $
+## $Id: state.py,v 1.21 2011/12/12 14:14:41 haavardj Exp $
 ##                
 ######################################################################
 
@@ -197,7 +197,8 @@ class Member(object):
         self._cert = cert
         self._note = None
         self._group = group
-        
+        self._identity = crypto.identityFromCertificate(self._cert)
+                
         self.view = group.view       
   
         # Valid accusations. 
@@ -369,15 +370,15 @@ class Member(object):
         """
         return self.vAccusations[nr]
     
-    def getIdentity(self):
+    #@property
+    def identity(self):
         """
         @return: The member's identity.
         @rtype: string
         """
-
-        return crypto.identityFromCertificate(self._cert)
-
-    identity = getIdentity
+        return self._identity
+        
+    getIdentity = identity
     
     def getPublicKey(self):
         return self._cert.get_pubkey()
