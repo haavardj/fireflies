@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.19 2011/11/18 12:19:27 haavardj Exp $
+## $Id: state.py,v 1.20 2011/12/12 12:20:28 haavardj Exp $
 ##                
 ######################################################################
 
@@ -18,7 +18,7 @@ from twisted.internet import reactor
 import fireflies
 from fireflies.stats import Stats
 from fireflies import crypto
-import bisect, logging, setrecon, random, stats
+import bisect, setrecon, random, stats
 import M2Crypto
 import twisted
 
@@ -199,8 +199,7 @@ class Member(object):
         self._group = group
         
         self.view = group.view       
-        self.logger = logging.getLogger()
-
+  
         # Valid accusations. 
         self.vAccusations = {} 
 
@@ -222,13 +221,17 @@ class Member(object):
         # Used by the web status displayer        
         self.allAccusations = []
 
-        self.stats = Stats()
+        self.stats = fireflies.stats.Stats()
         self._failed = True
 
+    @property
+    def logger(self):
+        return self._group.logger
 
 #    def verify(self, obj):
 #        """Verify that obj is correctly signed by this member."""
 #        return self._cert.verify(obj)
+
 
     def setFailed(self, status):
         """

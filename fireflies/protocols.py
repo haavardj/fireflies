@@ -157,13 +157,17 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
     """If activated, this factory will always try to maintain an active connection to the specified member.
     It will also handle inbound connections so that only a single inbound or outbound connection will be allowed."""
     
-    logger = logging.getLogger()
     connectedProtocol = None
     member = None
     continueTrying = 0
     
     def __init__(self, service):
         self.service = service
+        isinstance(self.member, fireflies.state.Member)
+
+    @property
+    def logger(self):
+        return self.service.logger
         
     def startFactory(self):
         if not self.member: raise RuntimeError("Member not set")
@@ -181,8 +185,8 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
         self.logger.info("activating %s", self.member)                
         if not self.connectedProtocol:
             self._connect()
-        else:
-            assert not self.connectedProtocol.master
+        #else:
+        #    assert not self.connectedProtocol.master
 
     def deactivate(self):
         self.logger.info("deactivating %s", self.member)
@@ -193,7 +197,7 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
     # Client connection stuff.
     #
     def clientConnectionFailed(self, connector, reason):
-        self.logger.info("clientConnectionFailed %s", self.member)
+        self.logger.info("clientConnectionFailed %s: %s", self.member, reason)
         if self.continueTrying and not self.connectedProtocol:
             self.connector = connector
             self.retry()
@@ -205,9 +209,7 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
             self.connector = connector
             self.retry()                     
                 
-    def startedConnecting(self, connector):
-        #assert not self.connectedProtocol # Never start trying while a connectedProtocol is running.
-        
+    def startedConnecting(self, connector):        
         self.logger.debug("startedConnecting %s", self.member)                
 
     def connectionLost(self, protocol):
@@ -283,7 +285,8 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
 
     def clientConnected(self, protocol):
         """Client connected. Upcall from server-side factory."""
-
+        
+     
         assert not protocol.master
         assert protocol.other == self.member
         protocol.factory = self
@@ -293,7 +296,7 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
         hisOutbound = self.service.rings.succ(him, lambda x: x.isLive() or x == me)
         myOutbound = self.service.rings.succ(me, lambda x: x.isLive() or x == him)
 
-        self.logger.info("clientConnected %s", him)
+        self.logger.info("clientConnected %s", him)        
 
         if not me in hisOutbound:
             # Not a partner of him, redirect. set() removes duplicate entries.            
@@ -332,18 +335,17 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
         p.master = True
         p.group = self.service.group
         p.factory = self
-        p.logger = self.logger
         return p
 
 
 class PeerServerFactory(twisted.internet.protocol.ServerFactory):
     
-    logger = logging.getLogger()
 
     def __init__(self, service):
         self.service = service
 
-    def clientConnected(self, protocol):            
+    def clientConnected(self, protocol):         
+        self.logger.debug("clientConnected %s", protocol)
         self.service.getPeerFactoryFromProtocol(protocol).clientConnected(protocol)
         
     def connectionLost(self, protocol):
@@ -357,6 +359,10 @@ class PeerServerFactory(twisted.internet.protocol.ServerFactory):
         p.group = self.service.group
         return p
 
+    @property
+    def logger(self):
+        return self.service.logger
+    
 
 class FirefliesProtocol(Int32StringReceiver):
     STATE_IDLE = "idle"
@@ -371,8 +377,13 @@ class FirefliesProtocol(Int32StringReceiver):
     master = False
     connectionTimeout = fireflies.defaultConfig['tcptimeout']
     factory = None
-    logger = logging.getLogger()
-
+    
+    def __init__(self):
+        self.stats = fireflies.stats.Stats()        
+    
+    @property
+    def logger(self):
+        return self.factory.logger
     
     def postConnectionCheck(self, x509, host):
         isinstance(x509, M2Crypto.X509.X509)
@@ -385,6 +396,9 @@ class FirefliesProtocol(Int32StringReceiver):
             raise WrongCertificate('peer did not authenticate with correct certificate')
         else:
             self.other = peer
+        
+        self.other.stats += self.stats
+        self.stats = self.other.stats
         
         if self.master:
             reactor.callLater(0, self._sendPartner, self.factory.service.parent.getMe().getNote())
@@ -409,14 +423,14 @@ class FirefliesProtocol(Int32StringReceiver):
         if self.state == self.STATE_TERMINATED:
             self.logger.warning("traffic after hangup.")
             return
-        self.factory.service.parent.view.stats.tcpR += len(recd)
+        self.stats.tcpR += len(recd)        
         return Int32StringReceiver.dataReceived(self, recd)
 
     def sendString(self, data):
         if self.state == self.STATE_TERMINATED:
             self.logger.warning("traffic after hangup.")
             return        
-        self.factory.service.parent.view.stats.tcpW += (len(data) + 4)
+        self.stats.tcpW += (len(data) + 4)
         return Int32StringReceiver.sendString(self, data)
 
     def sendCommand(self, cmd, *args):
@@ -446,7 +460,7 @@ class FirefliesProtocol(Int32StringReceiver):
         self.logger.debug("hangup %s", self)
 
     def timedout(self):
-        assert self._timer and self._timer.active()           
+        assert self._timer and not self._timer.active()   
         self._timer = None
         self.logger.warning("timeout %s", self)
         self.hangup()
@@ -507,12 +521,12 @@ class FirefliesProtocol(Int32StringReceiver):
         self.cancelTimeout()
         self.logger.debug("redirect < %s", self)
         for cert, note in data:
-            self.factory.view.addCertificate(crt)
-            self.factory.view.addNote(note)   
+            self.factory.service.group.view.addCertificate(cert)
+            self.factory.service.group.view.addNote(note)   
         self.hangup()
 
     def redirect(self, members):
-        #self.factory.peer.view.stats.redirect += 1
+        self.stats.redirect += 1
         pprint = self.factory.service.parent.view.pprint
         self.logger.debug("redirect-> %s", self)
         self.setTimeout()

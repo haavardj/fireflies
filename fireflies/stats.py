@@ -9,10 +9,9 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: stats.py,v 1.3 2006/03/02 08:08:14 haavardj Exp $
+## $Id: stats.py,v 1.4 2011/12/12 12:20:28 haavardj Exp $
 ##                
 ######################################################################
-
 
 
 """The following are collected by the library:
@@ -69,10 +68,7 @@ cputime:
 """
 
 
-import fireflies
-
 def printStats(stats):
-    """Prints standard stats collected by Fireflies."""
     
     return """
 Connections:
@@ -107,7 +103,7 @@ Membership:
 
 System
       load %f
-      """ %(stats.tcpOpen,          
+      """ %(stats.tcpOpen,
             stats.accusationsCreated, stats.accusationsTotal, stats.accusationsRedundant,
             stats.accusationsTotal - stats.accusationsRedundant,
 
@@ -125,60 +121,30 @@ System
             )                    
 
 
+statistics = {}
+
+def addStatistic(name, doc="", pos=-1):
+    if name in statistics: 
+        raise ValueError("Statistic %s exists." % (name,))    
+    statistics[name] = (doc, pos)
+
+def listStatistics():
+    keys = statistics.keys()
+    keys.sort(lambda x, y: cmp(statistics[x][1], statistics[y][1]))
+    return keys
+
+def labels():
+    d = listStatistics()
+    return ("%s " * len(d) ) % tuple(d)
 
 class Stats:
-
-    # List of collected items. The list also specifies the ordering of
-    # the logline.    
-    items = [
-        'accusationsTotal',
-        'accusationsRedundant',
-        'accusationsCreated',
-        'accusationsInvalid',
-        
-        'notesTotal',
-        'notesRedundant',
-        'notesInvalid',
-        'notesCreated',
-        
-        'certsTotal',
-        'certsRedundant',
-        'certsInvalid',
-                   
-        'accuseByzantine',
-        'accusePossible',
-        'accuseReplaced',
-        'accuseCloser',
-        
-        'accusedByzantine',
-        'accusedPossible',
-        'accusedFirst',
-        'accusedClear',
-        
-        'noteUpdated',
-        
-        'revived',
-        'failed',
-        
-        'udpR',
-        'udpW',
-        
-        'tcpR',
-        'tcpW',
-        'tcpOpen',
-
-        'join',
-        'leave',
-        'redirect',
-        'cputime',
-        'members',
-        'fmembers',
-        'accusationsCreatedByzantine'
-        ]
         
     def __init__(self):
+        self.clear()
+
+    def clear(self):
         d = {}
-        for k in Stats.items:
+        for k in statistics.keys():
             d[k] = 0
         self.__dict__['_data'] = d
         
@@ -195,46 +161,56 @@ class Stats:
 
     def __add__(self, other):
         s = Stats()
-        for k in Stats.items:
+        for k in statistics.keys():
             setattr(s, k, getattr(self, k) + getattr(other, k))
         return s
 
     def __sub__(self, other):
         s = Stats()
-        for k in Stats.items:
+        for k in statistics.keys():
             setattr(s, k, getattr(self, k) - getattr(other, k))
         return s
 
     def __div__(self, other):
         s = Stats()
         if isinstance(other, Stats):
-            for k in Stats.items:
+            for k in statistics.keys():
                 setattr(s, k, getattr(self, k) / getattr(other, k))
         elif type(other) == int or type(other) == float:
-            for k in Stats.items:
+            for k in statistics.keys():
                 setattr(s, k, float(getattr(self, k)) / float(other))
         else: raise AttributeError
         return s
 
     def __str__(self):
-        d = map(lambda x: self._data[x], Stats.items)
+        d = map(lambda x: self._data[x], listStatistics())
         return ("%d " * len(d) ) % tuple(d)
 
-def resetAll(group):
-    group.stats = Stats()
-    group.view.stats = Stats()
-    for peer in group.view.pRing:
-        peer.stats = Stats()
 
+#_stats = {"": Stats()}
 
-def collect(group):
-    s = Stats()
+#def allobjects(obj):
+    #return True
 
-    s += group.stats
-    s += group.view.stats
-    for peer in group.view.pRing:
-        s = s + peer.stats
+#def resetAll(f=allobjects):
+    #"""Reset all statistic where f(obj) evaluates to True."""
+    
+    #for obj, stat in _stats.items():
+        #if f(obj): stat.reset()
+    
+#def collectAll(f=allobjects):
+    #"""Return the combinet statistics of all objects where f(obj) returns True."""
+    #s = Stats()
 
-    s.members = len(group.view.aRing)
-    s.fmembers = len(group.view.fRing)
-    return s
+    #for obj, stat in _stats.items():
+        #if f(obj): s += stat                 
+    #return s
+        
+
+#def getStat(obj=""):    
+    #"""Returns statistic object."""
+    #if obj not in _stats:
+        #_stats[obj] = Stats()
+    #return _stats[obj]
+    
+    

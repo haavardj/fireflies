@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.26 2011/11/18 12:20:37 haavardj Exp $
+## $Id: group.py,v 1.27 2011/12/12 12:20:28 haavardj Exp $
 ##                
 ######################################################################
 
@@ -56,6 +56,8 @@ class Group(MultiService):
         """
 
         MultiService.__init__(self)
+        self.stats = fireflies.stats.Stats()
+        
         self.logger = logger
         
         if not isinstance(groupCertificate,  M2Crypto.X509.X509): raise ValueError, groupCertificate
@@ -92,7 +94,6 @@ class Group(MultiService):
         self.joined = False        
         self.badness = 0
 
-        self.stats = fireflies.stats.Stats()            
         
     def getMemberByIdentity(self, fid):
         return self.view.getMemberByIdentity()

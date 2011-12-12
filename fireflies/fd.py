@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.26 2011/11/18 12:18:00 haavardj Exp $
+## $Id: fd.py,v 1.27 2011/12/12 12:20:28 haavardj Exp $
 ##                
 ######################################################################
 
@@ -30,7 +30,7 @@ import new, random
 
 from packer import FirefliesPacker, FirefliesUnpacker
 
-
+noisy = 0
 MSG_PING = 0x23
 MSG_PONG = 0x24    
 
@@ -193,26 +193,26 @@ class FailureDetector(Service):
     
     # Do not accuse a member unless it has been pinged this many times.    
     tmin = 3
-    
-    logger = logging.getLogger()
-    
+        
 
     def __init__(self, group):
-        
+        self.group = group        
         isinstance(group, fireflies.group.Group)
         self.setServiceParent(group) 
-        self.group = group
          
         nrRings = self.group.view.getNumberOfRings()
         self.last = -1 % nrRings
         self._pinglist = [None] * nrRings
         isinstance(self.parent, fireflies.group.Group)
 
+    @property
+    def logger(self):
+        return self.group.logger
+
     def startService(self):
         Service.startService(self)
         
         self.protocol = PingPong()
-        self.protocol.logger = self.logger
         self.protocol.factory = self
         address, port = self.parent.getMe().getAddress().split(":")
         port = int(port)
@@ -295,8 +295,8 @@ class FailureDetector(Service):
                                             )
             
             accusation.sign(me.getPublicKey())
-            view.stats.accusationsCreated += 1
-            view.stats.accusationsCreatedByzantine += 1
+            self.group.stats.accusationsCreated += 1
+            self.group.stats.accusationsCreatedByzantine += 1
             view.addAccusation(accusation)
             self.logger.warning("created %s aggressive attack", self.group.view.pprint(accusation))
         elif myBadness == 0:
@@ -326,7 +326,7 @@ class FailureDetector(Service):
                 accusation.sign(self.group.getMyKey())
                 self.logger.warning("created %s t=%.2f nPing=%d", self.group.view.pprint(accusation), t, mon.nPing)
                 view.addAccusation(accusation)
-                view.stats.accusationsCreated += 1
+                self.group.stats.accusationsCreated += 1
 
                 assert mon.nPing > 0
                 #mon.avgLoss = (g.SMOOTHING * mon.avgLoss) + ( (1. - g.SMOOTHING) * (mon.nPing))                
@@ -350,6 +350,10 @@ class FailureDetector(Service):
 class PingPong(DatagramProtocol):
 
     factory = None
+    
+    @property
+    def logger(self):
+        return self.factory.logger
         
     def handle_PingMsg(self, msg):
         view = self.factory.group.view
@@ -360,7 +364,7 @@ class PingPong(DatagramProtocol):
             self.logger.warning("ping<- %s wrong receiver %s", fromSn, toSn)
             return        
         if not fromSn in view.sn2peer:
-            self.logger.info("ping<- %s Unknown host", fromSn)
+            if noisy: self.logger.debug("ping<- %s Unknown host", fromSn)
             return
 
         sender = view.sn2peer[fromSn]
@@ -368,7 +372,7 @@ class PingPong(DatagramProtocol):
         if not msg.verify(sender.getPublicKey()):
             self.logger.warning("ping<- %s Invalid ping", fromSn)
             return
-        #self.logger.debug("ping<- %s", sender)
+        if noisy: self.logger.debug("ping<- %s", sender)
         self.pong(msg)
                 
     def handle_PongMsg(self, msg):
@@ -379,20 +383,20 @@ class PingPong(DatagramProtocol):
             return        
         sender = view.sn2peer.get(msg.fromSn, None)
         if sender:
-            #self.logger.debug("pong<- %s", sender)
+            if noisy: self.logger.debug("pong<- %s", sender)
             if sender.nPing == 0:
                 return
             assert sender.avgLoss >= 1.0
             sender.avgLoss = (smoothing * sender.avgLoss) + ( (1. - smoothing) * (sender.nPing))
             sender.nPing = 0
         else:
-            self.logger.debug("pong<- %s Unknown peer", msg.fromSn)
+            if noisy: self.logger.debug("pong<- %s Unknown peer", msg.fromSn)
             
     def ping(self, receiver):
         isinstance(self.factory, FailureDetector)
         me = self.factory.group.getMe()
         
-        #self.logger.debug("ping-> %s", receiver)
+        if noisy: self.logger.debug("ping-> %s", receiver)
         
         msg = PingMsg(me.getIdentity(), receiver.getIdentity())
         msg.sign(self.factory.group.getMyKey())
@@ -405,7 +409,7 @@ class PingPong(DatagramProtocol):
         
         msg = PongMsg(pingMsg)
         msg.sign(self.factory.group.getMyKey())
-        #self.logger.debug("ping-> %s", sender)
+        if noisy: self.logger.debug("ping-> %s", sender)
 
         self.sendCommand(sender, msg)
 
@@ -418,7 +422,7 @@ class PingPong(DatagramProtocol):
         h, p = receiver.getAddress().split(":")
         p = int(p)
         
-        self.factory.group.stats.udpW += len(data)
+        receiver.stats.udpW += len(data)
         self.transport.write(data, (h, p))
 
     def datagramReceived(self, data, (host, port)):

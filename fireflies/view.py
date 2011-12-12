@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.25 2011/11/18 12:14:57 haavardj Exp $
+## $Id: view.py,v 1.26 2011/12/12 12:20:28 haavardj Exp $
 ##                
 ######################################################################
 
@@ -76,8 +76,6 @@ class View:
         
         self.group = group
         self.sn2peer = {} # Maps identity nr's to peer objects.
-
-        self.stats = fireflies.stats.Stats()
         
         self.aRing = ring.Ring() # List of live members. Sorted by their identity number.
         self.pRing = ring.Ring() # List of all members.
@@ -221,10 +219,10 @@ class View:
         """
         
         if not isinstance(elm, M2Crypto.X509.X509): raise TypeError, type(elm)
-        self.stats.certsTotal += 1
+        self.group.stats.certsTotal += 1
 
         if not elm.verify(self.group.getPublicKey()):
-            #self.stats.certsInvalid += 1
+            self.group.stats.certsInvalid += 1
             #self.logger.warning("discard %s invalid CA signature.", c)
             raise ValueError("Certificate not correctly signed %s." % str(elm))
 
@@ -236,7 +234,7 @@ class View:
             
         if m:
             m.stats.certsRedundant += 1
-            self.logger.debug("discard %s redundant", elm)
+            self.logger.info("discard %s redundant", elm)
         else:                
             m = Member(elm, self.group)
             self._new(m)
@@ -260,9 +258,9 @@ class View:
         
         if not isinstance(note, Note): raise TypeError
         
-        #self.stats.notesTotal +=1 
+        self.group.stats.notesTotal +=1 
         if not note.identity in self.sn2peer:
-            self.stats.notesInvalid += 1
+            self.group.stats.notesInvalid += 1
             self.logger.warning("discard %s unknown peer", note)
             raise ValueError
         
@@ -275,12 +273,12 @@ class View:
             raise ValueError("Invalid Signature")
         
         if not fireflies.state.isValidMask(note.mask, self.group.getByzantineToleranceLevel()): 
-            #self.logger.warning("discard %s invalid mask", self.pprint(note))
+            self.logger.warning("discard %s invalid mask", self.pprint(note))
             raise fireflies.ByzantineError("Invalid mask %s from %s" % (str(note.mask), note))
 
         # Old note        
         if m.getEpoch() > note.epoch:
-            #self.logger.info("discard %s old", self.pprint(note))
+            self.logger.info("discard %s old", self.pprint(note))
             return
         
         if m.getEpoch() == note.epoch:
@@ -297,7 +295,7 @@ class View:
                     n = self.group.getMe().nextNote()
                     n.sign(self.group.getMyKey())
                     reactor.callLater(0, self.addNote, n)
-                    self.logger.warning("add %s rebuttal", note)
+                    self.logger.info("add %s rebuttal", note)
             else:
                 pass
                 #self.logger.debug("discard %s current", self.pprint(note))
@@ -354,7 +352,7 @@ class View:
                             assert q.isAccused()
                             assert q.isAccusedOn(ring.name)
                             q.invalidateAccusationOnRing(ring.name)
-                            self.logger.debug("del %s invalidated by %s", qa, m)
+                            self.logger.info("del %s invalidated by %s", qa, m)
                             if not q.isAccused():                                 
                                 if q.isFailed():
                                     self._recover(q)
@@ -362,7 +360,7 @@ class View:
                                     self.group.notify("member.recover", q, fireflies.EV_RECOVER_INVALIDATED)
                                 else:
                                     self._stopRebuttalTimer(q)
-                                    self.logger.debug("%s accusation invalidated", qa)
+                                    self.logger.info("%s accusation invalidated", qa)
                                 check.append(q)
   
 
@@ -385,7 +383,7 @@ class View:
         """        
         
         if not isinstance(accusation, Accusation): raise TypeError            
-        #self.stats.accusationsTotal += 1        
+        self.group.stats.accusationsTotal += 1        
         
         accusedID = accusation.accused
         accuserID = accusation.accuser
@@ -394,7 +392,7 @@ class View:
         # happen if we gossip notes before accusations and
         # certificates before notes.
         if not accusedID in self.sn2peer:
-            self.stats.accusationsInvalid += 1
+            self.group.stats.accusationsInvalid += 1
             self.logger.warning("discard %s Unknown accused", accusation)
             raise ValueError
 
@@ -402,7 +400,7 @@ class View:
         assert isinstance(accused, Member)            
         # Ditto for the accuser
         if not accuserID in self.sn2peer:
-            #self.stats.accusationsInvalid += 1
+            self.group.stats.accusationsInvalid += 1
             self.logger.warning("discard %s Unknown accuser", accusation)
             raise ValueError
         
@@ -410,15 +408,15 @@ class View:
         assert isinstance(accuser, Member)  
         
         if not accusation.verify(accuser.getPublicKey()):
-            #    accuser.stats.accuseByzantine += 1
-            #    accused.stats.accusedByzantine += 1
-            #    self.stats.accusationsInvalid += 1
+            accuser.stats.accuseByzantine += 1
+            accused.stats.accusedByzantine += 1
+            self.group.stats.accusationsInvalid += 1
             self.logger.warning("discard %s Invalid signature", accusation)
             return None #raise fireflies.ByzantineError("Invalid signature")
         
         if not accuser.getNote():
-            #self.stats.accusationsInvalid += 1
-            self.logger.debug("discard %s invalid note", accusation)
+            self.group.stats.accusationsInvalid += 1
+            self.logger.info("discard %s invalid note", accusation)
             raise ValueError
             
         # Check that accusation is recent.
@@ -428,19 +426,19 @@ class View:
             raise ValueError
         
         if accusation.epoch < accused.getNote().epoch:
-            #self.stats.accusationsRedundant += 1
+            self.group.stats.accusationsRedundant += 1
             self.logger.warning("discard %s old note", accusation)
             return None
         
         if accusation.epoch > accused.getNote().epoch:
-            #self.stats.accusationsInvalid += 1
-            self.logger.error("discard %s newer note", accusation)
+            self.group.stats.accusationsInvalid += 1
+            self.logger.warning("discard %s newer note", accusation)
             return None
 
         # Check that the accuser is not specifying an invalid ring.
         # No correct member should do this.
         if accusation.nr >= self.getNumberOfRings():
-            #self.stats.accusationInvalid += 1
+            self.group.stats.accusationInvalid += 1
             accuser.accuseByzantine += 1
             accused.accusedByzantine += 1
             self.logger.warning("discard %s byzantine behavior. Not on a valid ring", accusation)
@@ -449,9 +447,9 @@ class View:
         # Check that the ring is enabled.
         # No correct member should violate this.
         if not accused.getNote().mask[accusation.nr]:
-            self.stats.accusationsInvalid += 1
-            self.stats.accuseByzantine += 1
-            self.stats.accusedByzantine += 1
+            self.group.stats.accusationsInvalid += 1
+            self.group.stats.accuseByzantine += 1
+            self.group.stats.accusedByzantine += 1
             
             if accuser == self.group.getMe() and self.group.getMe().getNote().epoch == 1:
                 n = self.getMe().nextNote()
@@ -494,7 +492,7 @@ class View:
             else:
                 self.logger.info("add %s", accusation)
         else:
-            self.logger.info("dicard %s accuser not current monitor)", accusation)
+            self.logger.warning("dicard %s accuser not current monitor)", accusation)
 
 
 

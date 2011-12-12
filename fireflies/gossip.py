@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.32 2011/11/18 12:10:16 haavardj Exp $
+## $Id: gossip.py,v 1.33 2011/12/12 12:20:28 haavardj Exp $
 ##                
 ######################################################################
 
@@ -103,18 +103,12 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
     isinstance(factory, ReconciliationPeer)    
     
     def __init__(self):
+        fireflies.protocols.FirefliesProtocol.__init__(self)
         self.curNode = None
         self.nodes = []        
         self.dataBuff = []
         self.reqBuff = []
         self.outBuff = []
-    
-    @property
-    def logger(self):
-        if self.factory:
-            return self.factory.logger
-        else: 
-            return logging.getLogger()
 
     def reconcile_next(self):
         """Moves to the next partition available partition, or marks
@@ -382,7 +376,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
         hv.sort()
         for x in hv:            
             hsh.update(x)
-        
+
         self.logger.debug("reconcile->%s %s hash=%s", self, name, str(hsh.hexdigest()))                
         self.sendCommand("reconcile", name, hsh.digest())
         self.setTimeout()
@@ -450,7 +444,7 @@ class ServerProtocol(GossipBase):
      
 
 class ClientProtocol(GossipBase):
-    
+    master = True
     task = None
     
     def __init__(self):
@@ -525,7 +519,6 @@ class Gossip(Service):
     implements(fireflies.protocols.IPeerNetworkingService)
     
     name = "gossip"
-    logger = logging.getLogger()
     byzantineToleranceNumber = 7
     rate = 30.0
     TCPTimeout = 360.0
@@ -553,6 +546,29 @@ class Gossip(Service):
         self.connectedAsServer = set()
         self.active = set()
         self.neighborPool = {}
+        
+        # Register all member in the gossip mesh
+        for m in self.group.getAllMembers():
+            self.evMemberNew("", m, fireflies.EV_CRASH_NEW)
+
+        # Add all certificates, notes, and accusations to our data sets.
+        for m in self.group.getAllMembers():
+            self.cSet.insert(m.getCertificate())
+            if m.getNote(): self.nSet.insert(m.getNote())
+            for a in m.getAccusations(): self.aSet.add(a)
+
+        #register to receive notification on group updates.
+        self.parent.registerEventHandler("member.crash", self.evMemberNew)        
+        self.parent.registerEventHandler("data.accusation", self.evData)
+        self.parent.registerEventHandler("data.note", self.evData)
+        self.parent.registerEventHandler("data.certificate", self.evData)        
+
+        self.sFactory = fireflies.protocols.PeerServerFactory(self)
+        self._task = task.LoopingCall(self.update)
+
+    @property
+    def logger(self):
+        return self.group.logger
 
     def evData(self, name, itm, status):
         if name == "data.accusation": sset = self.aSet
@@ -568,53 +584,33 @@ class Gossip(Service):
     def evMemberNew(self, name, member, status):
         if status == fireflies.EV_CRASH_NEW:
             self.rings.insertItem(member)
-            self.logger.debug("adding %s to gossip rings", member)
+            #self.logger.debug("adding %s to gossip rings", member)
             factory = ReconciliationPeer(self)
             factory.protocolClass = ClientProtocol
             factory.member = member
-            factory.logger = self.logger
             self.neighborPool[member] = factory
     
     def getPeerFactoryFromProtocol(self, protocol):
         return self.neighborPool[protocol.other]
 
     def startService(self):
+        assert not self.running
         Service.startService(self)
+
+        address = self.group.getMe().address
         
-        self.sFactory = fireflies.protocols.PeerServerFactory(self)
-        self.sFactory.logger = self.logger
-
-        # Register all member in the gossip mesh
-        for m in self.parent.view.getAllMembers():
-            self.evMemberNew("", m, fireflies.EV_CRASH_NEW)
-
-        # Add all certificates, notes, and accusations to our data sets.
-        for m in self.parent.view.getAllMembers():
-            self.cSet.insert(m.getCertificate())
-            if m.getNote(): self.nSet.insert(m.getNote())
-            for a in m.getAccusations(): self.aSet.add(a)
-
-        #register to receive notification on group updates.
-        self.parent.registerEventHandler("member.crash", self.evMemberNew)        
-        self.parent.registerEventHandler("data.accusation", self.evData)
-        self.parent.registerEventHandler("data.note", self.evData)
-        self.parent.registerEventHandler("data.certificate", self.evData)
-                
-        address = self.parent.getMe().address
         self.logger.info("Binding gossip to tcp %s:%d", address.host, address.port)
-        
         self._port = fireflies.protocols.listen(address.port, self.sFactory, self.parent, interface=address.host,postConnectionCheck=sslPostConnectionCheck)
         self.sFactory.doStart()
 
-        def _d():
-            self._task = task.LoopingCall(self.update)
-            self._task.start(self.rate/len(self.rings.getRings())).addErrback(self._failback)
-                             
-        reactor.callLater(0.1, _d)
+        interval = self.rate / len(self.rings.getRings())
+        self._task.start(interval, now=False)
         
     def stopService(self):
+        assert self.running
         Service.stopService(self)
-        self._task.stop()
+        if self._task.running:
+            self._task.stop()
         self._port.stopListening()
 
         for factory in self.connectedAsServer:
@@ -623,7 +619,6 @@ class Gossip(Service):
 
         
     def update(self):
-
         outbound = self.rings.succ(self.group.getMe(), lambda x: x.isLive())
         outbound = filter(lambda x: x != self.group.getMe(), outbound)
         inbound = self.rings.pred(self.group.getMe(), lambda x: x.isLive())
@@ -658,7 +653,7 @@ class Gossip(Service):
 
     def peerConnected(self, factory):
         """Called when a new connection is accepted."""
-        
+
         assert factory.connectedProtocol
         isinstance(factory, ReconciliationPeer)
         if factory.connectedProtocol.master:

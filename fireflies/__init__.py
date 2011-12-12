@@ -9,7 +9,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: __init__.py,v 1.20 2011/11/18 12:07:23 haavardj Exp $
+## $Id: __init__.py,v 1.21 2011/12/12 12:20:28 haavardj Exp $
 ##                
 ######################################################################
 
@@ -45,12 +45,58 @@ EV_CRASH_NEW = 5 # A new member is discovered.
 EV_DATA_VALID = True
 EV_DATA_INVALID = False
 
+import fireflies.stats
+
+fireflies.stats.addStatistic('accusationsTotal', "", 0)
+fireflies.stats.addStatistic('accusationsRedundant',"", 1)
+fireflies.stats.addStatistic('accusationsCreated',"", 2)
+fireflies.stats.addStatistic('accusationsInvalid',"", 3)
+        
+fireflies.stats.addStatistic('notesTotal',"", 4)
+fireflies.stats.addStatistic('notesRedundant',"", 5)
+fireflies.stats.addStatistic('notesInvalid',"", 6)
+fireflies.stats.addStatistic('notesCreated',"", 7)
+        
+fireflies.stats.addStatistic('certsTotal',"", 8)
+fireflies.stats.addStatistic('certsRedundant',"", 9)
+fireflies.stats.addStatistic('certsInvalid',"", 10)
+                   
+fireflies.stats.addStatistic('accuseByzantine',"", 11)
+fireflies.stats.addStatistic('accusePossible',"", 12)
+fireflies.stats.addStatistic('accuseReplaced',"", 13)
+fireflies.stats.addStatistic('accuseCloser',"", 14)
+        
+fireflies.stats.addStatistic('accusedByzantine',"", 15)
+fireflies.stats.addStatistic('accusedPossible',"", 16)
+fireflies.stats.addStatistic('accusedFirst',"", 17)
+fireflies.stats.addStatistic('accusedClear',"", 18)
+        
+fireflies.stats.addStatistic('noteUpdated',"", 19)
+        
+fireflies.stats.addStatistic('revived',"", 20)
+fireflies.stats.addStatistic('failed',"", 21)
+        
+fireflies.stats.addStatistic('udpR',"", 22)
+fireflies.stats.addStatistic('udpW',"", 23)
+        
+fireflies.stats.addStatistic('tcpR',"", 24)
+fireflies.stats.addStatistic('tcpW',"", 25)
+fireflies.stats.addStatistic('tcpOpen',"", 26)
+
+fireflies.stats.addStatistic('join',"", 27)
+fireflies.stats.addStatistic('leave',"", 28)
+fireflies.stats.addStatistic('redirect',"", 29)
+fireflies.stats.addStatistic('cputime',"", 30)
+fireflies.stats.addStatistic('members',"", 31)
+fireflies.stats.addStatistic('fmembers',"", 32)
+fireflies.stats.addStatistic('accusationsCreatedByzantine', "", 33)
+
 
 defaultConfig = {
 
      # Length of encryption keys.
     'port': 14377,
-    'RSA_SIZE': 1024,
+    'RSA_SIZE': 2048,
 
 
     'tcptimeout': 360,
@@ -74,7 +120,3 @@ class ByzantineError(Exception):
     """Raised when Byzantine behavior is detected."""
 
 
-#from members import Member, Note, Accusation
-#from crypto import MemberCertificate, CACertificate
-#from group import BaseGroup
-#from view import View

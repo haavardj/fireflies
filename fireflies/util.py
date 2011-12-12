@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard Johansen (Norway)
 ##                
-## $Id: util.py,v 1.5 2011/03/18 11:17:05 haavardj Exp $
+## $Id: util.py,v 1.6 2011/12/12 12:20:28 haavardj Exp $
 ##                
 ######################################################################
 
@@ -192,7 +192,6 @@ def bytes_to_long(s):
     for i in range(0, length, 4):
         acc = (acc << 32) + unpack('>I', s[i:i+4])[0]
     return acc
-
 
 
 class TimeoutMixin:
