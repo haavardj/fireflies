@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, University of Tromso, Norway)
 ##                
-## $Id: web.py,v 1.10 2011/11/07 13:22:15 haavardj Exp $
+## $Id: web.py,v 1.11 2011/12/19 14:06:16 haavardj Exp $
 ##                
 ######################################################################
 
@@ -79,7 +79,7 @@ class Grapher:
         
     def collectData(self):
 
-        newData = fireflies.stats.collect(self.group)
+        newData = fireflies.group.collectStatistic(self.group)
         newData.cputime = os.times()[0] * self.bogomips
         newTime = fireflies.time.time()
 
@@ -574,17 +574,21 @@ class PartnersPage(MasterPage):
     def __init__(self, peer):
         MasterPage.__init__(self, peer)
 
-    def render_gossipOut(self, context, peer):
+    def render_gossipActive(self, context, peer):
         global gossipsubs
         t = context.tag.clear()
         rows = [
             T.tr[ T.th["#"], T.th["S"],
                   T.th["B"], T.th["Address"], T.th["State"]]]
-        for x in range(len(gossipsubs.cFactory.connections)):
-            y = gossipsubs.cFactory.connections[x]
+
+        active = filter(lambda x: x.isActive(), gossipsubs.neighborPool.values())
+        
+        for x, y in enumerate(active):
+        
+            assert y.continueTrying
             d1 = T.td[x]
             if y:
-                p = y.other
+                p = y.member
                 if p in self.peer.view.fRing:
                     d2 = T.td[""](_class="failedbox")
                 elif p.isAccused():
@@ -599,7 +603,10 @@ class PartnersPage(MasterPage):
                     d3 = T.td[""](_class="activebox")
 
                 d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
-                d5 = T.td[y.state]
+                if y.connectedProtocol:
+                    d5 = T.td["%d-%s" % (y.connectedProtocol.protonr, y.connectedProtocol.state)]
+                else:
+                    d5 = T.td["-"]
             else:
                 d2 = d3 = d4 = T.td[""]
                 d5 = T.td["Skip"]
@@ -612,11 +619,13 @@ class PartnersPage(MasterPage):
         rows = [
             T.tr[ T.th["#"], T.th["S"],
                   T.th["B"], T.th["Address"], T.th["State"]]]
-        for x in range(len(gossipsubs.sFactory.cons)):
-            y = gossipsubs.sFactory.cons[x]
+        
+        clients = filter(lambda x: x.connectedProtocol and not x.connectedProtocol.master, gossipsubs.neighborPool.values())
+                
+        for x,y in enumerate(clients): 
             d1 = T.td[x]
             if y:
-                p = y.other
+                p = y.member
                 if p in self.peer.view.fRing:
                     d2 = T.td[""](_class="failedbox")
                 elif p.isAccused():
@@ -631,7 +640,51 @@ class PartnersPage(MasterPage):
                     d3 = T.td[""](_class="activebox")
 
                 d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
-                d5 = T.td[y.state]
+                
+                if y.connectedProtocol:
+                    d5 = T.td["%d-%s" % (y.connectedProtocol.protonr, y.connectedProtocol.state)]
+                else:
+                    d5 = T.td["-"]
+                
+            else:
+                d2 = d3 = d4 = T.td[""]
+                d5 = T.td["None"]
+            rows.append(T.tr[d1, d2, d3, d4, d5])
+        return t[ T.table[ rows](_class="peerlist")]
+
+    def render_gossipOut(self, context, peer):
+        global gossipsubs
+        t = context.tag.clear()
+        rows = [
+            T.tr[ T.th["#"], T.th["S"],
+                  T.th["B"], T.th["Address"], T.th["State"]]]
+        
+        clients = filter(lambda x: x.connectedProtocol and x.connectedProtocol.master, gossipsubs.neighborPool.values())
+                
+        for x,y in enumerate(clients): 
+            d1 = T.td[x]
+            if y:
+                p = y.member
+                if p in self.peer.view.fRing:
+                    d2 = T.td[""](_class="failedbox")
+                elif p.isAccused():
+                    d2 = T.td[""](_class="accusedbox")
+                else:
+                    d2 = T.td[""](_class="livebox")
+                if True or p.note.badness == 0:
+                    d3 = T.td[""](_class="correctbox")
+                elif p.note.badness == 1:
+                    d3 = T.td[""](_class="passivebox")
+                elif p.note.badness == 2:
+                    d3 = T.td[""](_class="activebox")
+
+                d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
+                
+                if y.connectedProtocol:
+                    d5 = T.td["%d-%s" % (y.connectedProtocol.protonr, y.connectedProtocol.state)]
+                else:
+                    d5 = T.td["-"]
+                
             else:
                 d2 = d3 = d4 = T.td[""]
                 d5 = T.td["None"]
@@ -696,8 +749,8 @@ class PartnersPage(MasterPage):
                     d7 = T.td["mon"]
 
                 d5 = T.td[p.nPing]
-                pmist = fireflies.fd.PMISTAKE
-                tmin = fireflies.fd.TMIN
+                pmist = fireflies.fd.FailureDetector.pMistake
+                tmin = fireflies.fd.FailureDetector.tmin
                 psucc = min( 1./(p.avgLoss), 1. - pmist**(1./float(tmin)))
                 tau = log(pmist) / log(1. - psucc)
                 d6 = T.td[int(ceil(tau))]
