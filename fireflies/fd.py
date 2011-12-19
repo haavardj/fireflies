@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.27 2011/12/12 12:20:28 haavardj Exp $
+## $Id: fd.py,v 1.28 2011/12/19 14:08:06 haavardj Exp $
 ##                
 ######################################################################
 
@@ -298,7 +298,7 @@ class FailureDetector(Service):
             self.group.stats.accusationsCreated += 1
             self.group.stats.accusationsCreatedByzantine += 1
             view.addAccusation(accusation)
-            self.logger.warning("created %s aggressive attack", self.group.view.pprint(accusation))
+            self.logger.warning("created %s aggressive attack", accusation)
         elif myBadness == 0:
                         
             #Do not accuse if this node has already made an accusation
@@ -324,7 +324,7 @@ class FailureDetector(Service):
                                          me.getIdentity())
                 
                 accusation.sign(self.group.getMyKey())
-                self.logger.warning("created %s t=%.2f nPing=%d", self.group.view.pprint(accusation), t, mon.nPing)
+                self.logger.warning("created %s t=%.2f nPing=%d", accusation, t, mon.nPing)
                 view.addAccusation(accusation)
                 self.group.stats.accusationsCreated += 1
 
