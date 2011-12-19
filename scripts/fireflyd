@@ -329,7 +329,7 @@ if __name__ == "__main__":
 
     def doCheckpoint():
         global sold, snew
-        snew = stats.collect(mgroup)
+        snew = fireflies.group.collectStatistic(mgroup)
         snew.cputime = os.times()[0] * bogomips
         sdiff = snew - sold
         sdiff.members = snew.members
