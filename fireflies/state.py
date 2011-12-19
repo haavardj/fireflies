@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.21 2011/12/12 14:14:41 haavardj Exp $
+## $Id: state.py,v 1.22 2011/12/19 14:08:25 haavardj Exp $
 ##                
 ######################################################################
 
@@ -520,10 +520,11 @@ class Member(object):
         """
         Remove all accusations for this member.
         """
-        
-        for rnr, a in self.vAccusations.items():
-            self.group.notify("data.accusation", a, False)
+        vAccusations = self.vAccusations
         self.vAccusations = {}
+        
+        for rnr, a in vAccusations.items():
+            self.group.notify("data.accusation", a, False)
 
     def __repr__(self):
         #return "%x" % bytes_to_long(self.identity)
