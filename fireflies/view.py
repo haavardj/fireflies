@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.26 2011/12/12 12:20:28 haavardj Exp $
+## $Id: view.py,v 1.27 2011/12/19 14:03:30 haavardj Exp $
 ##                
 ######################################################################
 
@@ -43,7 +43,7 @@ def CanAccuseOnRing(accuser, accused, ring):
     
     succ = ring.succ(accuser)
     while succ != accused:    
-        if succ.isLive(): return False
+        if not succ.isAccused(): return False
         succ = ring.succ(succ)
         
     return True
