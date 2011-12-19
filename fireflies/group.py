@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.27 2011/12/12 12:20:28 haavardj Exp $
+## $Id: group.py,v 1.28 2011/12/19 14:03:56 haavardj Exp $
 ##                
 ######################################################################
 
@@ -171,6 +171,7 @@ class Group(MultiService):
         @param kwargs: keyword arguments.
         """
         try:
+            #self.logger.debug("notify %s %s %s", name, args, kwargs)
             for f, a, k in self._eventSinkRegistry[name]:
                 nk = {}
                 nk.update(k)
@@ -186,7 +187,7 @@ class Group(MultiService):
         """@todo: Check that the accusation is still valid when receiving this event."""
         assert name == "data.accusation"
         if status == True and elm.accused == self.getMe().getIdentity():
-            self.logger.info("rebutting false accusation %s", elm)
+            self.logger.warning("rebutting false accusation %s", elm)
             n = self.getMe().nextNote()
             isinstance(n, Note)
             n.sign(self.getMyKey())
@@ -291,4 +292,15 @@ class Group(MultiService):
 
         #return ctx    
         
+    
+import fireflies.stats
+def collectStatistic(group):
+    isinstance(group, Group)
+    s0 = fireflies.stats.Stats()
+    
+    s0 += group.stats
+    
+    for n in group.getAllMembers():
+        s0 += n.stats
+    return s0
     
