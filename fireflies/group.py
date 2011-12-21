@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.28 2011/12/19 14:03:56 haavardj Exp $
+## $Id: group.py,v 1.29 2011/12/21 10:10:09 haavardj Exp $
 ##                
 ######################################################################
 
@@ -92,7 +92,7 @@ class Group(MultiService):
             self.view.addNote(myNote)
 
         self.joined = False        
-        self.badness = 0
+        self.badness = myNote.badness
 
         
     def getMemberByIdentity(self, fid):

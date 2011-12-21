@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.27 2011/12/19 14:03:30 haavardj Exp $
+## $Id: view.py,v 1.28 2011/12/21 10:10:09 haavardj Exp $
 ##                
 ######################################################################
 
@@ -38,16 +38,23 @@ def CanAccuseOnRing(accuser, accused, ring):
     isinstance(accused, Member)
     isinstance(ring, fireflies.ring.Ring)
     
-    if not accused.isEnabledOnRing(ring): return False
+    if accused.hasBanned(accuser): return False
     assert accuser.group == accused.group
     
     succ = ring.succ(accuser)
     while succ != accused:    
         if not succ.isAccused(): return False
-        succ = ring.succ(succ)
-        
+        succ = ring.succ(succ)       
     return True
                 
+def CanAccuse(accuser, accused):
+    assert accuser.group
+    assert accuser.group == accused.group
+
+    for ring in accuser.group.view.mRings.getRings():
+        if CanAccuseOnRing(accuser, accused, ring): 
+            return True
+    return False
 
 
 def isBetterAccuserOnRing(new, old, member, ring):
@@ -60,8 +67,6 @@ class View:
     """
     A member's view of a process group.  
     """
-
-
     
     def __init__(self, group):
         """
@@ -183,16 +188,10 @@ class View:
         self.aRing.insert(member)
         member.setFailed(False)
         self.logger.info("%s recover", member)
-                
-
-        #if member.isAccused():
-        #    self.logger.warning("revived peer is accused. Setting timeout.")
-        #    self._startRebuttalTimer(member)
-
-        #self.logger.info("joined %s s=%d t=%d", member, len(self.aRing), len(self.pRing))        
-        #member.stats.revived += 1
-        #self.group.notify("member.recover", member, fireflies.EV_RECOVER_INVALIDATED)
         
+        member.stats.revived += 1
+
+
     def _fail(self, member):
         """Transition member state from live to failed."""
         
@@ -205,6 +204,9 @@ class View:
         self.fRing.insert(member)
         member.setFailed(True)
         self.logger.info("%s fail", member)
+        
+        member.stats.failed += 1
+        
 
 
     def addCertificate(self, elm):
@@ -272,8 +274,8 @@ class View:
         if not note.verify(m.getCertificate().get_pubkey()):
             raise ValueError("Invalid Signature")
         
-        if not fireflies.state.isValidMask(note.mask, self.group.getByzantineToleranceLevel()): 
-            self.logger.warning("discard %s invalid mask", self.pprint(note))
+        if not fireflies.state.isValidBanned(note.banned, self.group.getByzantineToleranceLevel()): 
+            self.logger.warning("discard %s invalid mask", note)
             raise fireflies.ByzantineError("Invalid mask %s from %s" % (str(note.mask), note))
 
         # Old note        
@@ -340,13 +342,13 @@ class View:
                 for ring in self.mRings.getRings(): 
                     
                     # Locate accusations that m might invalidate.
-                    for q in ring.collectSucc(m, lambda x: x.isLive() and not x.isAccused()):
+                    for q in ring.collectSucc(m, lambda x: not x.isAccused()):
 
                         if not q.isAccusedOn(ring.name): continue
                         qa = q.getAccusation(ring.name)
                         accuser = self.getMemberByIdentity(qa.accuser)
                         accused = self.getMemberByIdentity(qa.accused)
-
+                        raise NotImplementedError("NEED TO FIX THIS")
                         assert accused == q
                         if ring.isBetween(accuser, m, accused):
                             assert q.isAccused()

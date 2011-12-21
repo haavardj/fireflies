@@ -143,9 +143,13 @@ if __name__ == "__main__":
         for line in file(options.byzantine).readlines():
             line = line.strip()
             if line == "": continue
+            
             name, behaviour = line.split()
-            if name == myAddress:
+            name = socket.gethostbyname(name)
+            
+            if name == myAddress.split(":")[0]:
                 byzantine = int(behaviour)
+                break
                                                
     #
     # Load own keys and notes.
@@ -254,8 +258,17 @@ if __name__ == "__main__":
         
     mgroup = group.Group(groupCert, myKey, myCert, myNote)
     logging.info("Me = %s on %s", mgroup.getMe().getIdentity(), mgroup.getMe().getAddress())
+    
+    if byzantine != mgroup.badness:
+        mgroup.badness = byzantine        
+        self.logger.warning("new note to reflect new badness %s", elm)
+        n = mgroup.getMe().nextNote()
+        isinstance(n, Note)
+        n.sign(mgroup.getMyKey())
+        reactor.callLater(0, mgroup.view.addNote, n)        
+        
+    
     fd = fireflies.fd.FailureDetector(mgroup)
-
     gossip = fireflies.gossip.Gossip(mgroup)
 
 

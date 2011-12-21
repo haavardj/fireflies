@@ -9,7 +9,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: __init__.py,v 1.21 2011/12/12 12:20:28 haavardj Exp $
+## $Id: __init__.py,v 1.22 2011/12/21 10:10:09 haavardj Exp $
 ##                
 ######################################################################
 
@@ -25,7 +25,7 @@ with eventual probabilistic guarantees.
 """
 
 
-protocol_version = (0,2,1)
+protocol_version = (0,3,0)
 
 __version__ = "%d.%d.%d" % protocol_version
 version = __version__

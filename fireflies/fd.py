@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.28 2011/12/19 14:08:06 haavardj Exp $
+## $Id: fd.py,v 1.29 2011/12/21 10:10:09 haavardj Exp $
 ##                
 ######################################################################
 
@@ -20,7 +20,6 @@ from twisted.internet.protocol import Factory, DatagramProtocol, Protocol, Clien
 from twisted.internet import reactor, task
 from twisted.application.service import Service
 from fireflies.state import Accusation, Note, Member
-from fireflies import channel
 import socket
 from math import *
 
@@ -129,48 +128,48 @@ class FDMsgUnpacker(FirefliesUnpacker):
             raise Exception
 
 
-class MemberMonitor(channel.TypedChannel):
+#class MemberMonitor(channel.TypedChannel):
     
-    avgLoss = .1
-    pMistake = 0.001
-    smoothing = 0.999
-    tMin = 3
-    nPing = 0
-    interval = 2
+    #avgLoss = .1
+    #pMistake = 0.001
+    #smoothing = 0.999
+    #tMin = 3
+    #nPing = 0
+    #interval = 2
 
-    def __init__(self, member):
-        self.member = member
-        self.name = member.identity()
+    #def __init__(self, member):
+        #self.member = member
+        #self.name = member.identity()
             
-    def startService(self):
-        self._task = task.LoopingCall(self.update)
-        self._task.start(self.interval, now=False)
-        super(TypedChannel, self).startService()
+    #def startService(self):
+        #self._task = task.LoopingCall(self.update)
+        #self._task.start(self.interval, now=False)
+        #super(TypedChannel, self).startService()
     
-    def stopService(self):
-        self._task.stop()
-        super(TypedChannel, self).stopService()
+    #def stopService(self):
+        #self._task.stop()
+        #super(TypedChannel, self).stopService()
         
-    def update(self):
-        self.ping()
+    #def update(self):
+        #self.ping()
         
-    def recv_pong(self, nounce):
-        assert self.avgLoss >= 1.0
-        self.avgLoss = (self.smooting * self.avgLoss) + ( (1. - self.smoothing) * (self.nPing))
-        self.nPing = 0
+    #def recv_pong(self, nounce):
+        #assert self.avgLoss >= 1.0
+        #self.avgLoss = (self.smooting * self.avgLoss) + ( (1. - self.smoothing) * (self.nPing))
+        #self.nPing = 0
     
-    def send_Ping(self):        
-        p = min( 1./self.avgLoss, 1. - self.pMistake**(1./float(max(self.tMin, 1))))
-        assert p < 1.0 and p > 0.0, "Psuc out of bounds."
+    #def send_Ping(self):        
+        #p = min( 1./self.avgLoss, 1. - self.pMistake**(1./float(max(self.tMin, 1))))
+        #assert p < 1.0 and p > 0.0, "Psuc out of bounds."
             
-        t = log(self.pMistake) / log(1. - p)
+        #t = log(self.pMistake) / log(1. - p)
 
-        if self.nPing > t:
-            self.member.accuse()                  
-            self.nPing = 0            
-        else:
-            self.parent.sendMessage(self.member, "ping")
-            self.nPing += 1
+        #if self.nPing > t:
+            #self.member.accuse()                  
+            #self.nPing = 0            
+        #else:
+            #self.parent.sendMessage(self.member, "ping")
+            #self.nPing += 1
 
   
 
@@ -246,7 +245,7 @@ class FailureDetector(Service):
         view = self.group.view
         assert view.group == self.group
         
-        myBadness = 0
+        myBadness = self.group.badness
             
         x = self.last = (self.last + 1) % nrRings
 
@@ -258,8 +257,7 @@ class FailureDetector(Service):
         mon = ring.succ(me)
         isinstance(mon, Member)
         assert mon.group == self.group
-        while mon.isFailed() or mon.isAccusedOn(x):
-            assert mon.group == self.group
+        while mon.isFailed():
             if mon == me: break
             mon = ring.succ(mon)            
 
@@ -280,7 +278,13 @@ class FailureDetector(Service):
             self._pinglist[x] = 0 
             return
         
+        
+        if myBadness == 1:
+            #Passive attack. Do nothing.
+            pass
+        
         if myBadness == 2:
+            #Aggressive attack.
             a = mon.vAccusations.get(x, None)
             if a and a.accuser == me.getIdentity():
                 return

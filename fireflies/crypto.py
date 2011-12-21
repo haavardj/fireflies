@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.26 2011/11/07 13:27:31 haavardj Exp $
+## $Id: crypto.py,v 1.27 2011/12/21 10:10:09 haavardj Exp $
 ##                
 ######################################################################
 
@@ -280,7 +280,7 @@ def identityFromCertificate(cert):
 
 def subjectKeyIdentifierToID(s):
     return s.replace(":","")
-    #return s#int(s.replace(":",""), 16)
+    
 
 class ImmutableMixin:
     """Mixin for immutable classes."""

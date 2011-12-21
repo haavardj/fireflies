@@ -229,7 +229,6 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
                 # clientConnectionLost will be called
                 pass
             else:
-                #self.service.peerDisconnected(self)
                 self.logger.info("connectionLost %s attached client", self.member)
                 if self.isActive():
                     self._connect()
