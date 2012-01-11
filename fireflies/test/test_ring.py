@@ -59,6 +59,7 @@ class RingModificationTest(unittest.TestCase):
             
         for obj in seq:
             self.failIf(obj in ring)
+                    
     
 class RingQueryTest(unittest.TestCase):
     
@@ -70,7 +71,6 @@ class RingQueryTest(unittest.TestCase):
         self.seq = list(self.objs)
         random.shuffle(self.seq)
         for obj in self.seq: self.ring.insert(obj)        
-
         
     def testSucc(self):                
         start = current = random.choice(self.ring)
@@ -89,7 +89,7 @@ class RingQueryTest(unittest.TestCase):
             self.failIfEqual(start, current)
             current = self.ring.pred(current)            
         self.failUnlessEqual(start,current)
-        
+             
     def testRuleSuccLambdaNeverTrue(self):
         o = random.choice(self.objs)        
         self.failUnlessEqual(None, self.ring.succ(o, lambda x: False)) 
@@ -100,8 +100,8 @@ class RingQueryTest(unittest.TestCase):
             self.failUnlessEqual(x, self.ring.index(o))
         
     def testPredSuccWraparound(self):
-        first = self.objs[0]
-        last = self.objs[-1]
+        first = self.ring[0]
+        last = self.ring[-1]
         self.failUnlessEqual(self.ring.succ(last), first)
         self.failUnlessEqual(self.ring.pred(first), last)        
         
@@ -109,11 +109,7 @@ class RingQueryTest(unittest.TestCase):
         for o in self.ring:
             self.failUnlessEqual(self.ring.pred(self.ring.succ(o)), o)
             self.failUnlessEqual(self.ring.succ(self.ring.pred(o)), o)
-
-    def testIndex(self):
-        for obj in self.seq:
-            self.failUnlessEqual(self.ring.index(obj), obj.sn)
-        
+              
     def testItemBetweenFirstAndLast(self):
         
         if len(self.objs) < 3:
@@ -124,10 +120,7 @@ class RingQueryTest(unittest.TestCase):
 
         self.failUnlessEqual(self.ring.index(first), 0)        
         self.failUnlessEqual(self.ring.index(last), len(self.ring)-1)        
-        
-    
         middle = self.ring[random.randint(1,len(self.ring)-2)]
-        
         self.failUnless(self.ring.isBetween(first, middle, last))
         self.failUnless(self.ring.isBetween(last, first, middle))
         self.failIf(middle != first and middle != last and self.ring.isBetween(last, middle, first))
@@ -155,7 +148,6 @@ class RingQueryTest(unittest.TestCase):
             self.failIf(self.ring.isBetween(k, j, i)  )
             self.failIf(self.ring.isBetween(j, i, k)  )
             self.failIf(self.ring.isBetween(i, k, j)  )
-    
         
     def testNothingIsBetweenItemAndItself(self):
         
@@ -172,29 +164,19 @@ class RingQueryTest(unittest.TestCase):
             self.failIf(self.ring.isBetween(obj, middle, middle),
                             "not between %s - %s - %s" %(obj, middle, middle))
 
-
     def testRank(self):
         r = self.ring
-        start = current = random.choice(self.objs)        
+        base = current = random.choice(self.objs)        
         x = 0
+        self.failUnlessEqual(0, self.ring.rank(base, base))
         while 1:        
-            rnk = r.rank(start, current)
-            self.failUnlessEqual(x, rnk)
+            self.failUnlessEqual(x, r.rank(current, base))
             x += 1
             current = r.succ(current)
-            if current == start:
+            if current == base:
                 break
 
      
-class NumberedRingQueryTest(RingQueryTest):
-    
-    def setUp(self):
-        self.objs = [RingObject(x) for x in range(200)]
-        self.ring = ring.NamedRing(21789)
-        self.seq = list(self.objs)
-        random.shuffle(self.seq)
-        for obj in self.seq: self.ring.insert(obj)        
-
 class RingQuery10MembersTest(RingQueryTest, unittest.TestCase):  
     numMembers = 10                  
         
@@ -207,16 +189,42 @@ class RingQuery2MembersTest(RingQueryTest, unittest.TestCase):
 class RingQuery1MembersTest(RingQueryTest, unittest.TestCase):  
     numMembers = 1
 
-            
-class BasicRingSetTest(unittest.TestCase):
+
+class NamedHashedRingQueryTest(RingQueryTest):    
+    def setUp(self):
+        self.objs = [RingObject(x) for x in range(self.numMembers)]
+        self.ring = ring.NameHashedRing(2)
+        self.seq = list(self.objs)
+        random.shuffle(self.seq)
+        for obj in self.seq: self.ring.insert(obj)    
+        
+class NamedHashedRingQuery10MembersTest(NamedHashedRingQueryTest, unittest.TestCase):  
+    numMembers = 10                  
+
+class NamedHashedRingQuery3MembersTest(NamedHashedRingQueryTest, unittest.TestCase):  
+    numMembers = 10                  
+
+class NamedHashedRingQuery2MembersTest(NamedHashedRingQueryTest, unittest.TestCase):  
+    numMembers = 10                  
+
+class NamedHashedRingQuery1MembersTest(NamedHashedRingQueryTest, unittest.TestCase):  
+    numMembers = 10                  
+
+
+
+import exceptions     
+class RingSetTest(unittest.TestCase):
+    
+    nrrings = 10
+    nrobjs = 200
     
     def setUp(self):
         self.rings = ring.RingSet()
         
-        for x in range(10):
-            self.rings.insertRing(ring.NamedRing(x))
+        for x in range(self.nrrings):
+            self.rings.insertRing(ring.NameHashedRing(x))
 
-        self.objs = [RingObject(x) for x in range(200)]           
+        self.objs = [RingObject(x) for x in range(self.nrobjs)]           
         random.shuffle(self.objs)
         for obj in self.objs: self.rings.insertItem(obj)  
     
@@ -225,24 +233,77 @@ class BasicRingSetTest(unittest.TestCase):
             self.failUnless(o in self.rings.getItems())
             for r in self.rings.getRings():
                 self.failUnless(o in r)
-        
 
-class MergedRingSetTest(BasicRingSetTest):           
+    def testProtoctedInsert(self):
+        obj = RingObject(self.nrobjs+1)
+        self.failUnlessRaises(exceptions.TypeError, self.rings[0].insert, obj)
+                        
+class MergedRingSetTest(RingSetTest):           
 
     def setUp(self):
         self.rings = ring.RingSet()
         
         for x in range(0,5):
-            self.rings.insertRing(ring.NamedRing(x))
+            self.rings.insertRing(ring.NameHashedRing(x))
 
         self.objs = [RingObject(x) for x in range(200)]           
         random.shuffle(self.objs)
         for obj in self.objs: self.rings.insertItem(obj)  
 
         for x in range(5,10):
-            self.rings.insertRing(ring.NamedRing(x))
+            self.rings.insertRing(ring.NameHashedRing(x))
 
+class RankTableTest(unittest.TestCase):
+    
+    def setUp(self):
+        self.rings = ring.RingSet()
         
+        for x in range(10):
+            self.rings.insertRing(ring.NameHashedRing(x))
+
+        self.objs = [RingObject(x) for x in range(200)]           
+        random.shuffle(self.objs)
+        for obj in self.objs: self.rings.insertItem(obj)  
+        
+    def testRankToSelfIsZero(self):
+        base = random.choice(self.objs)
+        rt = ring.RankTable(base, base, self.rings)
+        for v in rt:
+            self.failUnlessEqual(0, v)
+    
+    def testRankSuccessor(self):        
+        base = random.choice(self.objs)
+        rts = map(lambda x: ring.RankTable(x.succ(base), base, self.rings), self.rings)
+        for nr, rt in enumerate(rts):
+            self.failUnlessEqual(1, rt[nr])
+        
+    def testRankPredecessor(self):
+        base = random.choice(self.objs)
+        rts = map(lambda x: ring.RankTable(x.pred(base), base, self.rings), self.rings)
+        for nr, rt in enumerate(rts):
+            self.failUnlessEqual(self.rings[0].maxrank, rt[nr])
+    
+    def testRankAddition(self):
+        base = random.choice(self.objs)
+        rts = map(lambda x: ring.RankTable(x.pred(base), base, self.rings), self.rings)
+
+        r0 = ring.RankTable(0, base, self.rings)        
+        for r in rts:
+            r0 = r0 + r 
+        for nr, rt0 in enumerate(rts):
+            self.failUnlessEqual(self.rings[0].maxrank, rt0[nr])
+            
+        r0 = ring.RankTable(0, base, self.rings)        
+        for r in rts:
+            r0 += r            
+        for nr, rt0 in enumerate(rts):
+            self.failUnlessEqual(self.rings[0].maxrank, rt0[nr])
+
+        r0 = reduce(lambda x, y: x+y, rts)
+        for nr, rt0 in enumerate(rts):
+            self.failUnlessEqual(self.rings[0].maxrank, rt0[nr])           
+                            
+    
     
 if __name__ == "__main__":
     main()
