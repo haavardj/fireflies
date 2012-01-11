@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.21 2011/10/24 08:59:17 haavardj Exp $
+## $Id: ring.py,v 1.22 2012/01/11 11:16:44 haavardj Exp $
 ##                
 ######################################################################
 
@@ -60,7 +60,6 @@ class Ring(object):
         The ring should not be modified during iteration."""
         return _ringIterator(self, 0)
 
-    
     def traverse(self, item):
         """Iterates the ring starting at item's successor."""
         idx = self.__keylist.index(self._sortKey(item))        
@@ -72,8 +71,7 @@ class Ring(object):
         
     def __getitem__(self, idx):
         """Return the item with the sort key idx."""
-        #key = self.__keylist[idx]
-        return self.__key2itm[idx]
+        return self.__key2itm[self.__keylist[idx]]
         
     def __contains__(self, item):
         """Return True if item is in the ring."""
@@ -243,11 +241,11 @@ class Ring(object):
             key = self.__keylist[idx]                       
         return self.__key2itm[key]
     
-    def rank(self, item, dest):
-        """Rank is defined as the number of items between item and dest."""
+    def rank(self, item, base):
+        """Returns the number of successor relations between base and item."""
         
-        idxItem = self.index(item)
-        idxDest = self.index(dest)
+        idxItem = self.index(base)
+        idxDest = self.index(item)
         
         if idxDest < idxItem:
             return len(self) - idxItem + idxDest
@@ -283,13 +281,18 @@ class NameHashedRing(NamedRing):
             return idOnRing
 
         
-class RingSet:
-    """A set of rings. The constructor to the ring accept a
-    number as a parameter. The contained rings should not be modified directly."""
+class RingSet(object):
+    """A list of rings that will contain the same items.
+    
+    Rings added to a ringset will have their insert method disabled in order 
+    prevent accidential item insertion into invidual rings. 
+    All item insertions must go through the ringset object.
+    """
          
     def __init__(self):
         self._items = []
         self._rings = []
+        self._ringinsertfunc = []
 
     def succ(self, itm, func=lambda x: True):
         """Return for each ring the first successor of itm for which func evaluates to true."""
@@ -303,21 +306,28 @@ class RingSet:
         """Insert itm in all rings."""
         if itm in self._items: raise ValueError("Item exist")
         self._items.append(itm)
-        for ring in self._rings: ring.insert(itm)
-        
-#    def removeItem(self, itm):
-#        """Remove itm from all rings."""        
-#        self._items.remove(itm)
-#        for ring in self: ring.remove(itm)
+        for nr, ring in enumerate(self._rings): 
+            self._ringinsertfunc[nr](itm) 
+
+    def __len__(self):
+        return len(self._rings)
+    
+    def __iter__(self):
+        return iter(self._rings)
+    
+    def __getitem__(self, key):
+        return self._rings[key]
                      
     def insertRing(self, ring):
         """Insert itm in all rings. Items in ring will be merged with contained items."""
         for itm in ring:
             if itm not in self._items: self.insertItem(itm)
         for itm in self._items:
-            if itm not in ring: ring.insert(itm)            
-
+            if itm not in ring: ring.insert(itm)
+            
         self._rings.append(ring)
+        self._ringinsertfunc.append(ring.insert)
+        ring.insert = None
         
     def getRings(self):
         """Return a list of all contained rings."""
@@ -336,6 +346,133 @@ class RingSet:
     def itemCount(self):
         return len(self.getItems())
            
+
+class RankTable(object):
+    """An RankTable list the ranks, one for each ring, for some item relative to item 'base' for a particular set of rings. 
+    
+    RankTables with matching bases are comparebale using the following rules:
+       A == B: For all i in range(A), A[i] == B[i]
+       A != B: There is one i such that A[i] != B[i]
+       A <= B: for each entry i, A[i] <= B[i]      
+       A <  B: There is one i such that A[i] < B[i] 
+       A >= B: for each entry i, A[i] >= B[i]      
+       A >  B: There is one i such that A[i] > B[i] 
+
+       
+    Less formaly, the RankTable comparison says that A will be larger than B if B is not ranked 
+    higher than A on any ring.
+    
+    Due to the ring structure, the condition A == B implies A.item == B.item.
+    
+    """ 
+  
+    INVALID = 0
+    
+    def __init__(self, base, rings, item=None):
+        self.base = base
+        self.rings = rings
+        self.values = [self.INVALID] * len(self.rings)
+        
+        if item:
+            for nr, ring in enumerate(self.rings):
+                isinstance(ring, Ring)
+                ring.rank
+                self[nr] = ring.rank(self.base, item)                
+            
+    def __len__(self):
+        return len(self.values)
+    
+    def __getitem__(self, key):
+        return self.values[key]
+    
+    def __setitem__(self, key, value):
+        self.values[key] = value
+        
+    def __iter__(self):
+        return iter(self.values)             
+    
+    def __pluss__(self, other): 
+        if other.base != self.base:
+            raise ValueError("RankTable comparison must have same base.")        
+
+        v = type(self)(self.base, self.rings)
+        for nr, ring in enumerate(self.rings):
+            v[nr] = max(self[nr], other[nr])
+        return v
+    
+    def __minus__(self, other): 
+        if other.base != self.base:
+            raise ValueError("RankTable comparison must have same base.")        
+
+        v = type(self)(self.base, self.rings)
+        for nr, ring in enumerate(self.rings):
+            v[nr] = min(self[nr], other[nr])           
+            
+            
+    def __lt__(self, other):
+        """True if at least one rank entry of this table is smaller than in other."""
+        
+        if other.base != self.base:
+            raise ValueError("RankTable comparison must have same base.")        
+        for x in range(len(self)):
+            if self[x] < other[x]: return True
+        return False
+
+    def __le__(self, other):
+        """True if all entries are smaller or equal to the ones in other."""
+        
+        if other.base != self.base:
+            raise ValueError("RankTable comparison must have same base.")        
+
+        for x in range(len(self)):
+            if self[x] > other[x]: return False
+        return True   
+    
+    def __gt__(self, other):
+        """True if at least one rank entry in other is larger than in other."""
+        
+        if other.base != self.base:
+            raise ValueError("RankTable comparison must have same base.")        
+        for x in range(len(self)):
+            if self[x] > other[x]: return True
+        return False
+    
+    def __ge__(self, other):
+        """True if all entries are larger or equal to the ones in other."""
+         
+        if other.base != self.base:
+            raise ValueError("RankTable comparison must have same base.")        
+        
+        for x in range(len(self)):
+            if self[x] < other[x]: return False
+        return True
+                  
+    def __eq__(self, other):
+        """True if all entries are equal."""
+        
+        if other.base != self.base:
+            raise ValueError("RankTable comparison must have same base.")        
+
+        for x in range(len(self)):
+            if self[x] != other[x]: return False
+        return True
+    
+    def __ne__(self, other):
+        """True if at least one entry is different from other."""
+        if other.base != self.base:
+            raise ValueError("RankTable comparison must have same base.")        
+        
+        for x in range(len(self)):
+            if self[x] != other[x]: return True
+        return False
+    
+    def __str__(self):
+        return str(self.values)
+
+        
+            
+        
+    
     
 class Relation:
     """A rule determining if item relate to otherItem in some manner on one particular ring.
