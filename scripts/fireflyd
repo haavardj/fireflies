@@ -257,7 +257,7 @@ if __name__ == "__main__":
     assert myCert.verify(groupCert.get_pubkey())
         
     mgroup = group.Group(groupCert, myKey, myCert, myNote)
-    logging.info("Me = %s on %s", mgroup.getMe().getIdentity(), mgroup.getMe().getAddress())
+    logging.info("Me = %s on %s", mgroup.getMe().identity, mgroup.getMe().getAddress())
     
     if byzantine != mgroup.badness:
         mgroup.badness = byzantine        
