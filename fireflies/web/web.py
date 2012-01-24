@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, University of Tromso, Norway)
 ##                
-## $Id: web.py,v 1.11 2011/12/19 14:06:16 haavardj Exp $
+## $Id: web.py,v 1.12 2012/01/24 08:48:22 haavardj Exp $
 ##                
 ######################################################################
 
@@ -299,7 +299,10 @@ class MasterPage(rend.Page):
         return T.a["[browse]"](href="http://%s:%d" % (h, p))
 
     def render_id(self, context, peer):        
-        return context.tag.clear()["%s" % peer.getIdentity()]
+        return context.tag.clear()["%s" % peer.identity]
+
+    def render_shorId(self, context, peer):        
+        return context.tag.clear()["%s" % fireflies.state.shortIdentity(peer.identity)]
     
     def render_npings(self, context, peer):        
         return context.tag.clear()[peer.nPing]
@@ -312,28 +315,42 @@ class MasterPage(rend.Page):
     
     def render_status(self, context, peer):
         t = context.tag.clear()
-        if not peer.isAccused():
+        if not peer.isAccused():            
             return t[ T.span[""](_class="livebox", style="margin-right: 8px"),  "Live"]
-        elif peer in self.peer.view.fRing:
+        elif peer.isFailed():
             return t[ T.span[""](_class="failedbox", style="margin-right: 8px"), "Failed"]
         else:
-            if not peer.group.view.hasActiveTimer():
-                return t["???"]
-            else:
-                to = datetime.datetime.fromtimestamp(peer.fdTimer.time)
-                c = datetime.datetime.now()
-                return context.tag.clear()[T.span[""]( _class="accusedbox", style="margin-right: 8px"),  "Failes in %s" % (str(to-c)) ]
+            #to = datetime.datetime.fromtimestamp(peer.fdTimer.time)
+            #c = datetime.datetime.now()
+            return context.tag.clear()[T.span[""]( _class="accusedbox", style="margin-right: 8px"), "Accused"]
+        #"Failes in %s" % (str(to-c)) ]
 
     def render_epoch(self, context, peer):        
         return context.tag.clear()[peer.getEpoch()]
 
-    def render_mask(self, context, peer):
-        #print "------------", peer
-        #assert isinstance(peer, fireflies.members.Member)
+    def render_banned(self, context, peer):
         t = context.tag.clear()
-        if not peer.getNote(): return t["NA"]
-        else: return t[str(peer.getNote().mask)]     
+        isinstance(peer, fireflies.state.Member)
+        
+        pl = map(lambda x: peer.group.getMemberByIdentity(x), peer.getNote().banned)
+
+        return self.render_memberAddressList(context, pl)
     
+    def render_memberAddressList(self, context, memberList):
+        t = context.tag.clear()
+        
+        rows = []
+        rows.append( T.caption["Total=%s" % len(memberList)])
+        rows.append( T.tr[ T.th["id"], T.th["Address"]] )
+                 
+        for peer in memberList:
+            memberId = T.td[fireflies.state.shortIdentity(peer)]                
+            a = T.td[T.a[""](href="/%s" % peer.identity, _class="address", data=peer, render=self.render_address)]
+            rows.append( T.tr[  memberId, a])
+            
+        return t[T.table[rows](_class="peerlist")]
+        
+        
     def render_accused(self, context, peer):
         if peer.isAccused():
             return context.tag.clear()["Yes"]
@@ -385,7 +402,7 @@ class MasterPage(rend.Page):
           T.a["l"](style="white-space: nowrap; padding-left: 4px;",
                    data=peer,
                    render=self.render_address,
-                   href="/%s" % peer.getIdentity()),
+                   href="/%s" % peer.identity),
           ll
           ]
         return s
@@ -418,16 +435,16 @@ class MasterPage(rend.Page):
                 st = T.td[""](_class="accusedbox")
             else:
                 st = T.td[""](_class="livebox")
-            if True or not peer.getNote():                
+            if not peer.getNote():                
                 bt = T.td["-"]
-            elif peer.note.badness == 0:
+            elif peer.getNote().badness == 0:
                 bt = T.td[""](_class="correctbox")
-            elif peer.note.badness == 1:
+            elif peer.getNote().badness == 1:
                 bt = T.td[""](_class="passivebox")
-            elif peer.note.badness == 2:
+            elif peer.getNote().badness == 2:
                 bt = T.td[""](_class="activebox")
 
-            a = T.td[T.a[""](href="/%s" % peer.getIdentity(), _class="address", data=peer, render=self.render_address)]
+            a = T.td[T.a[""](href="/%s" % peer.identity, _class="address", data=peer, render=self.render_address)]
             rows.append( T.tr[  st, bt, a, ll])
         return t[T.table[rows](_class="peerlist")]
 
@@ -466,42 +483,37 @@ class PeerPage(MasterPage):
         nrRings = 2 * peer.group.getByzantineToleranceLevel() + 1
         
         rows = [
-                 T.tr[ T.th["#"], T.th["S"], T.th["B"], T.th["Address"], T.th["LL"]]]
-        for x in range(nrRings):
-            accus = l.get(x, None)
-            if peer.getNote().mask[x]: enabled = "Y"
-            else: enabled = "N"
+                 T.tr[ T.th["S"], T.th["B"], T.th["Address"], T.th["LL"]]]
 
-            if accus != None:
-                assert peer == self.peer.view.sn2peer[accus.accused]
-                p = self.peer.view.sn2peer[accus.accuser]
-                if p in self.peer.view.fRing:
-                    st = T.td[""](_class="failedbox")
-                elif p.isAccused():
-                    st = T.td[""](_class="accusedbox")
-                else:
-                    st = T.td[""](_class="livebox")
-                if True or p.note.badness == 0:
-                    bt = T.td[""](_class="correctbox")
-                elif p.note.badness == 1:
-                    bt = T.td[""](_class="passivebox")
-                elif p.note.badness == 2:
-                    bt = T.td[""](_class="activebox")
-
-                a = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
+        for x, accus in enumerate(peer.getAccusations()): 
+            assert peer == self.peer.view.sn2peer[accus.accused]
+            p = self.peer.view.sn2peer[accus.accuser]
+            if p in self.peer.view.fRing:
+                st = T.td[""](_class="failedbox")
+            elif p.isAccused():
+                st = T.td[""](_class="accusedbox")
             else:
-                st = bt = T.td[""](_class="nabox")
-                a = T.td[""](_class="address", width="100")                
-            rows.append( T.tr[ T.td[x](width="1" ), st, bt, a, T.td[enabled](width="1") ])
+                st = T.td[""](_class="livebox")
+            if True or p.note.badness == 0:
+                bt = T.td[""](_class="correctbox")
+            elif p.note.badness == 1:
+                bt = T.td[""](_class="passivebox")
+            elif p.note.badness == 2:
+                bt = T.td[""](_class="activebox")
+
+            a = T.td[T.a[""](href="/%s" % p.identity, _class="address", data=p, render=self.render_address)]
+        
+            rows.append( T.tr[ st, bt, a])
         return t[T.table[rows](_class="peerlist")]
 
 
 
-    def render_accusationList(self, context, l):
+    def render_accusationHistory(self, context, peer):
+        l = peer.hAccusations
 
         t = context.tag.clear()
         rows = [T.caption["Total %d" %len(l)],
-            T.tr[ T.th["#"], T.th["S"], T.th["B"], T.th["Address"]]]
+            T.tr[ T.th["E"], T.th["S"], T.th["B"], T.th["Address"]]]
         for x in range(len(l)):
             accus = l[x]
 
@@ -520,8 +532,8 @@ class PeerPage(MasterPage):
             elif p.note.badness == 2:
                 bt = T.td[""](_class="activebox")
 
-            a = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
-            rows.append( T.tr[ T.td[accus.nr], st, bt, a])
+            a = T.td[T.a[""](href="/%s" % p.identity, _class="address", data=p, render=self.render_address)]
+            rows.append( T.tr[ T.td[accus.epoch], st, bt, a])
         return t[T.table[rows](_class="peerlist")]    
  
 
@@ -602,7 +614,7 @@ class PartnersPage(MasterPage):
                 elif p.note.badness == 2:
                     d3 = T.td[""](_class="activebox")
 
-                d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
+                d4 = T.td[T.a[""](href="/%s" % p.identity, _class="address", data=p, render=self.render_address)]
                 if y.connectedProtocol:
                     d5 = T.td["%d-%s" % (y.connectedProtocol.protonr, y.connectedProtocol.state)]
                 else:
@@ -639,7 +651,7 @@ class PartnersPage(MasterPage):
                 elif p.note.badness == 2:
                     d3 = T.td[""](_class="activebox")
 
-                d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
+                d4 = T.td[T.a[""](href="/%s" % p.identity, _class="address", data=p, render=self.render_address)]
                 
                 if y.connectedProtocol:
                     d5 = T.td["%d-%s" % (y.connectedProtocol.protonr, y.connectedProtocol.state)]
@@ -678,7 +690,7 @@ class PartnersPage(MasterPage):
                 elif p.note.badness == 2:
                     d3 = T.td[""](_class="activebox")
 
-                d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
+                d4 = T.td[T.a[""](href="/%s" % p.identity, _class="address", data=p, render=self.render_address)]
                 
                 if y.connectedProtocol:
                     d5 = T.td["%d-%s" % (y.connectedProtocol.protonr, y.connectedProtocol.state)]
@@ -704,15 +716,15 @@ class PartnersPage(MasterPage):
                   T.th["State"]]]
 
         mons = []
-        for x in range(len(self.peer.view.mRings.getRings())):
-            mon = self.peer.view.mRings.getRings()[x].succ(self.peer)
+        for x, ring in enumerate(self.peer.view.mRings):
+            mon = ring.succ(self.peer)
             while mon.isAccused():
                 if mon == self.peer: break
-                mon = self.peer.view.mRings.getRings()[x].succ(mon)
+                mon = ring.succ(mon)
             mons.append(mon)
             
-        #mons = map( lambda x: x.succ(self.peer), self.peer.view.mRings)
-        for x in range(len(mons)):
+
+        for x, y in enumerate(mons):
             y = mons[x]
                 
             d1 = T.td[x](align="center")
@@ -726,20 +738,20 @@ class PartnersPage(MasterPage):
                 else:
                     d2 = T.td[""](_class="livebox")
 
-                if True or not p.getNote():
+                if not p.getNote():
                     d3 = T.td["?"](_class="failedbox")
-                elif p.note.badness == 0:
+                elif p.getNote().badness == 0:
                     d3 = T.td[""](_class="correctbox")
-                elif p.note.badness == 1:
+                elif p.getNote().badness == 1:
                     d3 = T.td[""](_class="passivebox")
-                elif p.note.badness == 2:
+                elif p.getNote().badness == 2:
                     d3 = T.td[""](_class="activebox")
                 else:
                     d3 = T.td["?"](_class="failedbox")
 
-                d4 = T.td[T.a[""](href="/%s" % p.getIdentity(), _class="address", data=p, render=self.render_address)]
+                d4 = T.td[T.a[""](href="/%s" % p.identity, _class="address", data=p, render=self.render_address)]
                 
-                if y.getNote() and y.getNote().mask and y.getNote().mask[x] == False:
+                if y.getNote() and y.hasBanned(self.peer):
                     d7 = T.td["disabled"]
                     d5 = d6 = d8 = T.td[""]
                 elif y in mons[0:x]:
@@ -798,7 +810,7 @@ class RingsPage(MasterPage):
                 elif peer.note.badness == 2:
                     bt = T.td[""](_class="activebox")
 
-                a = T.td[T.a[""](href="/%s" % peer.getIdentity(), _class="address", data=peer, render=self.render_address)]
+                a = T.td[T.a[""](href="/%s" % peer.identity, _class="address", data=peer, render=self.render_address)]
                 rows.append( T.tr[  st, bt, a])
 
                 
