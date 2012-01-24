@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.34 2011/12/19 14:05:11 haavardj Exp $
+## $Id: gossip.py,v 1.35 2012/01/24 08:38:28 haavardj Exp $
 ##                
 ######################################################################
 
@@ -29,13 +29,14 @@ from fireflies.state import Note, Accusation, Member
 PARTITION_FACTOR = 3
 RECON_EXTRA = 5
 MBAR=10
-BITSIZE=160
+BITSIZE=256
 
 setrecon.init(BITSIZE, MBAR)
 
 NODE_STATUS_EMPTY = 0
 NODE_STATUS_TERMINAL = 1
 NODE_STATUS_NONTERMINAL = 2
+
 
 
 class NoteSet(setrecon.ReconSet):
@@ -316,7 +317,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
 
                 if badness == 2 and self.setName == "nSet":
                     # If active attack, forward only our own notes.
-                    if d.identity != self.factory.service.parent.getMe().getIdentity():
+                    if d.identity != self.factory.service.parent.getMe().identity:
                         continue                
                 self.sendCommand("reconcile_data", d)
                 self.logger.debug("reconcile_data -> %s %s", self, d)
@@ -347,6 +348,9 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
                 self.appendfunc(itm)
             except ValueError, why:
                 self.logger.warning("reconcile_done error in data %s %s", itm, why) 
+            except KeyError, why:
+                self.logger.warning("reconcile_done error in data %s %s", itm, why) 
+                
 
         if self.master:
             self._d.callback(None)
@@ -555,7 +559,10 @@ class Gossip(Service):
         else: raise RuntimeError, "Invalid data event", name
                 
         if status == True:
-            sset.insert(itm)
+            try:
+                sset.insert(itm)
+            except Exception, why:
+                self.logger.exception("Insert error %s %s", itm, why)
         else:
             sset.remove(itm)
 
@@ -595,12 +602,12 @@ class Gossip(Service):
         self._port.stopListening()
 
         for factory in self.connectedAsServer:
-            if factory.isActive:
+            if factory.isActive():
                 factory.deactivate()
                 self.active.remove(factory)
             factory.doStop()   
-        for factory in self.neighborPool:
-            if factory.isActive:
+        for member, factory in self.neighborPool.items():
+            if factory.isActive():
                 factory.deactivate()
                 self.active.remove(factory)
             factory.doStop()   
@@ -657,8 +664,8 @@ class Gossip(Service):
             factory.connectedProtocol.taskQ.put(self.cSet)
             factory.connectedProtocol.taskQ.put(self.nSet)
             factory.connectedProtocol.taskQ.put(self.aSet)
-        #else:
-        #    self.connectedAsServer.add(factory)
+        else:
+            self.connectedAsServer.add(factory)
 
     def peerDisconnected(self, factory):
         if factory in self.connectedAsServer:
