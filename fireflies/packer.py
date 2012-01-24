@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.20 2011/12/21 10:10:09 haavardj Exp $
+## $Id: packer.py,v 1.21 2012/01/24 08:40:27 haavardj Exp $
 ##                
 ######################################################################
 
@@ -18,10 +18,12 @@ from fireflies.util import long_to_bytes, bytes_to_long
 import M2Crypto
 import xdrlib, new, socket
 import struct
+import binascii
 import setrecon
 
 SERIAL_LENGTH = identitySize()
 HASH_LENGTH = identitySize()
+
 
 _ctxs = {} 
 
@@ -321,9 +323,9 @@ class FirefliesPacker(xdrlib.Packer):
         self.pack_int(node.node_type)
         self.pack_int(node.setsize)
         
-    def pack_identity(self, identity):
-        self.pack_string(identity)
-        #self.pack_string(long_to_bytes(identity))
+    def pack_identity(self, identity):        
+        self.pack_fstring(SERIAL_LENGTH, binascii.unhexlify(identity))
+        #self.pack_string(identity)
 
     def pack_address(self, address):
         ip, port = address.split(":")
@@ -332,6 +334,7 @@ class FirefliesPacker(xdrlib.Packer):
         self.pack_uint(port)        
 
     def pack_signature(self, signature):
+        #self.pack_fstring(HASH_LENGTH, signature)
         self.pack_string(signature)
 
     def pack_short(self, short):
@@ -432,8 +435,8 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         return node
 
     def unpack_identity(self):
-        return self.unpack_string()
-        #return bytes_to_long(self.unpack_string())
+        return binascii.hexlify(self.unpack_fstring(SERIAL_LENGTH)).upper()
+        #return self.unpack_string()
 
     def unpack_address(self):
         ip = socket.inet_ntoa(self.unpack_fstring(4))
