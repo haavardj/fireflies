@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.29 2011/12/21 10:10:09 haavardj Exp $
+## $Id: group.py,v 1.30 2012/01/24 08:35:36 haavardj Exp $
 ##                
 ######################################################################
 
@@ -186,7 +186,7 @@ class Group(MultiService):
     def evSelfRebuttal(self, name, elm, status):
         """@todo: Check that the accusation is still valid when receiving this event."""
         assert name == "data.accusation"
-        if status == True and elm.accused == self.getMe().getIdentity():
+        if status == True and elm.accused == self.getMe().identity:
             self.logger.warning("rebutting false accusation %s", elm)
             n = self.getMe().nextNote()
             isinstance(n, Note)
