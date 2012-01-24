@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.27 2011/12/21 10:10:09 haavardj Exp $
+## $Id: crypto.py,v 1.28 2012/01/24 08:50:26 haavardj Exp $
 ##                
 ######################################################################
 
@@ -17,8 +17,8 @@
 
 import fireflies, M2Crypto, struct, hashlib
 
-DIGESTALG="sha1"
-DIGESTSIZE=160
+DIGESTALG="sha256"
+DIGESTSIZE=256
 
 class GroupCertificate(M2Crypto.X509.X509):
     
@@ -116,7 +116,7 @@ def bytes_to_long(s):
         acc = (acc << 32) + unpack('>I', s[i:i+4])[0]
     return acc
 
-def makePrivateKey(size=1024, callback=M2Crypto.RSA.keygen_callback):     
+def makePrivateKey(size=2048, callback=M2Crypto.RSA.keygen_callback):     
     rsa = M2Crypto.RSA.gen_key(size, M2Crypto.m2.RSA_F4, callback)
     pkey = M2Crypto.EVP.PKey()
     pkey.assign_rsa(rsa)
@@ -153,7 +153,7 @@ def makeCACert(pkey, groupName, maxGroupSize, pByz=0.10, faultTolerance=0.10):
     #ext3 = M2Crypto.X509.new_extension('authorityKeyIdentifier', 'keyid,issuer:always', 0)
     #cert.add_ext(ext3)       
 
-    cert.sign(pkey, 'sha1')
+    cert.sign(pkey, DIGESTALG)
     assert cert.check_ca() != 0    
     return cert
 
@@ -260,12 +260,13 @@ def computeSubjectKeyIdentifierFromCertificate(cert):
 
 def computeSubjectKeyIdentifier(pkey):
     if not isinstance(pkey, M2Crypto.EVP.PKey): raise ValueError
-    client_serial = hashlib.new("sha1", pkey.as_der() ).hexdigest().upper()
+    h = hashlib.new(DIGESTALG, pkey.as_der() )
+    client_serial = h.hexdigest().upper()
     client_serial_hex = ''
     
-    for byte in xrange(20):
+    for byte in xrange(h.digestsize):
         client_serial_hex += client_serial[byte*2] + client_serial[byte*2+1]
-        if byte < 19:
+        if byte < h.digestsize -1:
             client_serial_hex += ':'            
     return client_serial_hex
 
@@ -329,7 +330,7 @@ class Signable:
 
     def get_fingerprint(self):
         if not self._fingerprint:       
-            dig = M2Crypto.EVP.MessageDigest("sha1")
+            dig = M2Crypto.EVP.MessageDigest(DIGESTALG)
             dig.update(self.uidstr())
             self._fingerprint = dig.final()
         return self._fingerprint
