@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: persist.py,v 1.5 2011/10/04 08:57:12 haavardj Exp $
+## $Id: persist.py,v 1.6 2012/01/24 08:51:58 haavardj Exp $
 ##                
 ######################################################################
 
@@ -105,9 +105,8 @@ class Store:
         if not isinstance(accusation, fireflies.state.Accusation): raise ValueError
         d = (printIdentity(accusation.accused), 
              printIdentity(accusation.accuser),
-             accusation.epoch, 
-             accusation.nr)
-        return join(self.dirAccu, "%s-%s-%d-%d" %d)
+             accusation.epoch)
+        return join(self.dirAccu, "%s-%s-%d" %d)
 
     def filenameNote(self, note):
         if not isinstance(note, fireflies.state.Note): raise ValueError
