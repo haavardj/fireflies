@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.29 2011/12/21 10:10:09 haavardj Exp $
+## $Id: fd.py,v 1.30 2012/01/24 08:37:17 haavardj Exp $
 ##                
 ######################################################################
 
@@ -25,6 +25,8 @@ from math import *
 
 import crypto
 import fireflies
+import fireflies.group
+import fireflies.state
 import new, random
 
 from packer import FirefliesPacker, FirefliesUnpacker
@@ -32,6 +34,33 @@ from packer import FirefliesPacker, FirefliesUnpacker
 noisy = 0
 MSG_PING = 0x23
 MSG_PONG = 0x24    
+
+
+def outboundPartnersOnRing(member, ring):
+    isinstance(member, fireflies.state.Member)
+    isinstance(ring, fireflies.ring.Ring)
+    
+    succ = ring.succ(member)
+    while succ != member:
+        isinstance(succ, Member)
+        if not succ.isAccused():
+            if succ.hasBanned(member): 
+                return None
+            else: 
+                return succ
+        succ = ring.succ(succ)       
+    return None
+
+def partners(member):
+    isinstance(member, fireflies.state.Member)
+    
+    p = []    
+    for ring in member.group.view.mRings:
+        m = outboundPartnersOnRing(member, ring)
+        if m and m not in p:
+            p.append(m)
+    return p
+
 
 class PingMsg(crypto.Signable):
     count = 0
@@ -198,10 +227,7 @@ class FailureDetector(Service):
         self.group = group        
         isinstance(group, fireflies.group.Group)
         self.setServiceParent(group) 
-         
-        nrRings = self.group.view.getNumberOfRings()
-        self.last = -1 % nrRings
-        self._pinglist = [None] * nrRings
+        self.pinglist = [] 
         isinstance(self.parent, fireflies.group.Group)
 
     @property
@@ -231,7 +257,7 @@ class FailureDetector(Service):
     def stopService(self):
         Service.stopService(self)
         
-        if self._task:
+        if self._task and self._task.running:
             self._task.stop()
             self._task = None
         if self._udpport:
@@ -240,79 +266,49 @@ class FailureDetector(Service):
         self.protocol = None
         
     def update(self):
-        nrRings = self.group.view.getNumberOfRings()
+
         me = self.group.getMe()
-        view = self.group.view
-        assert view.group == self.group
+
+        # Remove failed members from pinglist.
+        self.pinglist = filter(lambda x: x.isLive(), self.pinglist)
         
-        myBadness = self.group.badness
+        # Membership might have changed since we generated the list, check if we still can accuse all members.
+        self.pinglist = filter(lambda x: fireflies.view.canAccuse(me, x, self.group.view.mRings), self.pinglist)
             
-        x = self.last = (self.last + 1) % nrRings
+        # If no partners left to ping, generate new list.
+        if not self.pinglist:
+            self.pinglist = partners(self.group.getMe())
 
-        if myBadness == 1: return 
-        if len(view.getLiveMembers()) < 2:
-            return
-
-        ring = view.mRings.getRings()[x]
-        mon = ring.succ(me)
-        isinstance(mon, Member)
-        assert mon.group == self.group
-        while mon.isFailed():
-            if mon == me: break
-            mon = ring.succ(mon)            
-
-        # It's me!
-        if mon == me: return 
-
-
-        # We can be the monitor of the same peer on more than one
-        # ring. By keeping track of which peer we ping on which ring,
-        # we can avoid "double-pinging".
-        self._pinglist[x] = mon.getIdentity()
-        #if mon.id in self._pinglist[0:x]: return
-
-        # If the monitoree has disabled the ring, we do not need to
-        # ping that host.
-        if mon.getNote().mask[x] == False:            
-            # Prevents this from blocking other rings
-            self._pinglist[x] = 0 
+        # If still no partners, wait untill next round.
+        if not self.pinglist:
             return
         
+        mon = self.pinglist.pop()
         
-        if myBadness == 1:
-            #Passive attack. Do nothing.
+        assert mon != self.group.getMe()
+                                   
+        
+        #Passive attack. Do nothing.        
+        if self.group.badness == 1:
             pass
-        
-        if myBadness == 2:
-            #Aggressive attack.
-            a = mon.vAccusations.get(x, None)
-            if a and a.accuser == me.getIdentity():
-                return
-            
 
-            assert fireflies.view.CanAccuseOnRing(self.group.getMe(), mon, ring)
+        #Aggressive attack. Generate accusation.        
+        elif self.group.badness == 2:
+
             
-            accusation = Accusation(mon.getIdentity(),
+            accusation = Accusation(mon.identity,
                                             mon.getNote().epoch,
-                                            x,
-                                            me.getIdentity()
+                                            me.identity
                                             )
             
             accusation.sign(me.getPublicKey())
             self.group.stats.accusationsCreated += 1
             self.group.stats.accusationsCreatedByzantine += 1
-            view.addAccusation(accusation)
+            self.group.view.addAccusation(accusation)
             self.logger.warning("created %s aggressive attack", accusation)
-        elif myBadness == 0:
-                        
+        elif self.group.badness == 0:
             #Do not accuse if this node has already made an accusation
             #on this ring.
-            a = mon.vAccusations.get(x, None)
-            if a and (a.accuser == me.getIdentity()):
-                return
-            a = mon.vAccusations.get(x, None)
-            if a and (a.accuser == me.getIdentity()):
-                return
             
             p = min( 1./mon.avgLoss, 1. - self.pMistake**(1./float(max(self.tmin, 1))))
             assert p < 1.0 and p > 0.0, "Psuc out of bounds."
@@ -320,16 +316,14 @@ class FailureDetector(Service):
             t = log(self.pMistake) / log(1. - p)
 
             if mon.nPing > t:
-                assert fireflies.view.CanAccuseOnRing(self.group.getMe(), mon, ring)
 
-                accusation =  Accusation(mon.getIdentity(),
+                accusation =  Accusation(mon.identity,
                                          mon.getNote().epoch,
-                                         x,
-                                         me.getIdentity())
+                                         me.identity)
                 
                 accusation.sign(self.group.getMyKey())
                 self.logger.warning("created %s t=%.2f nPing=%d", accusation, t, mon.nPing)
-                view.addAccusation(accusation)
+                self.group.view.addAccusation(accusation)
                 self.group.stats.accusationsCreated += 1
 
                 assert mon.nPing > 0
@@ -340,7 +334,6 @@ class FailureDetector(Service):
 
                 # If we pinged this peer on a lower ring, we dont ping
                 # again on this ring.
-                if mon.getIdentity() in self._pinglist[0:x]: return
                 try:
                     self.protocol.ping(mon)
                 except KeyboardInterrupt:
@@ -364,7 +357,7 @@ class PingPong(DatagramProtocol):
         mkey = self.factory.group.getMyKey()
         
         toSn, fromSn, noun = msg.toSn, msg.fromSn, msg.noun
-        if not toSn == self.factory.group.getMe().getIdentity():
+        if not toSn == self.factory.group.getMe().identity:
             self.logger.warning("ping<- %s wrong receiver %s", fromSn, toSn)
             return        
         if not fromSn in view.sn2peer:
@@ -382,7 +375,7 @@ class PingPong(DatagramProtocol):
     def handle_PongMsg(self, msg):
         view, smoothing, mkey = self.factory.group.view, self.factory.smoothing, self.factory.group.getMyKey()
         
-        if msg.toSn != self.factory.group.getMe().getIdentity():
+        if msg.toSn != self.factory.group.getMe().identity:
             self.logger.warning("pong<- %s wrong receiver %s", msg.fromSn, msg.toSn)
             return        
         sender = view.sn2peer.get(msg.fromSn, None)
@@ -402,7 +395,7 @@ class PingPong(DatagramProtocol):
         
         if noisy: self.logger.debug("ping-> %s", receiver)
         
-        msg = PingMsg(me.getIdentity(), receiver.getIdentity())
+        msg = PingMsg(me.identity, receiver.identity)
         msg.sign(self.factory.group.getMyKey())
         self.sendCommand(receiver, msg)
         
