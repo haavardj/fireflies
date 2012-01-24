@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.23 2011/12/21 10:10:09 haavardj Exp $
+## $Id: state.py,v 1.24 2012/01/24 08:34:38 haavardj Exp $
 ##                
 ######################################################################
 
@@ -21,7 +21,7 @@ from fireflies import crypto
 import bisect, setrecon, random, stats
 import M2Crypto
 import twisted
-
+    
 
 def isValidBanned(mask, t):
     """
@@ -55,11 +55,20 @@ def createInitialNote(member):
 
     isinstance(member, Member)
     t = member.group.view.toleranceLevel
-    return Note(member.getIdentity(), 1, [])
+        
+    return Note(member.identity, 1, [])
 
     
 
-class Accusation(object, crypto.Signable):
+class TimeStampMixin:
+    
+    timestamp = 0 
+    
+    def touch(self):
+        self.timestamp = fireflies.time.time()
+             
+
+class Accusation(object, crypto.Signable, TimeStampMixin):
     """
     Members issue Accusations to signal to other members failure suspicion. 
     Whenever a member suspects that one of its monitored members has failed, 
@@ -83,6 +92,8 @@ class Accusation(object, crypto.Signable):
         self.accused = accused
         self.epoch = ll
         self.accuser = accuser 
+        
+        self.touch()
 
     def __getstate__(self):
         return {"accused": self.accused,
@@ -94,6 +105,8 @@ class Accusation(object, crypto.Signable):
     def __setstate__(self, data):
         for k,v in data.items():
             setattr(self, k, v)
+            
+        self.touch()
         
     def __cmp__(self, other):
         try: return cmp(self.get_fingerprint(), other.get_fingerprint())
@@ -110,7 +123,7 @@ class Accusation(object, crypto.Signable):
 
         
 
-class Note(object, crypto.Signable):
+class Note(object, crypto.Signable, TimeStampMixin):
     """Members issue notes to signal to other members that they are alive. In
     particular, a member will issue a new note as a rebuttal to a false
     accusation. Notes should be considered immutable after they are signed.
@@ -130,6 +143,8 @@ class Note(object, crypto.Signable):
         self.epoch = epoch
         self.banned = banned
         self.badness = 0
+        
+        self.touch()
 
     def __repr__(self):        
         return "N:%s-%d" % (self.identity, self.epoch)
@@ -149,6 +164,8 @@ class Note(object, crypto.Signable):
         for k,v in data.items():
             setattr(self, k, v)
 
+        self.touch()
+        
     def __cmp__(self, other):
         try: return cmp(self.shash(), other.shash())
         except AttributeError: return -1
@@ -158,7 +175,7 @@ class Note(object, crypto.Signable):
 
         
 def shortIdentity(member):
-    return member.getIdentity()[-4:]
+    return member.identity[-4:]
 
 import fireflies
 class Member(object):
@@ -168,25 +185,27 @@ class Member(object):
     @type group: L{fireflies.group.Group}
     """
     
+    maxAccusationHistory = 100
     initialLossRate = 0.001 
+    group = None
 
     def __init__(self, cert, group):
 
-        isinstance(group, fireflies.group.Group)
+        isinstance(self.group, fireflies.group.Group)
         isinstance(cert, M2Crypto.X509.X509)
     
         self._cert = cert
         self._note = None
         self.group = group
-        self._identity = crypto.identityFromCertificate(self._cert)
+        self.identity = crypto.identityFromCertificate(self._cert)
                 
         self.view = group.view       
   
         # Valid accusations. 
         self.vAccusations = set()
 
-        # At what time we received an accusation on each ring.
-        self.hAccusations = {} 
+        # History of accusations
+        self.hAccusations = []
         self._nextBanned = [] 
         
         self.nPing = 0
@@ -276,10 +295,12 @@ class Member(object):
         @rtype: L{Note}
         """
         
-        n = Note(self.getIdentity(), self.getEpoch() + 1, self._nextBanned)
+        n = Note(self.identity, self.getEpoch() + 1, self._nextBanned)
         n.badness = self.group.badness        
         return n
     
+    def accusers(self):
+        return map(lambda x: self.group.getMemberByIdentity(x), self.getAccusations())
 
     def getCertificate(self):
         """
@@ -300,12 +321,13 @@ class Member(object):
     
     def getAccusationBy(self, member):
         """
-        Get accusation for a specific ring.
+        Get accusation for a specific member.
         
-        @param member: member to get accusations for
-        @type member: L{Member} or fid string 
-        @return: List of accusations. 
+        @param member: member identity to get accusations for
+        @type member: L{Member} or member identity string 
+        @return: Accusation
         @rtype: L{Accusation}
+        @raises e: KeyError if member has not made any accusations.
         """
 
         if isinstance(member, Member):
@@ -313,17 +335,15 @@ class Member(object):
         else:
             identity = member
 
-        return filter(lambda x: x.accuser == identity, self.vAccusations)        
-    
-    #@property
-    def identity(self):
-        """
-        @return: The member's identity.
-        @rtype: string
-        """
-        return self._identity
+        for a in self.vAccusations:
+            assert isinstance(a, Accusation)
+            assert a.accuser == self.identity
+            if a.accuser == identity:                
+                return a
+        raise KeyError, "No such accuser %s" % member
         
-    getIdentity = identity
+
+        
     
     def getPublicKey(self):
         return self._cert.get_pubkey()
@@ -355,16 +375,25 @@ class Member(object):
         return bool(self.vAccusations)
 
     def isAccusedBy(self, member):
-        """
-        Checks if member is accused on a particular ring.
+        """Returns true if member is accused by member.
+        
+        @param member: member identity to get accusations for
+        @type member: L{Member} or member identity string         
         
         @return: True if the member is accused on the given ring, otherwise False.
         @rtype: bool
-        @param nr: Ring number
-        @type nr: int
         """
+        if isinstance(member, Member):
+            identity = member.identity
+        else:
+            identity = member
 
-        return bool(self.getAccusationBy(member))
+        for a in self.vAccusations:
+            assert isinstance(a, Accusation)
+            assert a.accused == self.identity, "%s - %s" %(a.accused, self.identity)
+            if a.accuser == identity: return True
+        return False
+
 
     def setNote(self, note):
         """
@@ -379,15 +408,15 @@ class Member(object):
         """
         assert  isinstance(note, Note)
         
-        if self.getIdentity() != note.identity:
-            raise ByzantineError("Note do not match certificate.")
+        if self.identity != note.identity:
+            raise ByzantineError, "Note do not match certificate."
 
         if not note.verify(self.getCertificate().get_pubkey()):
-            raise ByzantineError("Note not signed correctly.")
+            raise ByzantineError, "Note not signed correctly."
         
         if self._note:
             if self.getEpoch() >= note.epoch:
-                raise ByzantineError("Epoch must be larger.")
+                raise ByzantineError, "Epoch must be larger."
 
         if self._note:
             self.group.notify("data.note", self._note, False)
@@ -402,7 +431,6 @@ class Member(object):
     def setAccusation(self, accusation):
         """
         Add an accusation for this member.
-        Any existing accusation with the same ring number will be invalidated and removed.
         
         @param accusation: The accusation to add.
         @type accusation: L{Accusation}
@@ -413,27 +441,32 @@ class Member(object):
           - the accusation is made on a ring that this member has disabled.
         """ 
 
-        if not isinstance(accusation, Accusation): raise ValueError
+        if not isinstance(accusation, Accusation): raise TypeError, "Parameter %s not an accusation." % accusation
         
         if accusation.epoch != self.getEpoch(): raise ByzantineError, "Note in accusation does not match current note."
-        if accusation.accused != self.getIdentity(): raise ByzantineError, "Accusation is not for this member."
+        if accusation.accused != self.identity: raise ByzantineError, "Accusation is not for this member."
         if accusation.accuser in self._note.banned: raise ByzantineError, "Accuser is banned."
 
         if self.isAccusedBy(accusation.accuser):
             assert accusation in self.vAccusations
-            raise ValueError("Duplicate accusation %s", accusation)
+            raise KeyError, "Duplicate accusation %s"
         
         assert accusation not in self.vAccusations
         
         self.vAccusations.add(accusation)
-        self.group.notify("data.accusation", accusation, True)
-
-        #if self.vAccusations.has_key(nr):
-        #    a = self.vAccusations.pop(nr)
-        #    self.group.notify("data.accusation", a, False)
+        self.hAccusations.append(accusation)
+        if len(self.hAccusations) > self.maxAccusationHistory:
+            self.hAccusations.pop(0)
 
     
-
+        if accusation.accuser in self._nextBanned:
+            self._nextBanned.remove(accusation.accuser)
+        self._nextBanned.append(accusation.accuser)
+        if len(self._nextBanned) > self.group.view.toleranceLevel:
+            self._nextBanned.pop(0)        
+        
+        self.group.notify("data.accusation", accusation, True)
+    
     def invalidateAccusation(self, accusation):
         """Invalidate an accusation.
         
@@ -442,9 +475,9 @@ class Member(object):
         @raises e: L{ValueError} if accusation was not valid. 
         """
         
-        if not isinstance(accusation, Accusation): raise ValueError
+        if not isinstance(accusation, Accusation): raise TypeError, "Parameter %s not an accusation." % accusation
 
-        self.vAccusations.pop(accusation)
+        self.vAccusations.remove(accusation)
         self.group.notify("data.accusation", accusation, False)
 
     def invalidateAccusationBy(self, member):
@@ -452,11 +485,14 @@ class Member(object):
         
         @param rnr: Ring number
         @type rnr: int
-        @raises e: L{KeyError} is there is no accusation on rnr.
+        @raises e: L{ValueError} is there is accusations by member.
         """
                 
-        for x in self.getAccusationBy(member):
-            self.invalidateAccusation(x)
+        a = self.getAccusationBy(member)
+        if a == None:
+            raise ValueError, "No accusations for %s by %s" % (self, member)
+        
+        self.invalidateAccusation(a)
         
     def hasAccusations(self):
         """
@@ -484,7 +520,7 @@ class Member(object):
 
     def __cmp__(self, other):
         try:
-            return cmp(self.getIdentity(), other.getIdentity())
+            return cmp(self.identity, other.identity)
         except AttributeError:
             return False
 #  LocalWords:  param
