@@ -156,6 +156,7 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
 
     @property
     def group(self):
+        isinstance(self.member.group, fireflies.group.Group)
         return self.member.group
         
     @property
@@ -422,7 +423,6 @@ class FirefliesProtocol(Int32StringReceiver):
         return self.service.group
     
     def postConnectionCheck(self, x509, host):
-        self.logger.debug("FirefliesProtocol.postConnectionCheck %s", self)
         isinstance(x509, M2Crypto.X509.X509)
         
         self.group.view.addCertificate(x509)
@@ -430,7 +430,7 @@ class FirefliesProtocol(Int32StringReceiver):
         
         if not self.master:
             assert not self.member
-            self.factory = self.factory.getMemberFactory(member)            
+            self.member = member
         else:
             if self.member != member:
                 raise WrongCertificate('peer did not authenticate with correct certificate')
@@ -562,7 +562,6 @@ class FirefliesProtocol(Int32StringReceiver):
 
     def redirect(self, members):
         self.stats.redirect += 1
-        pprint = self.factory.service.parent.view.pprint
         self.logger.debug("redirect -> %s", self)
         self.setTimeout()
         lst = []
@@ -574,11 +573,15 @@ class FirefliesProtocol(Int32StringReceiver):
         self.logger.debug("accepted -> %s", self)
         self.sendCommand("accepted")
         reactor.callLater(0, self.doIdle)
- 
             
     def handle_partner(self, hisNote):
+        
+        
+        assert not self.master
         self.cancelTimeout()
-        self.factory.service.parent.getView().addNote(hisNote)    
+        
+        self.factory = self.factory.getMemberFactory(self.member)        
+        self.factory.service.parent.getView().addNote(hisNote)
         self.logger.debug("partner <- %s", self)
         reactor.callLater(0, self.factory.clientConnected, self)
 
