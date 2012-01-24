@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.22 2012/01/11 11:16:44 haavardj Exp $
+## $Id: ring.py,v 1.23 2012/01/24 08:46:06 haavardj Exp $
 ##                
 ######################################################################
 
@@ -52,7 +52,7 @@ class Ring(object):
         This implementation uses the item's hash function return value
         as a key. Reimplement this method in a subclass to use other
         sort keys."""
-        return item.identity()
+        return item.identity
 
     def __iter__(self):
         """Iterate the ring starting at the lowest number.
@@ -158,7 +158,7 @@ class Ring(object):
         lst = []
         s = self.succ(item)
         while s:
-            if s.identity() == stop.identity(): break
+            if s.identity == stop.identity: break
             lst.append(s)
             s = self.succ(s)
         return lst        
@@ -168,7 +168,7 @@ class Ring(object):
         lst = []
         s = self.pred(item)
         while s:
-            if s.identity() == stop.identity(): break
+            if s.identity == stop.identity: break
             lst.append(s)
             s = self.pred(s)
         return lst        
@@ -181,7 +181,7 @@ class Ring(object):
         lst = []
         s = self.pred(start)
         while s:
-            if s.identity() == start.identity(): break
+            if s.identity == start.identity: break
             if stopFunc(s): break
             lst.append(s)
             s = self.ped(s)
@@ -195,7 +195,7 @@ class Ring(object):
         lst = []
         s = self.succ(start)
         while s:
-            if s.identity() == start.identity(): break
+            if s.identity == start.identity: break
             if stopFunc(s): break
             lst.append(s)
             s = self.succ(s)
@@ -252,6 +252,9 @@ class Ring(object):
         else:
             return idxDest - idxItem
 
+    @property
+    def maxrank(self):
+        return len(self)-1
 
 class NamedRing(Ring):
     """A ring with a name/identity."""
@@ -259,7 +262,8 @@ class NamedRing(Ring):
     def __init__(self, name):
         self.name = name
         Ring.__init__(self)
-        
+     
+    @property   
     def identity(self):
         return self.name
     
@@ -270,13 +274,13 @@ class NameHashedRing(NamedRing):
     mRingIDCache = {}    
         
     def _sortKey(self, item):
-        iId = item.identity()
+        iId = item.identity
         try:
-            return NameHashedRing.mRingIDCache[iId][self.identity()]
+            return NameHashedRing.mRingIDCache[iId][self.identity]
         except KeyError:
             ids = NameHashedRing.mRingIDCache.get(iId, {})
-            idOnRing = sha.new("%s-%s" % (iId, self.identity())).digest()
-            ids[self.identity()] = idOnRing
+            idOnRing = sha.new("%s-%s" % (iId, self.identity)).digest()
+            ids[self.identity] = idOnRing
             NameHashedRing.mRingIDCache[iId] = ids
             return idOnRing
 
@@ -368,7 +372,7 @@ class RankTable(object):
   
     INVALID = 0
     
-    def __init__(self, base, rings, item=None):
+    def __init__(self, item, base, rings):
         self.base = base
         self.rings = rings
         self.values = [self.INVALID] * len(self.rings)
@@ -377,7 +381,8 @@ class RankTable(object):
             for nr, ring in enumerate(self.rings):
                 isinstance(ring, Ring)
                 ring.rank
-                self[nr] = ring.rank(self.base, item)                
+                self[nr] = ring.rank(item, self.base)
+
             
     def __len__(self):
         return len(self.values)
@@ -391,22 +396,39 @@ class RankTable(object):
     def __iter__(self):
         return iter(self.values)             
     
-    def __pluss__(self, other): 
+    def __add__(self, other): 
         if other.base != self.base:
             raise ValueError("RankTable comparison must have same base.")        
 
-        v = type(self)(self.base, self.rings)
+        v = type(self)(0, self.base, self.rings)
         for nr, ring in enumerate(self.rings):
             v[nr] = max(self[nr], other[nr])
         return v
     
-    def __minus__(self, other): 
+    def __iadd__(self, other):
         if other.base != self.base:
             raise ValueError("RankTable comparison must have same base.")        
 
-        v = type(self)(self.base, self.rings)
+        for nr, ring in enumerate(self.rings):
+            self[nr] = max(self[nr], other[nr])
+        return self
+    
+    def __sub__(self, other): 
+        if other.base != self.base:
+            raise ValueError("RankTable comparison must have same base.")        
+
+        v = type(self)(0, self.base, self.rings)
         for nr, ring in enumerate(self.rings):
             v[nr] = min(self[nr], other[nr])           
+
+    def __isub__(self, other):
+        if other.base != self.base:
+            raise ValueError("RankTable comparison must have same base.")        
+
+        for nr, ring in enumerate(self.rings):
+            self[nr] = min(self[nr], other[nr])
+        return self
+
             
             
     def __lt__(self, other):
