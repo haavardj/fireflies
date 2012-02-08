@@ -39,25 +39,25 @@ parser.add_option("-o",
 
 
 if len(args) != 1:
- parser.print_help()
- sys.exit(0)
+    parser.print_help()
+    sys.exit(0)
 
 if os.path.exists(args[0]) and not options.overwrite:
- print "CA exists. Please remove or use -o option."
- sys.exit(0)
+    print "CA exists. Please remove or use -o option."
+    sys.exit(0)
 
 def passwd(*args):
- return options.password
- 
+    return options.password
+
 if options.password: passwdcb = lambda x: options.password
 else: passwdcb= M2Crypto.util.passphrase_callback
 if options.nopass: cipher = None
 else: cipher = 'aes_128_cbc'
- 
+
 
 if not options.name:
- options.name = os.path.basename(args[0])
- 
+    options.name = os.path.basename(args[0])
+
 
 
 pkey = fireflies.crypto.makePrivateKey()
@@ -84,4 +84,3 @@ assert c1.verify(k1)
 assert c1.verify()
 #print c1.verify(k1)
 #print c1.verify()
-
