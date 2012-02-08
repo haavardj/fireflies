@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.28 2012/01/24 08:50:26 haavardj Exp $
+## $Id: crypto.py,v 1.29 2012/02/08 09:12:40 haavardj Exp $
 ##                
 ######################################################################
 
@@ -19,6 +19,8 @@ import fireflies, M2Crypto, struct, hashlib
 
 DIGESTALG="sha256"
 DIGESTSIZE=256
+KEYSIZE = 2048
+SIGNATURESIZE = KEYSIZE / 8
 
 class GroupCertificate(M2Crypto.X509.X509):
     
@@ -52,13 +54,13 @@ class MemberCertificate(M2Crypto.X509.X509):
         bio = M2Crypto.BIO.MemoryBuffer(data) 
         self.x509 = M2Crypto.m2.d2i_x509(bio._ptr())
         assert M2Crypto.m2.x509_type_check(self.x509)
-        self._pyfree = 1
+        #self._pyfree = 1
         
     def uidstr(self):
-        return "Certificate:%s" % self.get_fingerprint()
+        return "%s" % self.get_fingerprint()
     
     def identity(self):
-        return self.get_fingerprint()
+        return self.get_fingerprint(md=DIGESTALG)
 
 
 def fingerprint(data, outputbinary=False):
@@ -116,11 +118,11 @@ def bytes_to_long(s):
         acc = (acc << 32) + unpack('>I', s[i:i+4])[0]
     return acc
 
-def makePrivateKey(size=2048, callback=M2Crypto.RSA.keygen_callback):     
+def makePrivateKey(size=KEYSIZE, callback=M2Crypto.RSA.keygen_callback, md=DIGESTALG):     
     rsa = M2Crypto.RSA.gen_key(size, M2Crypto.m2.RSA_F4, callback)
-    pkey = M2Crypto.EVP.PKey()
-    pkey.assign_rsa(rsa)
-
+    #pkey = M2Crypto.EVP.load_key_string(rsa.as_pem(callback=None), callback=None)
+    pkey = M2Crypto.EVP.PKey(md=md)
+    if not pkey.assign_rsa(rsa): raise RuntimeError, "Error assigning rsa key"
     return pkey
 
 def makeCACert(pkey, groupName, maxGroupSize, pByz=0.10, faultTolerance=0.10):
@@ -314,18 +316,20 @@ class Signable:
         raise NotImplementedError
     
     def sign(self, pKey):
-        isinstance(pKey, M2Crypto.EVP.PKey)        
+        pKey.reset_context(md=DIGESTALG)
+        isinstance(pKey, M2Crypto.EVP.PKey)                
         pKey.sign_init()
         pKey.update(self.uidstr())
         self.signature = pKey.sign_final()
-        #pKey.reset_context()
+        pKey.reset_context()
 
     def verify(self, pKey):
+        pKey.reset_context(md=DIGESTALG)
         isinstance(pKey, M2Crypto.EVP.PKey)        
         pKey.verify_init()
         pKey.verify_update(self.uidstr())
         result = pKey.verify_final(self.signature)
-        #pKey.reset_context()
+
         return result
 
     def get_fingerprint(self):
