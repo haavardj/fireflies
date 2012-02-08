@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.24 2012/01/24 08:34:38 haavardj Exp $
+## $Id: state.py,v 1.25 2012/02/08 09:09:24 haavardj Exp $
 ##                
 ######################################################################
 
@@ -221,6 +221,8 @@ class Member(object):
         self.stats = fireflies.stats.Stats()
         self._failed = True
 
+        # Make the EVP public key use something else than SHA1 as signature algoritm.
+        self._cert.get_pubkey().reset_context(md=fireflies.crypto.DIGESTALG)
 
     @property
     def logger(self):
@@ -426,7 +428,7 @@ class Member(object):
             
         self._note = note
         self.group.notify("data.note", note, True)
-
+        self.group.stats.notesTotal += 1
         
     def setAccusation(self, accusation):
         """
@@ -466,6 +468,7 @@ class Member(object):
             self._nextBanned.pop(0)        
         
         self.group.notify("data.accusation", accusation, True)
+        self.group.stats.accusationsTotal += 1
     
     def invalidateAccusation(self, accusation):
         """Invalidate an accusation.
