@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.21 2012/01/24 08:40:27 haavardj Exp $
+## $Id: packer.py,v 1.22 2012/02/08 09:13:06 haavardj Exp $
 ##                
 ######################################################################
 
@@ -334,7 +334,6 @@ class FirefliesPacker(xdrlib.Packer):
         self.pack_uint(port)        
 
     def pack_signature(self, signature):
-        #self.pack_fstring(HASH_LENGTH, signature)
         self.pack_string(signature)
 
     def pack_short(self, short):
@@ -508,5 +507,4 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         identity = self.unpack_identity()
         broker = getBroker(ctx)
         return broker.resolve(identity)
-        
         

@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: gossip.py,v 1.35 2012/01/24 08:38:28 haavardj Exp $
+## $Id: gossip.py,v 1.36 2012/02/08 09:13:06 haavardj Exp $
 ##                
 ######################################################################
 
@@ -645,7 +645,7 @@ class Gossip(Service):
             else:
                 pass
                 assert factory in self.active
-                if factory.connectedProtocol and factory.connectedProtocol.master:
+                if factory.connectedProtocol and factory.connectedProtocol.master and not factory.connectedProtocol.taskQ.pending:
                     reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.cSet)
                     reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.nSet)
                     reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.aSet)

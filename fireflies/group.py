@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.30 2012/01/24 08:35:36 haavardj Exp $
+## $Id: group.py,v 1.31 2012/02/08 09:13:06 haavardj Exp $
 ##                
 ######################################################################
 
@@ -85,7 +85,8 @@ class Group(MultiService):
         self._me = self.view.getMemberByCertificate(myCertificate)
         
         assert isinstance(self._me, Member)
-        if myNote: self.view.addNote(myNote)
+        if myNote: 
+            self.view.addNote(myNote)
         else:
             myNote = createInitialNote(self._me)
             myNote.sign(self.getMyKey())

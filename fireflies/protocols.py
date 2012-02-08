@@ -73,7 +73,6 @@ def listen(port,
          
 
 def makeSSLCtx(certificate, key, ca):
-    if 0: isinstance(ca, state.GroupCertificate)
     if 0: isinstance(certificate, state.MemberCertificate)
     if 0: isinstance(key, M2Crypto.EVP.PKey)
         
