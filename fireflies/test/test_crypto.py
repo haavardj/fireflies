@@ -1,8 +1,8 @@
-#from twisted.trial import unittest
 from twisted.trial import unittest
 import fireflies
 from fireflies import crypto
-
+import binascii
+import M2Crypto
 
 def noGeygens(): pass
 
@@ -18,15 +18,12 @@ class SubjectKeyIdentifierBugTest(unittest.TestCase):
     
     def testAccess(self):
         
-        for x in range(100):
+        for x in range(10):
             mKey = crypto.makePrivateKey(callback=noGeygens)
             req = fireflies.crypto.makeRequest(str(x), mKey)
             mCert = fireflies.crypto.makeCert(req, self.caCert, self.caKey, sn=x)            
             mCert.verify(self.caCert.get_pubkey())
             crypto.identityFromCertificate(mCert)
-
-        
-        
 
 
 class CertificateTest(unittest.TestCase):
