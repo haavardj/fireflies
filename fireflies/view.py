@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.29 2012/01/24 08:47:13 haavardj Exp $
+## $Id: view.py,v 1.30 2012/02/08 09:08:01 haavardj Exp $
 ##                
 ######################################################################
 
@@ -199,6 +199,8 @@ class View:
         self.pRing.insert(member)
         self.fRing.insert(member)
         self.mRings.insertItem(member)
+        member.stats.join += 1
+        self.group.stats.certsTotal += 1     
 
     def _recover(self, member):
         """Transition member state from failed to live."""
@@ -247,7 +249,6 @@ class View:
         """
         
         if not isinstance(elm, M2Crypto.X509.X509): raise TypeError, type(elm)
-        self.group.stats.certsTotal += 1
 
         if not elm.verify(self.group.getPublicKey()):
             self.group.stats.certsInvalid += 1
@@ -263,7 +264,7 @@ class View:
         if m:
             m.stats.certsRedundant += 1
             self.logger.info("discard %s redundant", elm)
-        else:                
+        else:                      
             m = Member(elm, self.group)
             self._new(m)
             self.group.notify("data.certificate", elm, True)
@@ -286,7 +287,6 @@ class View:
         
         if not isinstance(note, Note): raise TypeError
         
-        self.group.stats.notesTotal +=1 
         if not note.identity in self.sn2peer:
             self.group.stats.notesInvalid += 1
             self.logger.warning("discard %s unknown peer", note)
@@ -298,14 +298,17 @@ class View:
         if member.getNote(): assert member.getNote().identity == note.identity
                 
         if not note.verify(member.getCertificate().get_pubkey()):
+            self.group.stats.notesInvalid += 1
             raise ValueError, "Invalid Signature"
         
         if not fireflies.state.isValidBanned(note.banned, self.group.getByzantineToleranceLevel()): 
+            self.group.stats.notesInvalid += 1
             self.logger.warning("discard %s invalid mask", note)
             raise fireflies.ByzantineError, "Invalid mask %s from %s" % (str(note.mask), note)
 
         # Old note        
         if member.getEpoch() > note.epoch:
+            self.group.stats.notesInvalid +=1
             self.logger.info("discard %s old", self.pprint(note))
             return
         
@@ -320,12 +323,14 @@ class View:
                 self.logger.warning("error %s note with same epoch but different content.", note)
                 
                 if member == self.group.getMe():
+                    self.group.stats.noteUpdates += 1
                     n = self.group.getMe().nextNote()
                     n.sign(self.group.getMyKey())
                     reactor.callLater(0, self.addNote, n)
                     self.logger.info("add %s rebuttal", note)
             else:
-                pass
+                self.group.stats.notesRedundant += 1
+            
                 #self.logger.debug("discard %s current", self.pprint(note))
             return
  
