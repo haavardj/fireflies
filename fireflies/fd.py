@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.30 2012/01/24 08:37:17 haavardj Exp $
+## $Id: fd.py,v 1.31 2012/02/08 09:11:15 haavardj Exp $
 ##                
 ######################################################################
 
@@ -286,8 +286,7 @@ class FailureDetector(Service):
         mon = self.pinglist.pop()
         
         assert mon != self.group.getMe()
-                                   
-        
+                                           
         #Passive attack. Do nothing.        
         if self.group.badness == 1:
             pass
@@ -301,8 +300,7 @@ class FailureDetector(Service):
                                             me.identity
                                             )
             
-            accusation.sign(me.getPublicKey())
-            self.group.stats.accusationsCreated += 1
+            accusation.sign(self.group.getMyKey())
             self.group.stats.accusationsCreatedByzantine += 1
             self.group.view.addAccusation(accusation)
             self.logger.warning("created %s aggressive attack", accusation)
