@@ -260,10 +260,10 @@ if __name__ == "__main__":
     logging.info("Me = %s on %s", mgroup.getMe().identity, mgroup.getMe().getAddress())
     
     if byzantine != mgroup.badness:
-        mgroup.badness = byzantine        
-        self.logger.warning("new note to reflect new badness %s", elm)
+        mgroup.badness = byzantine    
+        logging.warning("creating new note to reflect new badness")
         n = mgroup.getMe().nextNote()
-        isinstance(n, Note)
+        #isinstance(n, Note)
         n.sign(mgroup.getMyKey())
         reactor.callLater(0, mgroup.view.addNote, n)        
         
