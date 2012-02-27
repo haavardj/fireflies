@@ -28,6 +28,9 @@ parser.add_option("--password",
 parser.add_option("--nopass",
                   dest="nopass", default=False, action="store_true",
                   help="Do not ecrypt private key.")
+parser.add_option("--ec",
+                  dest="ecc", default=False, action="store_true",
+                  help="Use Ecliptic Curves crypto.")
 parser.add_option("-n",
                   dest="name", default=None,
                   help="Group name. If not specified the <path> base name will be used.")
@@ -59,8 +62,11 @@ if not options.name:
     options.name = os.path.basename(args[0])
 
 
-
-pkey = fireflies.crypto.makePrivateKey()
+if options.ecc:
+    pkey = fireflies.crypto.makePrivateECKey()
+else:
+    pkey = fireflies.crypto.makePrivateRSAKey()
+    
 cert = fireflies.crypto.makeCACert(pkey, options.name, options.maxGroupSize, options.pByz, options.tolerance)
 
 #caCert = fireflies.crypto.newCA(options.name, caPKey, options.maxGroupSize, options.pByz, options.tolerance)

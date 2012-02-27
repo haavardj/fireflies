@@ -9,9 +9,9 @@ def noGeygens(): pass
 class SubjectKeyIdentifierBugTest(unittest.TestCase):
 
     def setUp(self):
-        self.caKey = crypto.makePrivateKey(callback=noGeygens)
+        self.caKey = crypto.makePrivateRSAKey(callback=noGeygens)
         self.caCert = crypto.makeCACert(self.caKey, "test", 25)         
-        self.mKey = crypto.makePrivateKey(callback=noGeygens)
+        self.mKey = crypto.makePrivateRSAKey(callback=noGeygens)
         self.req = fireflies.crypto.makeRequest(str(0), self.mKey)
         self.mCert = fireflies.crypto.makeCert(self.req, self.caCert, self.caKey, sn=0)
 
@@ -19,7 +19,7 @@ class SubjectKeyIdentifierBugTest(unittest.TestCase):
     def testAccess(self):
         
         for x in range(10):
-            mKey = crypto.makePrivateKey(callback=noGeygens)
+            mKey = crypto.makePrivateRSAKey(callback=noGeygens)
             req = fireflies.crypto.makeRequest(str(x), mKey)
             mCert = fireflies.crypto.makeCert(req, self.caCert, self.caKey, sn=x)            
             mCert.verify(self.caCert.get_pubkey())
@@ -29,9 +29,9 @@ class SubjectKeyIdentifierBugTest(unittest.TestCase):
 class CertificateTest(unittest.TestCase):
         
     def setUp(self):
-        self.caKey = crypto.makePrivateKey(callback=noGeygens)
+        self.caKey = crypto.makePrivateRSAKey(callback=noGeygens)
         self.caCert = crypto.makeCACert(self.caKey, "test", 25)         
-        self.mKey = crypto.makePrivateKey(callback=noGeygens)
+        self.mKey = crypto.makePrivateRSAKey(callback=noGeygens)
         self.req = fireflies.crypto.makeRequest("127.0.0.1:1", self.mKey)
         self.mCert = fireflies.crypto.makeCert(self.req, self.caCert, self.caKey, sn=0)
 
