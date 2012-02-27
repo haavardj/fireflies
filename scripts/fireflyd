@@ -105,6 +105,9 @@ if __name__ == "__main__":
     parser.add_option("--nopass",
                       dest="nopass", default=False, action="store_true", 
                       help="Do not use a password to protect private keys.")
+    parser.add_option("--ec", 
+                      dest="ecc", default=False, action="store_true",
+                      help="Use elliptic curve crypto.")
 
 
     (options, args) = parser.parse_args()
@@ -225,8 +228,11 @@ if __name__ == "__main__":
 
             groupKey = M2Crypto.EVP.load_key(options.capriv, passwdcb)
             if not groupCert.verify(groupKey): raise ValueError, "CA cert and CA key do not match."
-            myKey = fireflies.crypto.makePrivateKey()
-            
+
+            if options.ecc:
+                myKey = fireflies.crypto.makePrivateECKey()
+            else:            
+                myKey = fireflies.crypto.makePrivateRSAKey()
             req = fireflies.crypto.makeRequest(myAddress, myKey)
             myCert = store.newMemberCertificate(req, groupKey)          
             assert myCert.verify(groupKey)
