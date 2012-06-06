@@ -9,13 +9,14 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.30 2012/02/27 13:32:43 haavardj Exp $
+## $Id: crypto.py,v 1.31 2012/06/06 08:31:43 haavardj Exp $
 ##                
 ######################################################################
 
 """Cryptographic stuff."""
 
 import fireflies, M2Crypto, struct, hashlib, random
+import M2Crypto.EC
 
 DIGESTALG="sha256"
 DIGESTSIZE=256
@@ -117,7 +118,7 @@ def bytes_to_long(s):
     for i in range(0, length, 4):
         acc = (acc << 32) + unpack('>I', s[i:i+4])[0]
     return acc
-M2Crypto.EC.NI
+
 def makePrivateECKey(curve=M2Crypto.EC.NID_secp224r1, md=DIGESTALG):
     parms = M2Crypto.EC.gen_params(M2Crypto.EC.NID_secp224r1)
     parms.gen_key()
@@ -144,7 +145,7 @@ def makeCACert(pkey, groupName, maxGroupSize, pByz=0.10, faultTolerance=0.10):
     cert = GroupCertificate()
  
     cert.set_serial_number(0)
-    cert.set_version(0)
+    cert.set_version(2)
     cert.set_subject(name)
     cert.set_issuer(name)
     cert.set_pubkey(pkey)
