@@ -8,14 +8,11 @@
 ##  
 ##         Copyright 2006, Haavard Johansen (Norway)
 ##                
-## $Id: util.py,v 1.6 2011/12/12 12:20:28 haavardj Exp $
+## $Id: util.py,v 1.7 2014/06/16 07:49:47 haavardj Exp $
 ##                
 ######################################################################
 
 """Utility functions and classes."""
-
-
-
 
 
 ###################################
@@ -23,7 +20,7 @@
 ## 10/2004 Wolfgang.Urban@schule.at
 ###################################
 import math, struct
-from twisted.internet import reactor
+import twisted.internet
 
 # #######################
 # binomial distribution #
@@ -206,7 +203,7 @@ class TimeoutMixin:
             self.timer = None
             self.timedOut()
         
-        self.timer = reactor.callLater(self.timeout, _d)
+        self.timer = twisted.internet.reactor.callLater(self.timeout, _d)
 
     def cancelTimer(self):
         self.timer.cancel()
@@ -251,9 +248,7 @@ class TimestampMixin:
         """Set time-stamp according to the time returned by
         fireflies.time.time."""
         self._timestamp = fireflies.time.time()
-
-
-
+        
 
 try:
     from scipy.stats import binom as _binom
@@ -264,18 +259,64 @@ except ImportError, why:
     def binomCDF(k,n,p):
         return binomialc(k,n,p)
 
-def minMajority(pByz, size, e=1.0):
+import math
+from math import log, sqrt
+
+
+def YmirCalc(pcorr, N, eps=0.5, c = 0.5):
+    t1 = log(N / c)
+    t2 = (2*pcorr + eps) / (2 * eps**2)   
+    return t1 * t2 - 1/2
+
+def hdjCalc1(pcorr, N, c=1.0):
+    t1 = log(N / c)    
+    t2 = (4*pcorr + 2) / (2*pcorr-1)**2
+    return t1 * t2
+
+def hdjCalc2(pcorr, N, c=1.0):
+    t1 = log(N / c)    
+    t2 = (2.0) / ((1-2*pcorr)**2)
+    return t1 * t2
+
+def proofv4(pcorr, N, c=1.0):
+    t1 = log(1.0 - (c / N))
+    t2 = 2.0 / log(2.0-2*pcorr) + 2*pcorr - 1
+    return t1 * t2
+
+    
+def minmajority(num):
+    # Should always be odd
+    assert num % 2 == 1    
+    return (num - 1) / 2
+    
+def numMembershipRings(pByz, N, epsilon=0.99, maxSize=1000):
+    """Compute the minimum k=2t+1 such that the probability of more than t out of
+    2t+1 monitors are correct with probability epsilon given the uniform
+    probability pByz that a monitor is Byzantine.
+    
+    @return: k
+    @raise e: ValueError if t cannot be computed with the given parameters.
+    """    
+    return 2*numHalfMembershipRings(pByz, N, epsilon, maxSize) + 1
+
+def numHalfMembershipRings(pByz, N, epsilon=0.99, maxSize=1000):
     """Compute the minimum t such that the probability of more than t out of
-    2t+1 monitors are correct with probability e/size given the uniform
+    2t+1 monitors are correct with probability epsilon given the uniform
     probability pByz that a monitor is Byzantine.
     
     @return: t
     @raise e: ValueError if t cannot be computed with the given parameters.
     """
     
-    pTarget = float(e) / float(size)
-    for t in range(1, 10000):
-        pf = 1.0 - binomCDF(t, 2*t+1,pByz)
-        if pTarget >= pf: return t
+    for t in range(1, maxSize):
+        if epsilon <= binomCDF(t, 2*t+1, pByz)**N: 
+            return t
 
     raise ValueError, "Cannot compute number if rings from pByz=%f" % pByz
+
+def numGossipRings(pByz, N, epsilon=0.99):
+    
+    n = (1.0 - pByz) * N
+    return math.ceil( (N / (2*n)) * (log(-n / log(epsilon)) + 1))
+    
+    

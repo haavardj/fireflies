@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: crypto.py,v 1.31 2012/06/06 08:31:43 haavardj Exp $
+## $Id: crypto.py,v 1.32 2014/06/16 07:49:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -27,21 +27,15 @@ class GroupCertificate(M2Crypto.X509.X509):
     
     def uidstr(self):
         return "GroupCertificate:%d" % (self.get_fingerprint())
-    
-    def maxSize(self):        
-        return int(self.get_subject().organizationName.split()[0])
-
-    def pByz(self):
-        return float(self.get_subject().organizationName.split()[1])
-            
-    def faultToleranceLevel(self):
-        return float(self.get_subject().organizationName.split()[2])
 
     def name(self):
         self.get_subject().commonName
         
-    def nrRings(self):
-        return fireflies.util.minMajority(self.pByz(), self.maxSize(), self.faultToleranceLevel()) * 2 + 1
+    def nrMonitoringRings(self):
+        return int(self.get_subject().organizationName.split()[0])
+
+    def nrGossipingRings(self):
+        return int(self.get_subject().organizationName.split()[1])
 
     def identity(self):
         return self.get_fingerprint()
@@ -136,11 +130,11 @@ def makePrivateRSAKey(size=KEYSIZE, callback=M2Crypto.RSA.keygen_callback, md=DI
     if not pkey.assign_rsa(rsa): raise RuntimeError, "Error assigning rsa key"
     return pkey
 
-def makeCACert(pkey, groupName, maxGroupSize, pByz=0.10, faultTolerance=0.10):
+def makeCACert(pkey, groupName, mRings, gRings): 
 
     name = M2Crypto.X509.X509_Name()
     name.CN = groupName
-    name.O = "%d %f %f" % (maxGroupSize, pByz, faultTolerance)
+    name.O = "%d %d" % (mRings, gRings)
     
     cert = GroupCertificate()
  
@@ -291,6 +285,9 @@ def identityFromCertificate(cert):
         raise LookupError("No subjectKeyIdentifier in %s" % cert.as_text())
     
     return subjectKeyIdentifierToID(ext.get_value())
+
+def shortIdentity(identity):
+    return identity[-4:-1]
 
 def subjectKeyIdentifierToID(s):
     return s.replace(":","")

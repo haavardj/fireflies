@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: fd.py,v 1.31 2012/02/08 09:11:15 haavardj Exp $
+## $Id: fd.py,v 1.32 2014/06/16 07:49:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -17,8 +17,8 @@
 
 import logging, pickle
 from twisted.internet.protocol import Factory, DatagramProtocol, Protocol, ClientFactory
-from twisted.internet import reactor, task
 from twisted.application.service import Service
+import twisted.internet
 from fireflies.state import Accusation, Note, Member
 import socket
 from math import *
@@ -43,8 +43,9 @@ def outboundPartnersOnRing(member, ring):
     succ = ring.succ(member)
     while succ != member:
         isinstance(succ, Member)
-        if not succ.isAccused():
-            if succ.hasBanned(member): 
+        
+        if succ.isLive():
+            if not succ.isEnabledOnRing(ring):
                 return None
             else: 
                 return succ
@@ -87,7 +88,6 @@ class PongMsg(crypto.Signable):
     
     def uidstr(self):
         return "pong-%s-%s-%d" % (self.fromSn, self.toSn, self.noun)
-
 
 class FDMsgPacker(FirefliesPacker):
     """Serializer for Ping and Pong messages.""" 
@@ -157,58 +157,15 @@ class FDMsgUnpacker(FirefliesUnpacker):
             raise Exception
 
 
-#class MemberMonitor(channel.TypedChannel):
-    
-    #avgLoss = .1
-    #pMistake = 0.001
-    #smoothing = 0.999
-    #tMin = 3
-    #nPing = 0
-    #interval = 2
 
-    #def __init__(self, member):
-        #self.member = member
-        #self.name = member.identity()
-            
-    #def startService(self):
-        #self._task = task.LoopingCall(self.update)
-        #self._task.start(self.interval, now=False)
-        #super(TypedChannel, self).startService()
-    
-    #def stopService(self):
-        #self._task.stop()
-        #super(TypedChannel, self).stopService()
-        
-    #def update(self):
-        #self.ping()
-        
-    #def recv_pong(self, nounce):
-        #assert self.avgLoss >= 1.0
-        #self.avgLoss = (self.smooting * self.avgLoss) + ( (1. - self.smoothing) * (self.nPing))
-        #self.nPing = 0
-    
-    #def send_Ping(self):        
-        #p = min( 1./self.avgLoss, 1. - self.pMistake**(1./float(max(self.tMin, 1))))
-        #assert p < 1.0 and p > 0.0, "Psuc out of bounds."
-            
-        #t = log(self.pMistake) / log(1. - p)
-
-        #if self.nPing > t:
-            #self.member.accuse()                  
-            #self.nPing = 0            
-        #else:
-            #self.parent.sendMessage(self.member, "ping")
-            #self.nPing += 1
-
-  
-
+      
 
 class FailureDetector(Service):
     
     name = "fd"
     
     # How often a monitor should ping (seconds).
-    roundtime = 30 
+    roundtime = 30
     
     # The probability of accusing a live member due to packet
     # loss. Lower number is better but increases the time it takes to
@@ -242,13 +199,14 @@ class FailureDetector(Service):
         address, port = self.parent.getMe().getAddress().split(":")
         port = int(port)
         self.logger.info("Binding fd to udp %s:%d", address, port)
-        self._udpport = reactor.listenUDP(port, self.protocol, interface=address)
+        self._udpport = twisted.internet.reactor.listenUDP(port, self.protocol, interface=address)
 
-        self._task = task.LoopingCall(self.update)
+        self._task = twisted.internet.task.LoopingCall(self.update)
         
-        interval = self.roundtime / float(self.group.view.getNumberOfRings())
-        self._task.start(interval, now=False).addErrback(self._failback)
-
+        #interval = self.roundtime / float(self.group.view.getNumberOfRings())
+        self._task.start(5, now=False).addErrback(self._failback)
+        
+        self.monitoring = {}
 
 
     def _failback(self, reason):
@@ -256,90 +214,114 @@ class FailureDetector(Service):
         
     def stopService(self):
         Service.stopService(self)
+        address, port = self.parent.getMe().getAddress().split(":")
+        port = int(port)
+        self.logger.info("Stopping fd on udp %s:%d", address, port)
         
-        if self._task and self._task.running:
-            self._task.stop()
-            self._task = None
+        #if self._task and self._task.running:
+        self._task.stop()
+        #self._task = None
+
+        for m,t in self.monitoring.items():
+            assert isinstance(t, twisted.internet.task.LoopingCall)
+            assert isinstance(m, Member)
+            t.stop()
+        self.monitoring = {}
+            
         if self._udpport:
             self._udpport.stopListening()
-            self._udpport = None
+            self._udpport = None                       
         self.protocol = None
+
+    def failPinging(self, error, member):
+        self.logger.warning("Pinging failed %s %s", member, error)
         
     def update(self):
-
+        
+        assert self._task and self._task.running
         me = self.group.getMe()
 
-        # Remove failed members from pinglist.
-        self.pinglist = filter(lambda x: x.isLive(), self.pinglist)
+        myPartners = partners(self.group.getMe())
         
-        # Membership might have changed since we generated the list, check if we still can accuse all members.
-        self.pinglist = filter(lambda x: fireflies.view.canAccuse(me, x, self.group.view.mRings), self.pinglist)
-            
-        # If no partners left to ping, generate new list.
-        if not self.pinglist:
-            self.pinglist = partners(self.group.getMe())
+        for currentPartner, timer in self.monitoring.items():
+            if not currentPartner in myPartners:
+                self.logger.info("Stop monitoring %s", currentPartner)
+                assert isinstance(timer, twisted.internet.task.LoopingCall)
+                timer.stop()
+                self.monitoring.pop(currentPartner)
+        
+        for partner in myPartners:
+            if not partner in self.monitoring:
+                self.logger.info("Start monitoring %s", partner)
+                timer = twisted.internet.task.LoopingCall(self.doPing, partner)
+                timer.start(self.roundtime, now=False).addErrback(self.failPinging, partner)
+                self.monitoring[partner] = timer
+            else:
+                assert self.monitoring[partner].running
 
-        # If still no partners, wait untill next round.
-        if not self.pinglist:
+
+    def doPing(self, member):
+        assert isinstance(member, fireflies.state.Member)
+        me = self.group.getMe()
+        assert member != me
+        if not fireflies.view.canAccuse(me, member):
             return
         
-        mon = self.pinglist.pop()
+        if member.isAccusedBy(me): 
+            return
         
-        assert mon != self.group.getMe()
                                            
-        #Passive attack. Do nothing.        
-        if self.group.badness == 1:
-            pass
-
         #Aggressive attack. Generate accusation.        
-        elif self.group.badness == 2:
+        if self.group.badness == 2:
 
+            accusation = Accusation(member.identity,
+                                    member.getNote().epoch,
+                                    me.identity)
             
-            accusation = Accusation(mon.identity,
-                                            mon.getNote().epoch,
-                                            me.identity
-                                            )
-            
+ 
             accusation.sign(self.group.getMyKey())
             self.group.stats.accusationsCreatedByzantine += 1
+            self.group.stats.accusationsCreated += 1
             self.group.view.addAccusation(accusation)
-            self.logger.warning("created %s aggressive attack", accusation)
+            self.logger.warning("created %s attack", member)
+
         elif self.group.badness == 0:
             #Do not accuse if this node has already made an accusation
             #on this ring.
             
-            p = min( 1./mon.avgLoss, 1. - self.pMistake**(1./float(max(self.tmin, 1))))
+            p = min( 1./member.avgLoss, 1. - self.pMistake**(1./float(max(self.tmin, 1))))
             assert p < 1.0 and p > 0.0, "Psuc out of bounds."
             
             t = log(self.pMistake) / log(1. - p)
 
-            if mon.nPing > t:
+            if member.nPing > t:
 
-                accusation =  Accusation(mon.identity,
-                                         mon.getNote().epoch,
-                                         me.identity)
-                
-                accusation.sign(self.group.getMyKey())
-                self.logger.warning("created %s t=%.2f nPing=%d", accusation, t, mon.nPing)
-                self.group.view.addAccusation(accusation)
-                self.group.stats.accusationsCreated += 1
-
-                assert mon.nPing > 0
-                #mon.avgLoss = (g.SMOOTHING * mon.avgLoss) + ( (1. - g.SMOOTHING) * (mon.nPing))                
-                mon.nPing = 0
+                #Passive attack. Do nothing.        
+                if self.group.badness == 1:
+                    self.logger.warning("passive %s attack", member)
+                else:                  
+                    accusation = Accusation(member.identity, member.getNote().epoch, me.identity)
+                    accusation.sign(self.group.getMyKey())
+                    self.logger.warning("created %s t=%.2f nPing=%d", accusation, t, member.nPing)
+                    self.group.view.addAccusation(accusation)
+                    self.group.stats.accusationsCreated += 1
+    
+                    assert member.nPing > 0
+                    #mon.avgLoss = (g.SMOOTHING * mon.avgLoss) + ( (1. - g.SMOOTHING) * (mon.nPing))                
+                    member.nPing = 0
                 
             else:
 
                 # If we pinged this peer on a lower ring, we dont ping
                 # again on this ring.
                 try:
-                    self.protocol.ping(mon)
+                    self.protocol.ping(member)
                 except KeyboardInterrupt:
                     raise
                 except Exception, why:
                     self.logger.exception("error pinging: %s", why)
 
-                mon.nPing += 1
+                member.nPing += 1
 
 
 class PingPong(DatagramProtocol):
@@ -417,10 +399,16 @@ class PingPong(DatagramProtocol):
         h, p = receiver.getAddress().split(":")
         p = int(p)
         
-        receiver.stats.udpW += len(data)
+        receiver.group.stats.udpW += len(data)
         self.transport.write(data, (h, p))
 
     def datagramReceived(self, data, (host, port)):
+        if not self.factory.running: 
+            self.logger.warning("Datagram received while stopped")
+            return 
+        
+        assert self.factory.running == self.factory.group.running
+             
         self.factory.group.stats.udpR += len(data)
         if len(data) < 1:
             self.logger.warning("Dropped invalid datagram")

@@ -9,11 +9,11 @@
 ##  
 ##         Copyright© 2006,2007, Håvard D Johansen (Norway)
 ##                
-## $Id: ring.py,v 1.23 2012/01/24 08:46:06 haavardj Exp $
+## $Id: ring.py,v 1.24 2014/06/16 07:49:47 haavardj Exp $
 ##                
 ######################################################################
 
-import bisect, sha
+import bisect, hashlib
 
 def _ringIterator(ring, start=0):
     for x in ring.items()[start:]:
@@ -267,7 +267,7 @@ class NamedRing(Ring):
     def identity(self):
         return self.name
     
-import sha
+
 class NameHashedRing(NamedRing):
     """A named ring that will sort items differently for different ring names."""
     
@@ -279,7 +279,7 @@ class NameHashedRing(NamedRing):
             return NameHashedRing.mRingIDCache[iId][self.identity]
         except KeyError:
             ids = NameHashedRing.mRingIDCache.get(iId, {})
-            idOnRing = sha.new("%s-%s" % (iId, self.identity)).digest()
+            idOnRing = hashlib.new("SHA1", "%s-%s" % (iId, self.identity)).digest()
             ids[self.identity] = idOnRing
             NameHashedRing.mRingIDCache[iId] = ids
             return idOnRing
@@ -302,7 +302,7 @@ class RingSet(object):
         """Return for each ring the first successor of itm for which func evaluates to true."""
         return map(lambda x: x.succ(itm, func), self._rings)
 
-    def pred(self, itm, func=lambda x: True):        
+    def pred(self, itm, func=lambda x: True):
         """Return for each ring the first predecessor of itm for which func evaluates to true."""
         return map(lambda x: x.pred(itm, func), self._rings)
     

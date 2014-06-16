@@ -58,7 +58,7 @@ if __name__ == "__main__":
       - <path>/certs/<ip:port>.pem    - Member certificates
       - <path>/cacert.pem             - CA's certificate    
     """, version="%%prog %s" % fireflies.version)
-    hostaddr = socket.gethostbyname(socket.gethostname())
+    hostaddr = socket.gethostbyname(socket.getfqdn())
     parser.add_option("-a", "--address", dest="address",
                       help="Bind to ADDRESS. Defaults to %s." % hostaddr, default=hostaddr )
     parser.add_option("-p", "--port", dest="port", type="int",
@@ -148,9 +148,8 @@ if __name__ == "__main__":
             if line == "": continue
             
             name, behaviour = line.split()
-            name = socket.gethostbyname(name)
             
-            if name == myAddress.split(":")[0]:
+            if name == options.address:
                 byzantine = int(behaviour)
                 break
                                                
@@ -263,16 +262,18 @@ if __name__ == "__main__":
     assert myCert.verify(groupCert.get_pubkey())
         
     mgroup = group.Group(groupCert, myKey, myCert, myNote)
-    logging.info("Me = %s on %s", mgroup.getMe().identity, mgroup.getMe().getAddress())
+    mgroup.badness = byzantine    
     
-    if byzantine != mgroup.badness:
-        mgroup.badness = byzantine    
-        logging.warning("creating new note to reflect new badness")
+    logging.info("Me = %s on %s badness=%d", mgroup.getMe().identity, mgroup.getMe().getAddress(), mgroup.badness)
+
+    def updateNote():
+        logging.info("Updating note after startup.")
+        mgroup.badness = byzantine           
         n = mgroup.getMe().nextNote()
-        #isinstance(n, Note)
         n.sign(mgroup.getMyKey())
-        reactor.callLater(0, mgroup.view.addNote, n)        
-        
+        mgroup.view.addNote(n)
+    
+    reactor.callLater(10, updateNote)            
     
     fd = fireflies.fd.FailureDetector(mgroup)
     gossip = fireflies.gossip.Gossip(mgroup)
@@ -290,11 +291,12 @@ if __name__ == "__main__":
             mgroup.view.addNote(note)
         except ValueError, e:
             print "Error loading note %s %s" % (note, e)
-            
-        
+                    
     for acc in store.loadAccusations():
-        mgroup.view.addAccusation(acc)
-
+        try:
+            mgroup.view.addAccusation(acc)
+        except:
+            pass
 
    # Import membership data from other stores
 
@@ -308,7 +310,6 @@ if __name__ == "__main__":
                 
         for accu in extstore.loadAccusations(): 
             mgroup.view.addAccusation(accu)
-
 
     store.saveGroup(mgroup)
     
@@ -341,11 +342,21 @@ if __name__ == "__main__":
             logging.info("calculating load using bogomips=%f", bogomips)
             break
 
+    global netErrOld, netErrNew 
+    netErrOld = netErrNew = stats.Stats()
+    def checkUDPError():
+        global netErrOld, netErrNew
+        netErrNew = fireflies.group.collectStatistic(mgroup)
+        diff = netErrNew - netErrOld
+        if diff.udpR == 0:
+            logging.error("No incoming UDP. Exiting")
+            reactor.stop()
+
     global sold, snew
     sold = snew = stats.Stats()
     sold.cputime = os.times()[0] * bogomips
     t = fireflies.time.time()
-
+        
     def doCheckpoint():
         global sold, snew
         snew = fireflies.group.collectStatistic(mgroup)
@@ -354,29 +365,23 @@ if __name__ == "__main__":
         sdiff.members = snew.members
         sdiff.fmembers = snew.fmembers
         logging.info("checkpoint %s %d %d" % (str(sdiff), snew.members, snew.fmembers))
-        sold = snew
-        
+        sold = snew 
 
     def doWriteState():
-        assert options.rundir
-        return
-        logging.info("writing state.")
-        statefile = os.path.join(options.rundir, "%s.dat" % mgroup.getMe().getAddress())
-
-        cstate = []
-        nstate = []
-        astate = []
-        for member in mgroup.view.pRing:            
-            cstate.append(member.cert)
-            if member.note:
-                nstate.append(member.note)
-            astate.extend(member.pAccusations.values())
-
         try:
-            pickle.dump((cstate, nstate, astate), file(statefile, "w"))
+            store.clear()
+            store.saveGroup(mgroup)
+            logging.info("writing state.")
         except Exception, why:
-            logging.error("Failed saving %s", path)
+            logging.error("Failed saving group.")
 
+    def persistMyOwnNote(note, state):
+        if not isinstance(note, state.Note): raise ValueError
+        if state == False: return # Note is deleted, so we don't care.
+        if note.identity == mgroup.getMe().identity:
+            store.saveNote(note)
+            
+    mgroup.registerEventHandler("data.notes", persistMyOwnNote)
 
     def failback(msg):
         logging.exception(msg)
@@ -384,10 +389,11 @@ if __name__ == "__main__":
     checkpointTask = task.LoopingCall(doCheckpoint)
     checkpointTask.start(10).addErrback(failback)
 
-    #if options.rundir:
-    #    rundirTask = task.LoopingCall(doWriteState)
-    #    rundirTask.start(60*10).addErrback(failback)
+    noUDPCheck = task.LoopingCall(checkUDPError)
+    noUDPCheck.start(5*60, False)
 
+    writeStateTask = task.LoopingCall(doWriteState)
+    writeStateTask.start(10*60, False)
   
 
     reactor.callLater(0, mgroup.startService)

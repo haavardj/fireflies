@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.30 2012/02/08 09:08:01 haavardj Exp $
+## $Id: view.py,v 1.31 2014/06/16 07:49:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -18,45 +18,67 @@ as specified by the Fireflies protocol.
 
 
 #from math import *
-from twisted.internet import reactor
+import twisted.internet
 import logging
 import fireflies
 from fireflies.state import Note, Accusation, Member
-from fireflies.crypto import identityFromCertificate
+from fireflies.crypto import identityFromCertificate, shortIdentity
 import fireflies.stats
 from fireflies import ring
-from fireflies.util import minMajority
 import M2Crypto
 
+LOGDISCARDING=yes
+
+def canSkip(member):
+    return not member.isLive()
+
+def validPredecessor(accuser, accused, ring):
+    """Return true if 'accuser' is allowed to accuse 'accused' on the given ring. 
+    This implies that the accused is the first live predecessor of 'accused' on the given ring.
+    """    
+        
+    if False: 
+        isinstance(accuser, Member)
+        isinstance(accused, Member)
+        isinstance(ring, fireflies.ring.Ring)
+    
+    assert accuser.group == accused.group
+    
+    pred = ring.pred(accused)
+    if False: isinstance(pred, Member)
+    while pred != accuser:    
+        if not canSkip(pred): return False
+        pred = ring.pred(pred)       
+    return True
+    
 
 def canAccuseOnRing(accuser, accused, ring):
     """Return true if 'accuser' is allowed to accuse 'accused' on the given ring. 
     This implies that the accused is the first live predecessor of 'accused' on the given ring.
     """    
         
-    isinstance(accuser, Member)
-    isinstance(accused, Member)
-    isinstance(ring, fireflies.ring.Ring)
+    if False: 
+        isinstance(accuser, Member)
+        isinstance(accused, Member)
+        isinstance(ring, fireflies.ring.Ring)
+
+    if not accused.isEnabledOnRing(ring): return False
     
-    if accused.hasBanned(accuser): return False
     assert accuser.group == accused.group
     
-    succ = ring.succ(accuser)
-    while succ != accused:    
-        if not succ.isAccused(): return False
-        succ = ring.succ(succ)       
+    pred = ring.pred(accused)
+    while pred != accuser:    
+        if not canSkip(pred): return False
+        pred = ring.pred(pred)       
     return True
                 
 def canAccuse(accuser, accused, rings=None):
     """Return true if 'accuser' is allowed to accuse 'accused'."""
     
-    assert accuser.group
     assert accuser.group == accused.group
     
     if not rings: 
         rings = accused.group.view.mRings
-
-    if accused.hasBanned(accuser): return False
 
     for ring in rings:
         if canAccuseOnRing(accuser, accused, ring): 
@@ -101,10 +123,7 @@ class View:
         """
 
         isinstance(group, fireflies.group.Group)
-        
-        self.toleranceLevel = minMajority(group.pByz, group.maxGroupSize, group.faultToleranceLevel)
-        self.numberOfRings = self.toleranceLevel* 2 + 1
-        
+                
         self.group = group
         self.sn2peer = {} # Maps identity nr's to peer objects.
         
@@ -113,7 +132,7 @@ class View:
         self.fRing = ring.Ring() # List of failed members. Sorted by their identity number.
 
         self.mRings = ring.RingSet()
-        for x in range(self.numberOfRings):
+        for x in range(self.group.nrMonitoringRings()):
             self.mRings.insertRing(ring.NameHashedRing(x))
 
         self._timers = {}
@@ -124,7 +143,7 @@ class View:
         @type member: fireflies.state.Member
         """
         if member in self._timers.keys(): raise ValueError("Timer already started.")
-        self._timers[member] = reactor.callLater(self.group.tRebuttal, self._toRebuttalTimer, member)
+        self._timers[member] = twisted.internet.reactor.callLater(self.group.tRebuttal, self._toRebuttalTimer, member)
         
     def _toRebuttalTimer(self, member):
         assert isinstance(member, Member)
@@ -178,14 +197,7 @@ class View:
         return filter(lambda x: x.cert.address == address, self.pRing)
 
     def rebuttalTime(self):
-        return self.rebuttalTime
-    
-    def getByzantineToleranceNumber(self):
-        """Returns the Byzantine tolerance factor t."""
-        return self.byzantineToleranceNumber
-
-    def getNumberOfRings(self):
-        return self.numberOfRings                  
+        return self.rebuttalTime                 
 
     def _new(self, member):
         """Transition member state from unknown to failed."""
@@ -199,8 +211,7 @@ class View:
         self.pRing.insert(member)
         self.fRing.insert(member)
         self.mRings.insertItem(member)
-        member.stats.join += 1
-        self.group.stats.certsTotal += 1     
+
 
     def _recover(self, member):
         """Transition member state from failed to live."""
@@ -209,15 +220,15 @@ class View:
         assert member in self.pRing
         assert member not in self.aRing
         assert member.identity in self.sn2peer
-        for r in self.mRings.getRings():
-            assert member in r
+        #for r in self.mRings.getRings():
+        #    assert member in r
 
         self.fRing.remove(member)
         self.aRing.insert(member)
         member.setFailed(False)
-        self.logger.info("%s recover", member)
+        self.logger.info("%s recovers", member)
         
-        member.stats.revived += 1
+        self.group.stats.revived += 1
 
 
     def _fail(self, member):
@@ -231,10 +242,9 @@ class View:
         self.aRing.remove(member)
         self.fRing.insert(member)
         member.setFailed(True)
-        self.logger.info("%s fail", member)
+        self.logger.info("%s fails", member)
         
-        member.stats.failed += 1
-        
+        self.group.stats.failed += 1
 
 
     def addCertificate(self, elm):
@@ -247,7 +257,8 @@ class View:
           - TypeError if elm is not a MemberCertificate object.Exceptions:
            -ValueError: The certificate already exists.
         """
-        
+
+        self.group.stats.certsTotal += 1
         if not isinstance(elm, M2Crypto.X509.X509): raise TypeError, type(elm)
 
         if not elm.verify(self.group.getPublicKey()):
@@ -262,8 +273,8 @@ class View:
             m = None
             
         if m:
-            m.stats.certsRedundant += 1
-            self.logger.info("discard %s redundant", elm)
+            self.group.stats.certsRedundant += 1
+            if fireflies.NOISELEVEL > 2: self.logger.debug("discard %s redundant", elm)
         else:                      
             m = Member(elm, self.group)
             self._new(m)
@@ -285,11 +296,12 @@ class View:
           - ByzantineErroe: Mask is not valid.
         """  
         
+        self.group.stats.notesTotal += 1
         if not isinstance(note, Note): raise TypeError
         
         if not note.identity in self.sn2peer:
             self.group.stats.notesInvalid += 1
-            self.logger.warning("discard %s unknown peer", note)
+            self.logger.warning("warning: discard %s invalid unknown peer", note)
             raise ValueError, "Unknown peer"
         
         member = self.getMemberByIdentity(note.identity)
@@ -301,15 +313,15 @@ class View:
             self.group.stats.notesInvalid += 1
             raise ValueError, "Invalid Signature"
         
-        if not fireflies.state.isValidBanned(note.banned, self.group.getByzantineToleranceLevel()): 
+        if not fireflies.state.isValidMask(note.mask, self.group.nrMonitoringRings()): 
             self.group.stats.notesInvalid += 1
-            self.logger.warning("discard %s invalid mask", note)
+            self.logger.warning("warning: discard %s invalid mask", note)
             raise fireflies.ByzantineError, "Invalid mask %s from %s" % (str(note.mask), note)
 
         # Old note        
         if member.getEpoch() > note.epoch:
-            self.group.stats.notesInvalid +=1
-            self.logger.info("discard %s old", self.pprint(note))
+            self.group.stats.notesRedundant+= 1
+            if LOGDISCARDING: self.logger.debug("discard %s old", self.pprint(note))
             return
         
         if member.getEpoch() == note.epoch:
@@ -320,14 +332,11 @@ class View:
             # incalidate both of the inconsistent notes.
             
             if member.getNote().uidstr() != note.uidstr():
-                self.logger.warning("error %s note with same epoch but different content.", note)
+                self.logger.warning("warning: %s note with same epoch but different content.", self.pprint(note))
                 
                 if member == self.group.getMe():
-                    self.group.stats.noteUpdates += 1
-                    n = self.group.getMe().nextNote()
-                    n.sign(self.group.getMyKey())
-                    reactor.callLater(0, self.addNote, n)
-                    self.logger.info("add %s rebuttal", note)
+                    self.group.nextEpoch()
+                    self.logger.info("add %s rebuttal due to currupted note", self.pprint(note))
             else:
                 self.group.stats.notesRedundant += 1
             
@@ -340,9 +349,9 @@ class View:
                 assert self.hasActiveTimer(member)
                 self._stopRebuttalTimer(member)
                 member.clearAccusations()
-                self.logger.info("add %s timer stopped", note)
+                self.logger.info("add %s timer stopped", self.pprint(note))
             else:
-                self.logger.info("add %s", note)
+                self.logger.info("add %s", self.pprint(note))
             member.setNote(note)
             
         else:
@@ -356,6 +365,7 @@ class View:
                 self.logger.info("add %s rebuttal", member)                
             
             member.clearAccusations()
+
             member.setNote(note)
             self._recover(member)            
             self.group.notify("member.recover", member, fireflies.EV_RECOVER_REBUTTAL)
@@ -383,8 +393,7 @@ class View:
               - the accused has disabled the ring, or
               - the accused epoch is larger than in the current held note.
         """        
-        
-        if not isinstance(accusation, Accusation): raise TypeError, "Input not accusation"            
+        assert isinstance(accusation, Accusation)
         self.group.stats.accusationsTotal += 1        
         
         accusedID = accusation.accused
@@ -395,7 +404,7 @@ class View:
         # certificates before notes.
         if not accusedID in self.sn2peer:
             self.group.stats.accusationsInvalid += 1
-            self.logger.warning("discard %s Unknown accused", accusation)
+            self.logger.warning("warning: discard %s Unknown accused", self.pprint(accusation))
             raise ValueError, "Unknown Accused"
 
         accused = self.group.getMemberByIdentity(accusedID)
@@ -404,7 +413,7 @@ class View:
         # Ditto for the accuser
         if not accuserID in self.sn2peer:
             self.group.stats.accusationsInvalid += 1
-            self.logger.warning("discard %s Unknown accuser", accusation)
+            self.logger.warning("warning: discard %s Unknown accuser", self.pprint(accusation))
             raise ValueError, "Unkown Accuser"
         
         accuser = self.group.getMemberByIdentity(accuserID)
@@ -413,40 +422,40 @@ class View:
         if not accusation.verify(accuser.getPublicKey()):
             accuser.stats.accuseByzantine += 1
             accused.stats.accusedByzantine += 1
-            self.logger.warning("discard %s Invalid signature", accusation)
-            return ValueError, "Invalid Signature" #None #raise fireflies.ByzantineError("Invalid signature")
+            self.logger.warning("warning: discard %s Invalid signature", self.pprint(accusation))
+            return #ValueError, "Invalid Signature" #None #raise fireflies.ByzantineError("Invalid signature")
         
         if not accuser.getNote():
             self.group.stats.accusationsInvalid += 1            
-            self.logger.info("discard %s invalid note", accusation)
-            raise ValueError, "Invalid accuser note"
+            self.logger.info("discard %s invalid note", self.pprint(accusation))
+            return #ValueError, "Invalid accuser note"
             
         # Check that accusation is recent.
         if not accused.getNote():
             accuser.stats.accuseByzantine += 1
             accused.stats.accusedByzantine += 1            
-            self.logger.warning("discard %s byzantine behaviour", accusation)
-            raise ValueError, "Invalid accused note"
+            self.logger.warning("warning: discard %s byzantine behaviour", self.pprint(accusation))
+            return #ValueError, "Invalid accused note"
         
         if accusation.epoch < accused.getNote().epoch:
             self.group.stats.accusationsRedundant += 1
-            self.logger.warning("discard %s old note", accusation)
+            if LOGDISCARDING: self.logger.debug("discard %s old note", self.pprint(accusation))
             return 
         
         if accusation.epoch > accused.getNote().epoch:
             self.group.stats.accusationsInvalid += 1
-            self.logger.warning("discard %s newer note", accusation)
+            self.logger.warning("warning: discard %s newer note", self.pprint(accusation))
             return 
 
         # Check that the ring is enabled.
         # No correct member should violate this.
-        if accused.hasBanned(accuser): 
+        if not canAccuse(accuser, accused):
             accuser.stats.accuseByzantine += 1
             accused.stats.accusedByzantine += 1                
             return
 
         if accused.isAccusedBy(accuser):
-            self.logger.warning("discard %s duplicate", accusation)
+            if LOGDISCARDING: self.logger.debug("discard %s duplicate", self.pprint(accusation))
             assert accusation in accused.getAccusations()
             return
         
@@ -455,7 +464,7 @@ class View:
         # Not a valid accuser, discard.
         if not newAT.valid:
             accuser.stats.accusationsInvalid += 1            
-            self.logger.warning("dicard %s accuser not current monitor", accusation)
+            self.logger.warning("warning: dicard %s accuser not current monitor", self.pprint(accusation))
             return
             
         if not accused.isAccused():
@@ -463,7 +472,7 @@ class View:
             assert not self.hasActiveTimer(accused)
             assert accused.isLive()                
             accused.setAccusation(accusation)
-            self.logger.info("add %s first (timer started)", accusation)
+            self.logger.info("add %s first (timer started)", self.pprint(accusation))
             self._startRebuttalTimer(accused)                            
             return
 
@@ -484,12 +493,12 @@ class View:
                 
                 if newAT >= oldAT:
                     nrRemoved+=1
-                    self.logger.info("discard old accuser %s covered by new accuser %s", a, accuser)
+                    self.logger.info("discard old accuser %s covered by new accuser %s", self.pprint(a), accuser)
                     try:
                         assert accused.isAccusedBy(a)
                         accused.invalidateAccusationBy(a)
                     except ValueError, why:
-                        self.logger.exception("Cannot invalidate accusation %s: ", why)
+                        self.logger.exception("Exception: Cannot invalidate accusation %s: ", why)
                         raise
                     
             accusers = map(lambda x: self.group.getMemberByIdentity(x.accuser), accused.getAccusations())
@@ -508,14 +517,14 @@ class View:
             if r < newAT:
                 # One item in newAT is larger than r, so this accusation should be kept.
                 accused.setAccusation(accusation)
-                self.logger.info("add %s", accusation)
+                self.logger.info("add %s", self.pprint(accusation))
             elif r >= newAT: 
                 # If an existing accusation was previously removed, this implies 
                 # that newAT is larger than at least one existing one.
                 assert nrRemoved == 0
                 self.logger.info("discard %s covered by exising ones", accusation)               
             elif r == newAT:
-                self.logger.info("discard %s have equal", accusation)               
+                self.logger.info("discard %s have equal", self.pprint(accusation))   
                 assert nrRemoved == 0
         
             
@@ -576,7 +585,7 @@ class View:
                     # This implies that the successor of the accused also must be checked.
                     if not at.valid():
                         x.invalidateAccusation(a)
-                        self.logger.info("del %s invalidated by %s", a, member)
+                        self.logger.info("del %s invalidated by %s", self.pprint(a), member)
                         
                         if not x.isAccused():
                             if x.isFailed():
@@ -585,32 +594,31 @@ class View:
                                 self.group.notify("member.recover", x, fireflies.EV_RECOVER_INVALIDATED)
                             else:
                                 self._stopRebuttalTimer(x)
-                                self.logger.info("%s invalidated", a)
+                                self.logger.info("%s invalidated", self.pprint(a))
 
                             check.append(x) 
       
 
     def pprint(self, data):
-        if type(data) == Note:
-            if data.identity in self.sn2peer:
+        if isinstance(data, Note):
+            if data.identity in self.sn2peer:                
                 peer = self.sn2peer[data.identity]
-                return "N:%s-%d" % (peer.getAddress(), data.epoch)
+                return "N:%s:%s-%d" % (shortIdentity(data.identity),peer.getAddress(), data.epoch)
             else:
                 return  str(data)
             
-        elif type(data) == Accusation:
+        elif isinstance(data, Accusation):
             if data.accused in self.sn2peer:
                 accused = self.sn2peer[data.accused].getAddress()
-            else: accused = "%x" % bytes_to_long(data.accused)
+            else: accused = str(shortIdentity(data.accused))
             if data.accuser in self.sn2peer:
                 accuser = self.sn2peer[data.accuser].getAddress()
-            else: accuser = "%x" % bytes_to_long(data.accuser)
+            else: accuser = str(shortIdentity(data.accuser))
 
-            return "A:%s-%d,%d,%s" % (accused,
-                                      data.epoch,
-                                      data.nr,
-                                      accuser
-                                      )
+            return "A:%s-%d,%s" % (accused,
+                                   data.epoch,
+                                   accuser
+                                   )
         else:
             return str(data)
 

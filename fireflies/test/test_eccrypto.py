@@ -83,6 +83,7 @@ class CertificateTest(unittest.TestCase):
         s3 = crypto.SignableString("testString")
         s3.sign(self.caKey)
 
+
         self.failUnlessEqual(s1.get_fingerprint(), s2.get_fingerprint(), s3.get_fingerprint())
         self.failUnless(s1.signature, s2.signature)
         self.failIfEqual(s1.signature, s3.signature)
@@ -92,6 +93,15 @@ class CertificateTest(unittest.TestCase):
         self.failUnless(s3.verify(self.caKey))                        
         
         self.failIf(s1.verify(self.caKey))
+        
+    def testSignatureLenght(self):
+ 
+        import fireflies.packer
+        p = fireflies.packer.FirefliesPacker()
+        p.pack_cert(self.caCert)
+        
+        print len(p.get_buffer())
+        
         
         
 def main():

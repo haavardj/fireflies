@@ -9,7 +9,7 @@
 ## Licence: GPL (see LICENCE file).
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: setrecon.py,v 1.9 2011/12/12 14:18:29 haavardj Exp $
+## $Id: setrecon.py,v 1.10 2014/06/16 07:49:48 haavardj Exp $
 ##                
 ######################################################################
 
@@ -42,6 +42,7 @@ def init(bz=160, mm=3):
     bitsize, mbar, = bz, mm
     if initialized:
         raise RuntimeError("Already initialized")    
+
     reconciled_set_init(bitsize, mbar)
     initialized = True
     
@@ -363,7 +364,7 @@ class ReconSet:
             del self._data[zz_p]
             self._recon.del_element(zz_p)
 
-    def elmToZZp(self, elm):
+    def elmToZZp(self, elm):        
         return to_ZZ_p(to_ZZ("%d"%elm))
             
     def getRootPartition(self):

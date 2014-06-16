@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, University of Tromso, Norway)
 ##                
-## $Id: web.py,v 1.12 2012/01/24 08:48:22 haavardj Exp $
+## $Id: web.py,v 1.13 2014/06/16 07:49:48 haavardj Exp $
 ##                
 ######################################################################
 
@@ -329,12 +329,14 @@ class MasterPage(rend.Page):
         return context.tag.clear()[peer.getEpoch()]
 
     def render_banned(self, context, peer):
-        t = context.tag.clear()
-        isinstance(peer, fireflies.state.Member)
         
-        pl = map(lambda x: peer.group.getMemberByIdentity(x), peer.getNote().banned)
+        t = context.tag.clear()
+        return t
+        ##sinstance(peer, fireflies.state.Member)
+        
+        #pl = map(lambda x: peer.group.getMemberByIdentity(x), peer.getNote().banned)
 
-        return self.render_memberAddressList(context, pl)
+        #return self.render_memberAddressList(context, pl)
     
     def render_memberAddressList(self, context, memberList):
         t = context.tag.clear()
@@ -718,19 +720,16 @@ class PartnersPage(MasterPage):
         mons = []
         for x, ring in enumerate(self.peer.view.mRings):
             mon = ring.succ(self.peer)
-            while mon.isAccused():
+            while not mon.isLive():
                 if mon == self.peer: break
                 mon = ring.succ(mon)
-            mons.append(mon)
             
-
-        for x, y in enumerate(mons):
-            y = mons[x]
-                
+            mons.append(mon)
+            isinstance(mon, fireflies.state.Member)
             d1 = T.td[x](align="center")
 
-            if y and y != self.peer:
-                p = y
+            if mon and mon != self.peer:
+                p = y = mon
                 if p in self.peer.view.fRing:
                     d2 = T.td[""](_class="failedbox")
                 elif p.isAccused():
@@ -751,11 +750,11 @@ class PartnersPage(MasterPage):
 
                 d4 = T.td[T.a[""](href="/%s" % p.identity, _class="address", data=p, render=self.render_address)]
                 
-                if y.getNote() and y.hasBanned(self.peer):
+                if y.getNote() and y.isEnabledOnRing(ring):
                     d7 = T.td["disabled"]
                     d5 = d6 = d8 = T.td[""]
                 elif y in mons[0:x]:
-                    d7 = T.td["dub %d" % mons.index(y)]
+                    d7 = T.td["dub %d" % mons.index(mon)]
                     d5 = d6 = d8 = T.td[""]
                 else:
                     d7 = T.td["mon"]

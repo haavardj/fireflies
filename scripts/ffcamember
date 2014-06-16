@@ -54,7 +54,7 @@ for line in lines:
   print "skipping %s existing" % address 
   continue
   
- mpkey = fireflies.crypto.makePrivateKey()
+ mpkey = fireflies.crypto.makePrivateRSAKey()
  store.savePrivateKey(mpkey, cipher=None, callback=lambda x: None)
 
  req = fireflies.crypto.makeRequest(address, mpkey, nickname=line)

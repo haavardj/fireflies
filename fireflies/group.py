@@ -8,14 +8,14 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: group.py,v 1.31 2012/02/08 09:13:06 haavardj Exp $
+## $Id: group.py,v 1.32 2014/06/16 07:49:47 haavardj Exp $
 ##                
 ######################################################################
 
 """Fireflies group interface."""
 
 import logging
-from twisted.internet import reactor
+import twisted.internet
 from twisted.application.service import MultiService
 from fireflies.state import Accusation, Note, Member, createInitialNote
 from fireflies.view import View
@@ -32,9 +32,10 @@ class Group(MultiService):
 
     #maxGroupSize = 1000 
     #pByz = 0.20    
-    tRebuttal = 60
-
+    tRebuttal = 60 #5 #2 * (2.5* 60)
+    badness = 0
     name = "group"
+    wasStarted = False
     
     def __init__(self, groupCertificate, myKey, myCertificate, myNote=None, logger=logging.getLogger()):
         """
@@ -57,18 +58,13 @@ class Group(MultiService):
 
         MultiService.__init__(self)
         self.stats = fireflies.stats.Stats()
-        
         self.logger = logger
+        
         
         if not isinstance(groupCertificate,  M2Crypto.X509.X509): raise ValueError, groupCertificate
         self._groupCertificate = groupCertificate
         
-        maxSize, pByz, ftl = groupCertificate.get_issuer().organizationName.split()
-        
-        self.maxGroupSize = int(maxSize)
-        self.pByz = float(pByz)
-        self.faultToleranceLevel = float(ftl)
-        
+    
         self.name = groupCertificate.get_subject().commonName
 
         if not isinstance(myKey, M2Crypto.EVP.PKey): raise ValueError, myKey
@@ -78,7 +74,13 @@ class Group(MultiService):
 
         self.view = View(self)
 
-        self._eventSinkRegistry = {}
+        self._eventSinkRegistry = {
+            "member.crash": [],
+            "member.recover": [],
+            "data.note":[],
+            "data.accusation":[],
+            "data.certificate":[]} 
+
         self.registerEventHandler("data.accusation", self.evSelfRebuttal)        
         
         self.view.addCertificate(myCertificate)
@@ -91,10 +93,11 @@ class Group(MultiService):
             myNote = createInitialNote(self._me)
             myNote.sign(self.getMyKey())
             self.view.addNote(myNote)
-
-        self.joined = False        
-        self.badness = myNote.badness
-
+                            
+        self._sslCtx = fireflies.protocols.makeSSLCtx(
+            self._me.getCertificate(), 
+            self._myKey,
+            self._groupCertificate)
         
     def getMemberByIdentity(self, fid):
         return self.view.getMemberByIdentity()
@@ -119,6 +122,11 @@ class Group(MultiService):
 
     def getMembersByAddress(self, address):
         return filter(lambda x: x.cert.address == address, self.view.pRing)        
+
+    def createEventChannel(self, name):
+        if self._eventSinkRegistry.has_key(name):
+            raise KeyError("Name %s exist as eventhandler" %name)
+        self._eventSinkRegistry[name] = []
     
     def registerEventHandler(self, name, func, *args, **kwargs):
         """Register a function to receive events (callbacks). Events have
@@ -151,9 +159,13 @@ class Group(MultiService):
         @param args: Argumens that is to be passed back to the function.
         @param kwargs: Keyword arguments that is to be passed back to the function.
         """
-        t = self._eventSinkRegistry.get(name, [])
-        t.append((func, args, kwargs))
-        self._eventSinkRegistry[name] = t
+        upcall = (func, args, kwargs)
+        self._eventSinkRegistry[name].append(upcall)        
+        return (name, upcall)
+        
+    def removeEventHandler(self, hdlr):
+        name, upcall = hdlr
+        self._eventSinkRegistry[name].remove(upcall)
         
     def getPublicKey(self):
         return self.getGroupCertificate().get_pubkey()
@@ -178,21 +190,33 @@ class Group(MultiService):
                 nk.update(k)
                 nk.update(kwargs)
                 na = args + a
-                reactor.callLater(0, f, name, *na, **nk)
+                twisted.internet.reactor.callLater(0, f, name, *na, **nk)
         except KeyError:
-            pass
-            #self.logger.debug("notify %s but no subscribers", name)
-                        
+            self.logger.error("error: notify %s but no subscribers", name)
+            raise
 
     def evSelfRebuttal(self, name, elm, status):
         """@todo: Check that the accusation is still valid when receiving this event."""
         assert name == "data.accusation"
+        assert isinstance(elm, Accusation)
+                   
         if status == True and elm.accused == self.getMe().identity:
-            self.logger.warning("rebutting false accusation %s", elm)
-            n = self.getMe().nextNote()
-            isinstance(n, Note)
-            n.sign(self.getMyKey())
-            reactor.callLater(0, self.view.addNote, n)
+            currentEpoch = self.getMe().getNote().epoch
+            if elm.epoch < currentEpoch:
+                self.logger.warning("accusation %s old. Current epoch=%d.", self.view.pprint(elm),self.getMe().getNote().epoch)
+            elif elm.epoch == currentEpoch:        
+                self.logger.warning("rebutting false accusation %s", self.view.pprint(elm))
+                self.nextEpoch()            
+                assert elm.epoch < self.getMe().getNote().epoch
+            else:
+                self.logger.warning("accusation %s old. Current epoch=%d.", self.view.pprint(elm), currentEpoch)
+                
+                        
+    def nextEpoch(self):
+        n = self.getMe().nextNote()
+        assert isinstance(n, Note)
+        n.sign(self.getMyKey())
+        self.view.addNote(n)        
             
     def __len__(self):
         """@return: Return the number of all members."""
@@ -250,49 +274,25 @@ class Group(MultiService):
         """@return: Return the unique group name."""        
         return self._groupCertificate.get_subject().commonName
     
-    def getByzantineToleranceLevel(self):
-        """@return: Return the Byzantine tolerance level set by the group's CA."""        
-        return self.view.toleranceLevel
+    def nrMonitoringRings(self):
+        return int(self.getGroupCertificate().get_subject().organizationName.split()[0])
         
+    def nrGossipingRings(self):
+        return int(self.getGroupCertificate().get_subject().organizationName.split()[1])
+
     def startService(self):
-        
-        self._sslCtx = fireflies.protocols.makeSSLCtx(
-            self.getMe().getCertificate(), 
-            self.getMyKey(),
-            self.getGroupCertificate())
-        
+        self.logger.info("join group %s as %s. Badness=%d", self.getGroupName(), self.getMe(), self.badness)
         MultiService.startService(self)        
-        self.logger.info("join group %s", self.getGroupName())
-        
+        self.stats.join += 1
 
     def stopService(self):
-        MultiService.stopService(self)
         self.logger.info("leave group %s", self.getGroupName())      
+        MultiService.stopService(self)
+        self.stats.leave += 1
+        self.nextEpoch()
                 
     def getContext(self):
-        return self._sslCtx
-        #me = self.getMe()
-        #myCert = me.getCertificate()
-        #myKey = self.getMyKey()        
-        #groupCA = self.getGroupCertificate()
-        #assert isinstance(myKey, M2Crypto.EVP.PKey)
-        #assert isinstance(myCert, M2Crypto.X509.X509)
-        #assert isinstance(groupCA, M2Crypto.X509.X509)
-        #assert groupCA.verify()
-        #assert myCert.verify(groupCA.get_pubkey())
-        #ctx = M2Crypto.SSL.Context("sslv23")
-        #ctx.load_cert(self.store.filenameCertificate(myCert), keyfile=self.store.filenameKey(myKey))
-        #ctx.set_client_CA_list_from_file(self.store.fileCaCert)
-        #ctx.load_verify_locations(self.store.fileCaCert)
-        ##ctx.set_allow_unknown_ca(True)
-        ##ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9, sslVerifyCB)
-        #ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9) #.verify_none,0)
-        ##ctx.set_verify(M2Crypto.SSL.verify_client_once, 2)
-        ##ctx.set_info_callback()
-        
-
-        #return ctx    
-        
+        return self._sslCtx        
     
 import fireflies.stats
 def collectStatistic(group):

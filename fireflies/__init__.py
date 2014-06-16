@@ -9,7 +9,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: __init__.py,v 1.22 2011/12/21 10:10:09 haavardj Exp $
+## $Id: __init__.py,v 1.23 2014/06/16 07:49:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -44,6 +44,10 @@ EV_CRASH_NEW = 5 # A new member is discovered.
 
 EV_DATA_VALID = True
 EV_DATA_INVALID = False
+
+# How much debug data to produce
+NOISELEVEL = 1
+
 
 import fireflies.stats
 

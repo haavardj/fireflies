@@ -8,22 +8,22 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: state.py,v 1.25 2012/02/08 09:09:24 haavardj Exp $
+## $Id: state.py,v 1.26 2014/06/16 07:49:47 haavardj Exp $
 ##                
 ######################################################################
 
 """This module provides classes that are used to represent the state of members in a group."""
 
-from twisted.internet import reactor
 import fireflies
 from fireflies.stats import Stats
 from fireflies import crypto
+from fireflies.crypto import shortIdentity
 import bisect, setrecon, random, stats
 import M2Crypto
 import twisted
     
 
-def isValidBanned(mask, t):
+def isValidMask(mask, nrMonitoringRings):
     """
     Check the validity of a mask. A mask is valid if it is of lenght t.
     
@@ -34,13 +34,9 @@ def isValidBanned(mask, t):
     @return: True if mask is valid, otherwise False.
     @rtype: bool    
     """
-    
-    #if len(mask) != 2* t + 1: return False
-    #if len(filter(lambda x: x == True, mask)) != t + 1: return False 
-    
-    if len(mask) > t:
-        return False
-    
+    t = fireflies.util.minmajority(nrMonitoringRings)
+    if len(mask) != 2* t + 1: return False
+    if len(filter(lambda x: x == True, mask)) != t + 1: return False 
     return True
     
 
@@ -54,11 +50,11 @@ def createInitialNote(member):
     """
 
     isinstance(member, Member)
-    t = member.group.view.toleranceLevel
-        
-    return Note(member.identity, 1, [])
+    t = fireflies.util.minmajority(member.group.nrMonitoringRings())
+    mask = [False] * t + [True] * (t+1)
+    random.shuffle(mask)
+    return Note(member.identity, 1, mask)	
 
-    
 
 class TimeStampMixin:
     
@@ -88,6 +84,8 @@ class Accusation(object, crypto.Signable, TimeStampMixin):
     @type signature: str
     """
 
+    printShortIDs = True
+
     def __init__(self, accused, ll, accuser):
         self.accused = accused
         self.epoch = ll
@@ -115,7 +113,10 @@ class Accusation(object, crypto.Signable, TimeStampMixin):
     def __hash__(self):
         return hash(self.get_fingerprint())
 
-    def __repr__(self):        
+    def __str__(self):        
+        if self.printShortIDs:
+            return "A:%s-%d,%s" % (self.accused[-4:-1], self.epoch, self.accuser[-4:-1])
+        else:
             return "%s" % (self.uidstr())
         
     def uidstr(self):
@@ -132,16 +133,16 @@ class Note(object, crypto.Signable, TimeStampMixin):
     @type identity: str
     @ivar epoch: A monotonically increasing number.  
     @type epoch: int
-    @ivar banned: A list of banned member identities. 
-    @type mask: list of fids
+    @ivar mask: Bitmap of enabled rings. 
+    @type mask: bitmap
     @ivar signature: Signed with the member's private key.
     @type signature: str
     """
 
-    def __init__(self, identity, epoch, banned):        
+    def __init__(self, identity, epoch, mask):        
         self.identity = identity
         self.epoch = epoch
-        self.banned = banned
+        self.mask = mask
         self.badness = 0
         
         self.touch()
@@ -155,7 +156,7 @@ class Note(object, crypto.Signable, TimeStampMixin):
     def __getstate__(self):
         return {"identity": self.identity,
                 "epoch": self.epoch,
-                "banned": self.banned,
+                "mask": self.mask,
                 "signature": self.signature,
                 "badness": self.badness,
                 }
@@ -171,11 +172,9 @@ class Note(object, crypto.Signable, TimeStampMixin):
         except AttributeError: return -1
 
     def uidstr(self):
-        return "N:%s-%d-%s" % (self.identity, self.epoch, str(self.banned))
+        return "N:%s-%d-%s" % (self.identity, self.epoch, str(self.mask))
 
-        
-def shortIdentity(member):
-    return member.identity[-4:]
+    
 
 import fireflies
 class Member(object):
@@ -206,7 +205,6 @@ class Member(object):
 
         # History of accusations
         self.hAccusations = []
-        self._nextBanned = [] 
         
         self.nPing = 0
         
@@ -218,7 +216,6 @@ class Member(object):
         pSucc = (1 - self.initialLossRate)**2 
         self.avgLoss = ((1-pSucc)/pSucc) + 1
 
-        self.stats = fireflies.stats.Stats()
         self._failed = True
 
         # Make the EVP public key use something else than SHA1 as signature algoritm.
@@ -227,6 +224,10 @@ class Member(object):
     @property
     def logger(self):
         return self.group.logger
+    
+    @property
+    def stats(self):
+        return self.group.stats
 
 #    def verify(self, obj):
 #        """Verify that obj is correctly signed by this member."""
@@ -279,15 +280,12 @@ class Member(object):
         @rtype: L{Note}
         """
         return self._note
-    
-    def hasBanned(self, member):
+
+    def isEnabledOnRing(self, ring):   
+        
         if not self._note: return False
-        if isinstance(member, Member):
-            identity = member.identity
-        else:
-            identity = member            
-        return identity in self._note.banned
-    
+        return bool(self._note.mask[ring.name])
+        
     def nextNote(self):
         """Compute a new note for the member based on any previous note and previous accusations. 
         The new note has a larger epoch number the the current note.
@@ -297,9 +295,61 @@ class Member(object):
         @rtype: L{Note}
         """
         
-        n = Note(self.identity, self.getEpoch() + 1, self._nextBanned)
-        n.badness = self.group.badness        
+        n = Note(self.identity, self.getEpoch() + 1, self.nextMask())
+        n.badness = self.group.badness
+        self.group.stats.notesCreated += 1
         return n
+    
+    def nextMask(self):
+        """
+        Compute a new mask based on the accusatio history of this node.
+         
+        @return: A new mask.
+        @rtype: list of booleans.
+        """
+     
+        # We need to disable t rings. If the member has not been
+        # accused on at least t rings, we pick disabled rings from the
+        # old mask. If the note has not been set for this member, we
+        # build a random mask.
+        
+        # p1 is a list of the ring numbers we are to disable. p1 is
+        # sorted according to which rings are to be disabled first.
+        
+        p1 = map(lambda x: (x.timestamp, x), self.hAccusations)
+        p1.sort()
+        p1.reverse()
+        p1 = map(lambda x: x[1], p1)
+        t = (self.group.nrMonitoringRings() -1) / 2
+        assert self.getNote()
+        assert isValidMask(self.getNote().mask, self.group.nrMonitoringRings())
+             
+        mask = [True] * (2*t + 1)
+        disabledRings = 0
+        
+        # Pick rings to disable from accusation history.
+        while p1:            
+            if disabledRings >= t: break
+            
+            accuser = self.group.getMemberByIdentity(p1.pop(0).accuser)
+            
+            for ring in self.group.view.mRings:
+                if fireflies.view.validPredecessor(accuser, self, ring) and mask[ring.name]:                    
+                    mask[ring.name] = False
+                    disabledRings += 1
+                    if disabledRings >= t: break
+                    
+        
+        # Pick remaining rings from old mask.
+        for rnr, enabled in enumerate(self._note.mask):
+            if disabledRings >= t: break
+            if enabled: continue
+            if mask[rnr]:
+                mask[rnr] = False
+                disabledRings += 1
+               
+        assert isValidMask(mask, self.group.nrMonitoringRings()), "t=%d disabledRings=%d %d" %(t, disabledRings, len(filter(lambda x: x==False, mask)))
+        return mask            
     
     def accusers(self):
         return map(lambda x: self.group.getMemberByIdentity(x), self.getAccusations())
@@ -339,14 +389,11 @@ class Member(object):
 
         for a in self.vAccusations:
             assert isinstance(a, Accusation)
-            assert a.accuser == self.identity
+            assert a.accused == self.identity
             if a.accuser == identity:                
                 return a
         raise KeyError, "No such accuser %s" % member
         
-
-        
-    
     def getPublicKey(self):
         return self._cert.get_pubkey()
 
@@ -357,7 +404,6 @@ class Member(object):
         """
         
         # A member without a note is failed.        
-        if not self.getNote() or self.getNote().epoch == 0: assert self._failed
         return self._failed
  
     def isLive(self):
@@ -365,7 +411,7 @@ class Member(object):
         @return: True if the member is considered live, otherwise False.
         @rtype: bool
         """
-        return not self.isFailed()
+        return not self._failed
 
 
     def isAccused(self):
@@ -422,13 +468,9 @@ class Member(object):
 
         if self._note:
             self.group.notify("data.note", self._note, False)
-
-        if not self._note:
-            self._nextBanned = list(note.banned)
             
         self._note = note
         self.group.notify("data.note", note, True)
-        self.group.stats.notesTotal += 1
         
     def setAccusation(self, accusation):
         """
@@ -447,8 +489,7 @@ class Member(object):
         
         if accusation.epoch != self.getEpoch(): raise ByzantineError, "Note in accusation does not match current note."
         if accusation.accused != self.identity: raise ByzantineError, "Accusation is not for this member."
-        if accusation.accuser in self._note.banned: raise ByzantineError, "Accuser is banned."
-
+        
         if self.isAccusedBy(accusation.accuser):
             assert accusation in self.vAccusations
             raise KeyError, "Duplicate accusation %s"
@@ -459,16 +500,8 @@ class Member(object):
         self.hAccusations.append(accusation)
         if len(self.hAccusations) > self.maxAccusationHistory:
             self.hAccusations.pop(0)
-
-    
-        if accusation.accuser in self._nextBanned:
-            self._nextBanned.remove(accusation.accuser)
-        self._nextBanned.append(accusation.accuser)
-        if len(self._nextBanned) > self.group.view.toleranceLevel:
-            self._nextBanned.pop(0)        
         
         self.group.notify("data.accusation", accusation, True)
-        self.group.stats.accusationsTotal += 1
     
     def invalidateAccusation(self, accusation):
         """Invalidate an accusation.
@@ -518,8 +551,7 @@ class Member(object):
             self.group.notify("data.accusation", a, False)
 
     def __repr__(self):
-        #return "%x" % bytes_to_long(self.identity)
-        return  "P:%s:%d:%s" % (shortIdentity(self), self.getEpoch(), self.getCommonName())
+        return  "P:%s:%s-%d" % (shortIdentity(self.identity), self.getCommonName(), self.getEpoch())
 
     def __cmp__(self, other):
         try:

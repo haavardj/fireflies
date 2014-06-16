@@ -9,7 +9,7 @@
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
-## $Id: stats.py,v 1.4 2011/12/12 12:20:28 haavardj Exp $
+## $Id: stats.py,v 1.5 2014/06/16 07:49:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -78,14 +78,15 @@ Connections:
 Accusations:
       created   %f
       received  %f
-      accepted  %f
-      discarded %f
+      redundant  %f
+      accepted %f
       
 Notes:
       created   %f
       received  %f
       discarded %f
       accepted  %f
+      invalid   %f
 
 Certs:
       received  %f
@@ -101,23 +102,26 @@ Membership:
 
       redirect %f
 
-System
-      load %f
       """ %(stats.tcpOpen,
-            stats.accusationsCreated, stats.accusationsTotal, stats.accusationsRedundant,
+            
+            stats.accusationsCreated, 
+            stats.accusationsTotal, 
+            stats.accusationsRedundant,
             stats.accusationsTotal - stats.accusationsRedundant,
 
             stats.notesCreated,
-            stats.notesTotal, stats.notesRedundant,
-            stats.notesTotal - stats.notesRedundant,
+            stats.notesTotal, 
+            stats.notesRedundant,
+            stats.notesTotal-stats.notesRedundant, 
+            stats.notesInvalid,
             
-            stats.certsTotal, stats.certsRedundant,
-            stats.certsTotal - stats.certsRedundant, 
+            stats.certsTotal, 
+            stats.certsRedundant,
+            stats.certsTotal - stats.certsRedundant,
 
             stats.failed, stats.revived,
             stats.join, stats.leave,
-            stats.redirect,
-            stats.cputime
+            stats.redirect
             )                    
 
 

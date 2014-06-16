@@ -8,7 +8,7 @@ if len(sys.argv) < 2:
 	sys.exit(0)
 	
 l1 = file(sys.argv[1]).readlines()
-l1 = map(lambda x: socket.getfqdn(x.strip()).lower(), l1)
+l1 = map(lambda x: socket.gethostbyname(x.strip()), l1)
 
 for h in l1:
     print h

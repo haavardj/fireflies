@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2006, Haavard D Johansen (Norway)
 ##                
-## $Id: packer.py,v 1.22 2012/02/08 09:13:06 haavardj Exp $
+## $Id: packer.py,v 1.23 2014/06/16 07:49:47 haavardj Exp $
 ##                
 ######################################################################
 
@@ -340,7 +340,7 @@ class FirefliesPacker(xdrlib.Packer):
         self.pack_fstring(1, chr(short))
 
     def pack_mask(self, mask):
-        masklen = len(mask)
+        masklen = len(mask)        
         assert masklen < 256 and masklen >= 0
         self.pack_fstring(1, chr(masklen))
         
@@ -363,27 +363,25 @@ class FirefliesPacker(xdrlib.Packer):
     def pack_note(self, note):
         """
         Format of packed notes:
-          - identity (size, string)
-          - epoch (uint)
-          - badness (size, list of identities)
-          - signature (size, string)
-          - badness
+          - identity (size, string)  32 
+          - epoch (uint)             4
+          - mask                     1+3
+          - signature (size, string) 4+64
+          - badness                  4 = 304 bytes
           """
         
         self.pack_identity(note.identity)    
         self.pack_uint(note.epoch)        
-        self.pack_uint(len(note.banned))
-        for fid in note.banned:
-            self.pack_identity(fid)
+        self.pack_mask(note.mask)
         self.pack_signature(note.signature)
         self.pack_uint(note.badness)
 
     def pack_accusation(self, accusation):
-        """Format:
-        accused   (size, string)
-        epoch  (uint)
-        accuser   (size, string)
-        signature (size, string)
+        """Format: 
+        accused   (string)  32
+        epoch  (uint)        4
+        accuser   (string)   32
+        signature (string)  4+64 = 132 bytes
         """
         
         self.pack_identity(accusation.accused)    
@@ -467,9 +465,11 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         identity = self.unpack_identity()
         epoch = self.unpack_uint()
 
-        banned = []
-        for x in range(self.unpack_uint()):
-            banned.append(self.unpack_identity())
+        mask = self.unpack_mask()
+
+        #banned = []
+        #for x in range(self.unpack_uint()):
+        #    banned.append(self.unpack_identity())
         
         signature = self.unpack_signature()
         badness = self.unpack_uint()
@@ -477,7 +477,7 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         d = {
             'identity': identity,
             'epoch': epoch,
-            'banned': banned,
+            'mask': mask,
             'signature': signature,
             'badness': badness,
             }
