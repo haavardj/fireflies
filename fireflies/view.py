@@ -8,7 +8,7 @@
 ##  
 ##         Copyright 2007, Haavard D Johansen (Norway)
 ##                
-## $Id: view.py,v 1.31 2014/06/16 07:49:47 haavardj Exp $
+## $Id: view.py,v 1.32 2014/10/29 17:58:07 haavardj Exp $
 ##                
 ######################################################################
 
@@ -27,7 +27,7 @@ import fireflies.stats
 from fireflies import ring
 import M2Crypto
 
-LOGDISCARDING=yes
+LOGDISCARDING=False
 
 def canSkip(member):
     return not member.isLive()

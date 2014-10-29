@@ -3,6 +3,7 @@
 import fireflies, os.path, sys, M2Crypto
 import fireflies.crypto
 import fireflies.persist
+import fireflies.util
 from optparse import OptionParser
 
 
@@ -16,8 +17,8 @@ Files:
   <path>/cacert.pem          - CA's public certificate.
   <path>/private/cakey.pem   - CA's private key""")
 
-parser.add_option("-e", "--tolerance", dest="tolerance", type="float", default=1.0,
-                  help="Byzantine tolerance level. Default=1.0")
+parser.add_option("-e", "--tolerance", dest="tolerance", type="float", default=0.99,
+                  help="Byzantine tolerance level. Default=0.99")
 parser.add_option("-p", metavar="NUMBER", dest="pByz", type="float", default=0.20,
                   help="Uniform probability that a member is Byzantine. Default=0.20")
 parser.add_option("-s", metavar="NUMBER", dest="maxGroupSize", type="int", default=1000,
@@ -66,27 +67,23 @@ if options.ecc:
     pkey = fireflies.crypto.makePrivateECKey()
 else:
     pkey = fireflies.crypto.makePrivateRSAKey()
-    
-cert = fireflies.crypto.makeCACert(pkey, options.name, options.maxGroupSize, options.pByz, options.tolerance)
 
-#caCert = fireflies.crypto.newCA(options.name, caPKey, options.maxGroupSize, options.pByz, options.tolerance)
+mrings = fireflies.util.numMembershipRings(options.pByz, options.maxGroupSize, options.tolerance, options.maxGroupSize)
+grings = fireflies.util.numGossipRings(options.pByz, options.maxGroupSize, options.tolerance)
+
+cert = fireflies.crypto.makeCACert(pkey, options.name, mrings, grings)
+
 assert cert.verify(pkey)
 assert cert.verify()
 store = fireflies.persist.Store(args[0])
 store.saveCACert(cert)
 store.saveCaPrivKey(pkey, cipher=cipher, callback=passwdcb)
 
-#store.saveCaPrivKey(caPKey, None)
-
 print cert.as_text()
-#print caPKey.as_pem(cipher=None, callback=lambda x:"")
-
 
 store = fireflies.persist.Store(args[0])
 c1 = store.loadCACertificate()
 k1 = store.loadCAKey(callback=passwdcb)
-#print c1.as_text()
+
 assert c1.verify(k1)
 assert c1.verify()
-#print c1.verify(k1)
-#print c1.verify()

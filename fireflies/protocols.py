@@ -24,8 +24,8 @@ from fireflies import state, crypto, ring, view
 debug = False
 noiselevel = 0
 #M2Crypto.SSL.TwistedProtocolWrapper.debug = 0
-# A nicer print function for addresses
 
+# A nicer print function for addresses
 twisted.internet.address.IPv4Address.__str__ = lambda x: "%s:%d" % (x.host, x.port)
             
 def connect(member, factory, timeout=30, bindAddress=None):
@@ -456,7 +456,6 @@ class FirefliesProtocol(Int32StringReceiver):
     
     def postConnectionCheck(self, x509, host):
         isinstance(x509, M2Crypto.X509.X509)
-        
         self.group.view.addCertificate(x509)
         member = self.factory.getMemberByCertificate(x509)
         
@@ -472,8 +471,10 @@ class FirefliesProtocol(Int32StringReceiver):
         self.stats.tcpOpen += 1
         
         if self.master:
-            self._sendPartner(self.group.getMe().getNote())
+            self.logger.debug("postconnection check master=1")
+            twisted.internet.reactor.callLater(0, self._sendPartner, self.group.getMe().getNote())
         else:
+            self.logger.debug("postconnection check master=0. set timeout")
             self.setTimeout()          
         return True
     

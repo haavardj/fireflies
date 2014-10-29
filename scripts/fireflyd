@@ -375,13 +375,14 @@ if __name__ == "__main__":
         except Exception, why:
             logging.error("Failed saving group.")
 
-    def persistMyOwnNote(note, state):
+    def persistMyOwnNote(name, note, s):
+        assert name == "data.note"
         if not isinstance(note, state.Note): raise ValueError
-        if state == False: return # Note is deleted, so we don't care.
+        if s == False: return # Note is deleted, so we don't care.
         if note.identity == mgroup.getMe().identity:
             store.saveNote(note)
             
-    mgroup.registerEventHandler("data.notes", persistMyOwnNote)
+    mgroup.registerEventHandler("data.note", persistMyOwnNote)
 
     def failback(msg):
         logging.exception(msg)
