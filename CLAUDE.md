@@ -10,7 +10,7 @@ Constraints that matter before editing:
 
 - **Python 3.10+.** Ported from Python 2.7 in 2026. Dependencies: Twisted, `cryptography`, pyOpenSSL (via Twisted's TLS). The `setrecon` C++ extension needs a C++ compiler, NTL and GMP (`build-essential libntl-dev libgmp-dev python3-dev` on Ubuntu); SWIG comes from PyPI at build time. The extension does not build on Windows; use WSL/Linux for gossip.
 - Licensing: MIT ([LICENCE](LICENCE)), except the set reconciliation C++ in `fireflies/setrecon/` (Agarwal and Trachtenberg, Boston University; GPL v2, [COPYING](fireflies/setrecon/COPYING)). Do not copy code between these and the MIT files. See [README.md](README.md).
-- History was converted from SourceForge CVS (2006–2014) with `cvs-fast-export`; CVS tags such as `rel-0-2` are git tags. `dd/` is a separate small git repo, ignored here.
+- History was converted from SourceForge CVS (2006–2014) with `cvs-fast-export`; CVS tags such as `rel-0-2` are git tags.
 
 ## Build and test
 

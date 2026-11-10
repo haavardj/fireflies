@@ -27,7 +27,6 @@ _trial_temp/
 *.rej
 
 # Separate repository
-dd/
 
 # Leftover CVS metadata
 CVS/
