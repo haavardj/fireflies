@@ -94,6 +94,7 @@ fireflies.stats.addStatistic('cputime',"", 30)
 fireflies.stats.addStatistic('members',"", 31)
 fireflies.stats.addStatistic('fmembers',"", 32)
 fireflies.stats.addStatistic('accusationsCreatedByzantine', "", 33)
+fireflies.stats.addStatistic('pongsRejected', "Pongs without an outstanding ping or a valid signature.", 34)
 
 
 defaultConfig = {

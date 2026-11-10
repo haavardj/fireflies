@@ -28,12 +28,66 @@ import fireflies
 import fireflies.group
 import fireflies.state
 import random
+import secrets
 
 from .packer import FirefliesPacker, FirefliesUnpacker
 
 noisy = 0
 MSG_PING = 0x23
-MSG_PONG = 0x24    
+MSG_PONG = 0x24
+
+# Most unanswered ping nonces remembered per monitored member.
+MAX_OUTSTANDING = 64
+
+
+class ExpSmoothedTimeoutPolicy:
+    """Adaptive ping timeout for one monitored member.
+
+    avgLoss is an exponentially smoothed estimate of how many pings it
+    takes to get a pong (1.0 means no loss). From it, isTimedOut()
+    computes how many unanswered pings make the probability of a false
+    accusation fall below pMistake, assuming independent losses:
+    t = log(pMistake) / log(1 - p), with p = min(1/avgLoss,
+    1 - pMistake**(1/tMin)). The member has timed out after more than
+    t unanswered pings. tMin bounds t from below.
+    """
+
+    # Assumed loss rate per message before any pong has been seen.
+    initialLossRate = 0.001
+
+    def __init__(self, pMistake=0.0001, smoothing=0.999, tMin=3):
+        self.pMistake = pMistake
+        self.smoothing = smoothing
+        self.tMin = tMin
+        # A ping and its pong must both arrive. avgLoss is 1 + the
+        # expected number of failures before the first success.
+        pSucc = (1 - self.initialLossRate)**2
+        self.avgLoss = ((1 - pSucc) / pSucc) + 1
+        self.nPing = 0
+
+    def threshold(self):
+        """Number of unanswered pings after which the member has timed out."""
+        p = min(1. / self.avgLoss, 1. - self.pMistake**(1. / float(max(self.tMin, 1))))
+        assert 0.0 < p < 1.0, "Psuc out of bounds."
+        return log(self.pMistake) / log(1. - p)
+
+    def isTimedOut(self):
+        return self.nPing > self.threshold()
+
+    def pinged(self):
+        self.nPing += 1
+
+    def ponged(self):
+        """Fold the number of pings this pong took into avgLoss."""
+        if self.nPing == 0:
+            return
+        assert self.avgLoss >= 1.0, "avgLoss = %f" % self.avgLoss
+        self.avgLoss = (self.smoothing * self.avgLoss) + ((1. - self.smoothing) * self.nPing)
+        self.nPing = 0
+
+    def reset(self):
+        """Forget unanswered pings without updating avgLoss (after an accusation)."""
+        self.nPing = 0
 
 
 def outboundPartnersOnRing(member, ring):
@@ -64,14 +118,14 @@ def partners(member):
 
 
 class PingMsg(crypto.Signable):
-    count = 0
     msgType = MSG_PING
-    
+
     def __init__(self, fromSn, toSn):
         self.fromSn = fromSn
         self.toSn = toSn
-        self.noun = PingMsg.count
-        PingMsg.count += 1
+        # Random nonce. The pong must echo it, so an old pong cannot be
+        # replayed to answer a new ping.
+        self.noun = secrets.randbits(32)
         self.signature = b""
         
     def uidstr(self):
@@ -189,15 +243,54 @@ class FailureDetector(Service):
         
 
     def __init__(self, group):
-        self.group = group        
+        self.group = group
         isinstance(group, fireflies.group.Group)
-        self.setServiceParent(group) 
-        self.pinglist = [] 
+        self.setServiceParent(group)
+        self.pinglist = []
         isinstance(self.parent, fireflies.group.Group)
+
+        # Per monitored member: timeout policy, and nonces of pings that
+        # have not been answered. Kept when monitoring stops so the
+        # loss estimate survives ring changes.
+        self.policies = {}
+        self.outstanding = {}
 
     @property
     def logger(self):
         return self.group.logger
+
+    def getPolicy(self, member):
+        policy = self.policies.get(member)
+        if policy is None:
+            policy = ExpSmoothedTimeoutPolicy(self.pMistake, self.smoothing, self.tmin)
+            self.policies[member] = policy
+        return policy
+
+    def expectPong(self, member, nonce):
+        """Record that a ping with nonce was sent to member."""
+        pending = self.outstanding.setdefault(member, {})
+        pending[nonce] = None
+        while len(pending) > MAX_OUTSTANDING:
+            del pending[next(iter(pending))]
+
+    def acceptPong(self, member, msg):
+        """Return True and update the timeout policy if msg is a valid pong
+        from member: it echoes the nonce of an unanswered ping and is signed
+        by member. Otherwise return False."""
+        pending = self.outstanding.get(member)
+        if not pending or msg.noun not in pending:
+            self.group.stats.pongsRejected += 1
+            self.logger.warning("pong<- %s discarded: no outstanding ping with nonce %d", member, msg.noun)
+            return False
+        if not msg.verify(member.getPublicKey()):
+            self.group.stats.pongsRejected += 1
+            self.logger.warning("pong<- %s discarded: invalid signature", member)
+            return False
+        # One pong answers all outstanding pings; earlier nonces can
+        # no longer be used.
+        pending.clear()
+        self.getPolicy(member).ponged()
+        return True
 
     def startService(self):
         Service.startService(self)
@@ -296,28 +389,24 @@ class FailureDetector(Service):
         elif self.group.badness == 0:
             #Do not accuse if this node has already made an accusation
             #on this ring.
-            
-            p = min( 1./member.avgLoss, 1. - self.pMistake**(1./float(max(self.tmin, 1))))
-            assert p < 1.0 and p > 0.0, "Psuc out of bounds."
-            
-            t = log(self.pMistake) / log(1. - p)
+            policy = self.getPolicy(member)
 
-            if member.nPing > t:
+            if policy.isTimedOut():
 
-                #Passive attack. Do nothing.        
+                #Passive attack. Do nothing.
                 if self.group.badness == 1:
                     self.logger.warning("passive %s attack", member)
-                else:                  
+                else:
                     accusation = Accusation(member.identity, member.getNote().epoch, me.identity)
                     accusation.sign(self.group.getMyKey())
-                    self.logger.warning("created %s t=%.2f nPing=%d", accusation, t, member.nPing)
+                    self.logger.warning("created %s t=%.2f nPing=%d", accusation, policy.threshold(), policy.nPing)
                     self.group.view.addAccusation(accusation)
                     self.group.stats.accusationsCreated += 1
-    
-                    assert member.nPing > 0
-                    #mon.avgLoss = (g.SMOOTHING * mon.avgLoss) + ( (1. - g.SMOOTHING) * (mon.nPing))                
-                    member.nPing = 0
-                
+
+                    assert policy.nPing > 0
+                    policy.reset()
+                    self.outstanding.pop(member, None)
+
             else:
 
                 # If we pinged this peer on a lower ring, we dont ping
@@ -329,7 +418,7 @@ class FailureDetector(Service):
                 except Exception as why:
                     self.logger.exception("error pinging: %s", why)
 
-                member.nPing += 1
+                policy.pinged()
 
 
 class PingPong(DatagramProtocol):
@@ -361,35 +450,33 @@ class PingPong(DatagramProtocol):
         self.pong(msg)
                 
     def handle_PongMsg(self, msg):
-        view, smoothing, mkey = self.factory.group.view, self.factory.smoothing, self.factory.group.getMyKey()
-        
+        view = self.factory.group.view
+
         if msg.toSn != self.factory.group.getMe().identity:
             self.logger.warning("pong<- %s wrong receiver %s", msg.fromSn, msg.toSn)
-            return        
+            return
         sender = view.sn2peer.get(msg.fromSn, None)
         if sender:
             if noisy: self.logger.debug("pong<- %s", sender)
-            if sender.nPing == 0:
-                return
-            assert sender.avgLoss >= 1.0
-            sender.avgLoss = (smoothing * sender.avgLoss) + ( (1. - smoothing) * (sender.nPing))
-            sender.nPing = 0
+            self.factory.acceptPong(sender, msg)
         else:
             if noisy: self.logger.debug("pong<- %s Unknown peer", msg.fromSn)
-            
+
     def ping(self, receiver):
         isinstance(self.factory, FailureDetector)
         me = self.factory.group.getMe()
-        
+
         if noisy: self.logger.debug("ping-> %s", receiver)
-        
+
         msg = PingMsg(me.identity, receiver.identity)
         msg.sign(self.factory.group.getMyKey())
+        self.factory.expectPong(receiver, msg.noun)
         self.sendCommand(receiver, msg)
-        
+        return msg
+
     def pong(self, pingMsg):
-        view, smoothing, mkey = self.factory.group.view, self.factory.smoothing, self.factory.group.getMyKey()
-        sender = view.sn2peer[pingMsg.fromSn]        
+        view = self.factory.group.view
+        sender = view.sn2peer[pingMsg.fromSn]
         assert isinstance(sender, Member)
         
         msg = PongMsg(pingMsg)

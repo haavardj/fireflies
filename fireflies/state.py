@@ -194,7 +194,7 @@ class Member(object):
     """
     
     maxAccusationHistory = 100
-    initialLossRate = 0.001 
+
     group = None
 
     def __init__(self, cert, group):
@@ -213,16 +213,9 @@ class Member(object):
 
         # History of accusations
         self.hAccusations = []
-        
-        self.nPing = 0
-        
-        # EXPECTEDLOSSRATE is the probability that one message gets
-        # through. avgLoss is 1 + the expected value of the negative
-        # binomial experiment with r = 1 and the probability, pSucc,
-        # for a successful ping and pong exchange. Lossrate is
-        # expected to be independent.
-        pSucc = (1 - self.initialLossRate)**2 
-        self.avgLoss = ((1-pSucc)/pSucc) + 1
+
+        # Ping counts and loss estimates live in the failure detector
+        # (fd.ExpSmoothedTimeoutPolicy).
 
         self._failed = True
 
