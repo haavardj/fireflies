@@ -7,7 +7,7 @@
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ##  
 ## Licence: MIT (see the LICENCE file).
-##         Copyright© 2006, University of Tromsø (Norway)
+##         Copyright© 2006, Håvard Dagenborg
 ##                
 ## $Id: setrecon.py,v 1.10 2014/06/16 07:49:48 haavardj Exp $
 ##                

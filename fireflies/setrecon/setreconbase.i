@@ -7,7 +7,7 @@
 //
 // Licence: MIT (see the LICENCE file at the top of the repository).
 //
-//         Copyright© 2006, University of Tromsø (Norway)
+//         Copyright© 2006, Håvard Dagenborg
 //                
 // $Id: setreconbase.i,v 1.2 2006/01/31 14:00:34 haavardj Exp $
 //                

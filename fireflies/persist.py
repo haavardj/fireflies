@@ -5,7 +5,7 @@
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       MIT (see the LICENCE file).
 ##
-##         Copyright© 2006, University of Tromsø (Norway)
+##         Copyright© 2006, Håvard Dagenborg
 ##
 ######################################################################
 

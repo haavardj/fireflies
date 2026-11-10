@@ -7,7 +7,7 @@
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       MIT (see the LICENCE file).
 ##  
-##         Copyright© 2006, University of Tromsø (Norway)
+##         Copyright© 2006, Håvard Dagenborg
 ##                
 ## $Id: stats.py,v 1.5 2014/06/16 07:49:47 haavardj Exp $
 ##                
