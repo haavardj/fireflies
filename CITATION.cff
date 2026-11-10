@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you refer to Fireflies, please cite the paper below."
+title: Fireflies
+repository-code: "https://github.com/haavardj/fireflies"
+license: MIT
+authors:
+  - family-names: Dagenborg
+    given-names: Håvard
+preferred-citation:
+  type: article
+  title: "Fireflies: A Secure and Scalable Membership and Gossip Service"
+  authors:
+    - family-names: Johansen
+      given-names: Håvard D.
+    - family-names: van Renesse
+      given-names: Robbert
+    - family-names: Vigfusson
+      given-names: Ymir
+    - family-names: Johansen
+      given-names: Dag
+  journal: ACM Transactions on Computer Systems
+  volume: 33
+  issue: 2
+  number: 5
+  year: 2015
+  month: 5
+  doi: 10.1145/2701418

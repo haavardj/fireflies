@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "fireflies"
 version = "0.3.0"
 description = "Scalable, intrusion-tolerant group membership for peer-to-peer overlays"
-readme = "README"
+readme = "README.md"
 license-files = ["LICENCE", "fireflies/setrecon/COPYING"]
 authors = [{ name = "Håvard Dagenborg" }]
 requires-python = ">=3.10"

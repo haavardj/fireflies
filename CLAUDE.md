@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Fireflies: a Byzantine-tolerant, scalable group membership protocol and toolkit for peer-to-peer overlays (Håvard Dagenborg, ~2006–2014). Each member keeps a weakly consistent view of all members; redundancy masks Byzantine faults so malicious members can neither declare live members crashed nor crashed members live. Design and math are in [doc/fireflies.tex](doc/fireflies.tex) / `doc/fireflies.pdf`.
+Fireflies: a Byzantine-tolerant, scalable group membership protocol and toolkit for peer-to-peer overlays (Håvard Dagenborg, ~2006–2014). Each member keeps a weakly consistent view of all members; redundancy masks Byzantine faults so malicious members can neither declare live members crashed nor crashed members live. The protocol is specified in the ACM TOCS 2015 paper (doi:10.1145/2701418), cited in [README.md](README.md); the code has not yet been checked against it.
 
 Constraints that matter before editing:
 
 - **Python 3.10+.** Ported from Python 2.7 in 2026. Dependencies: Twisted, `cryptography`, pyOpenSSL (via Twisted's TLS). The `setrecon` C++ extension needs a C++ compiler, NTL and GMP (`build-essential libntl-dev libgmp-dev python3-dev` on Ubuntu); SWIG comes from PyPI at build time. The extension does not build on Windows; use WSL/Linux for gossip.
-- Licensing: MIT ([LICENCE](LICENCE)), except the set reconciliation C++ in `fireflies/setrecon/` (Agarwal and Trachtenberg, Boston University; GPL v2, [COPYING](fireflies/setrecon/COPYING)) and `scripts/vxargs` (LGPL). Do not copy code between these and the MIT files. See [README](README).
+- Licensing: MIT ([LICENCE](LICENCE)), except the set reconciliation C++ in `fireflies/setrecon/` (Agarwal and Trachtenberg, Boston University; GPL v2, [COPYING](fireflies/setrecon/COPYING)) and `scripts/vxargs` (LGPL). Do not copy code between these and the MIT files. See [README.md](README.md).
 - History was converted from SourceForge CVS (2006–2014) with `cvs-fast-export`; CVS tags such as `rel-0-2` are git tags. `dd/` is a separate small git repo, ignored here.
 - `build/`, `dist/`, `lib/python/` and `_trial_temp/` are old Python 2 build output. `fireflies/setrecon/_setreconbase.so*` in the source tree are old Python 2 binaries. Edit only `fireflies/` and `scripts/`.
 

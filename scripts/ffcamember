@@ -34,8 +34,7 @@ if not 1 <= len(args) <= 2:
  parser.print_help()
  sys.exit()
 
-if len(args) == 2:
- 
+if len(args) == 2 and args[1] != "-":
  lines = [args[1],]
 else:
  lines = [x.strip() for x in sys.stdin.readlines()]

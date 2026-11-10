@@ -1,2 +1,2 @@
 recursive-include fireflies/setrecon *.h *.i *.cpp
-include README LICENCE CLAUDE.md fireflies/setrecon/COPYING
+include README.md LICENCE CLAUDE.md fireflies/setrecon/COPYING
