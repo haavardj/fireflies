@@ -2,7 +2,7 @@
 ######################################################################
 ## Filename:      crypto.py
 ## Description:   Fireflies crypto functions.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Licence:       MIT (see the LICENCE file).
 ##
 ##         Copyright© 2006, Håvard Dagenborg

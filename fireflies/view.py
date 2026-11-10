@@ -1,12 +1,12 @@
 ######################################################################
 ## Filename:      view.py
 ## Description:   Classes and functions related to management of group views.
-## Author:        Haavard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Modified at:   Tue Jan 24 10:39:41 2006
-## Modified by:   Haavard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Licence:       MIT (see the LICENCE file).
 ##  
-##         Copyright 2007, Haavard D Johansen (Norway)
+##         Copyright© 2007, Håvard Dagenborg
 ##                
 ## $Id: view.py,v 1.32 2014/10/29 17:58:07 haavardj Exp $
 ##                

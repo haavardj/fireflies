@@ -2,9 +2,9 @@
 ######################################################################
 ## Filename:      setrecon.py
 ## Description:   High-Level set-recon library.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Modified at:   Thu Jan 26 00:04:56 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Håvard Dagenborg <havard.dagenborg@outlook.com>
 ##  
 ## Licence: MIT (see the LICENCE file).
 ##         Copyright© 2006, Håvard Dagenborg

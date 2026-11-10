@@ -6,7 +6,7 @@
 //               modified by: Ari Trachtenberg, trachten@bu.edu
 //                   Version: 0.998 Beta
 //                      Date: 06/23/2004
-// Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+// Modified by:   Håvard Dagenborg <havard.dagenborg@outlook.com>
 // Modified at:   Mon Jan 16 18:45:30 2006
 // Licence: GPL version 2 (see COPYING in this directory).
 //  

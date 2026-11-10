@@ -1,12 +1,12 @@
 ######################################################################
 ## Filename:      state.py
 ## Description:   Fireflies member state classes.
-## Author:        Haavard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Modified at:   Tue Jan 24 10:39:41 2006
-## Modified by:   Haavard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Licence:       MIT (see the LICENCE file).
 ##  
-##         Copyright 2007, Haavard D Johansen (Norway)
+##         Copyright© 2007, Håvard Dagenborg
 ##                
 ## $Id: state.py,v 1.26 2014/06/16 07:49:47 haavardj Exp $
 ##                

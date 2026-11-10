@@ -1,12 +1,12 @@
 ######################################################################
 ## Filename:      gossip.py
 ## Description:   Fireflies set-recon based gossip protocol 
-## Author:        Haavard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Modified at:   Wed Feb  1 18:12:09 2006
-## Modified by:   Haavard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Licence:       MIT (see the LICENCE file).
 ##  
-##         Copyright 2006, Haavard D Johansen (Norway)
+##         Copyright© 2006, Håvard Dagenborg
 ##                
 ## $Id: gossip.py,v 1.36 2012/02/08 09:13:06 haavardj Exp $
 ##                

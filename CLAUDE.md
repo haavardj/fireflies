@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Fireflies: a Byzantine-tolerant, scalable group membership protocol and toolkit for peer-to-peer overlays (Håvard D. Johansen, UiT, ~2006–2014). Each member keeps a weakly consistent view of all members; redundancy masks Byzantine faults so malicious members can neither declare live members crashed nor crashed members live. Design and math are in [doc/fireflies.tex](doc/fireflies.tex) / `doc/fireflies.pdf`.
+Fireflies: a Byzantine-tolerant, scalable group membership protocol and toolkit for peer-to-peer overlays (Håvard Dagenborg, ~2006–2014). Each member keeps a weakly consistent view of all members; redundancy masks Byzantine faults so malicious members can neither declare live members crashed nor crashed members live. Design and math are in [doc/fireflies.tex](doc/fireflies.tex) / `doc/fireflies.pdf`.
 
 Constraints that matter before editing:
 

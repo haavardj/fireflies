@@ -1,12 +1,12 @@
 ######################################################################
 ## Filename:      util.py
 ## Description:   Utility functions and classes.
-## Author:        Haavard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Modified at:   Mon Jan 23 20:29:49 2006
-## Modified by:   Haavard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Licence:       MIT (see the LICENCE file).
 ##  
-##         Copyright 2006, Haavard Johansen (Norway)
+##         Copyright© 2006, Håvard Dagenborg
 ##                
 ## $Id: util.py,v 1.7 2014/06/16 07:49:47 haavardj Exp $
 ##                

@@ -2,9 +2,9 @@
 ######################################################################
 ## Filename:      fd.py
 ## Description:   Fireflies failure detection protocol.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Modified at:   Tue Feb  7 14:18:25 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Licence:       MIT (see the LICENCE file).
 ##  
 ##         Copyright© 2006, Håvard Dagenborg

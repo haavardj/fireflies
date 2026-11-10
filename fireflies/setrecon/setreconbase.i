@@ -1,9 +1,9 @@
 //====================================================================
 // Filename:      setreconbase.i
 // Description:   SWIG wrapper for set-recon.
-// Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+// Author:        Håvard Dagenborg <havard.dagenborg@outlook.com>
 // Modified at:   Wed Jan 25 13:59:34 2006
-// Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+// Modified by:   Håvard Dagenborg <havard.dagenborg@outlook.com>
 //
 // Licence: MIT (see the LICENCE file at the top of the repository).
 //

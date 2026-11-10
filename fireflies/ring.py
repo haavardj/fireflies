@@ -2,12 +2,12 @@
 ######################################################################
 ## Filename:      ring.py
 ## Description:   Ring classes.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Modified at:   Tue Jan 24 10:39:41 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   Håvard Dagenborg <havard.dagenborg@outlook.com>
 ## Licence:       MIT (see the LICENCE file).
 ##  
-##         Copyright© 2006,2007, Håvard D Johansen (Norway)
+##         Copyright© 2006,2007, Håvard Dagenborg
 ##                
 ## $Id: ring.py,v 1.24 2014/06/16 07:49:47 haavardj Exp $
 ##                
