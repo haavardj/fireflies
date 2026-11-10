@@ -10,7 +10,7 @@ Legacy code. Constraints that matter before editing:
 
 - **Python 2.7 only** (`print` statements, `except X, e:`, `raise E, msg`, `import new`, `xdrlib`, implicit relative imports). Do not "modernize" syntax piecemeal; it will not run on Python 3 anyway.
 - Dependencies: Twisted (+ `zope.interface`), M2Crypto (X509, SSL, RSA/EC), and for the web UI Nevow, numpy, Gnuplot.py. The `setrecon` C++ extension needs SWIG, NTL and GMP.
-- Version control was CVS on SourceForge (`CVS/` dirs). This directory is not a git repo. `dd/` is a separate small git repo, unrelated to the code.
+- History was converted from SourceForge CVS (2006–2014) with `cvs-fast-export`; CVS tags such as `rel-0-2` are git tags. No remote is configured yet. `dd/` is a separate small git repo, ignored here.
 - `build/`, `dist/`, `lib/python/`, `_trial_temp/` and `*.pyc`/`*.pyo` are build or install artifacts. Edit only `fireflies/` and `scripts/`.
 
 ## Build and test
