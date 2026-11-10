@@ -1,0 +1,63 @@
+"""Command-line tool ffcasign."""
+
+import os.path, sys
+import fireflies
+import fireflies.crypto
+import fireflies.persist
+from optparse import OptionParser
+
+
+def main():
+    parser = OptionParser(usage="""%prog [options] <path> <request>
+
+Create a Fireflies X509 certificate from a X509 certificate request.
+The <path> arguments must contain the path to the CA's certificate repository.
+The <request> argument must be the path to the certificate request.
+The created X509 certificate will be stored in the CA's repository.
+
+Files:
+   <path>/certs/<member name>  - The created certificate.
+""")
+
+    parser.add_option("-y",
+                      action="store_true", dest="yes", default=False,
+                      help="Do not ask for confirmation.")
+    parser.add_option("-q",
+                      action="store_true", dest="quiet", default=False,
+                      help="Be quiet!")
+    parser.add_option("-o", dest="out", type="str", default=None,
+                      help="Store the X509 certificate in this file.")
+    parser.add_option("--password",
+                      dest="password", default=None,
+                      help="Password to use for reading the CA's private key. If not set, you will be prompted for one.")
+
+    (options, args) = parser.parse_args()
+
+    if len(args) != 2:
+        parser.print_help()
+        sys.exit()
+
+    if not os.path.exists(args[0]):
+        print("CA does not exists.")
+        sys.exit(0)
+
+    password = options.password or fireflies.crypto.passwordPrompt("CA key password: ")
+
+    store = fireflies.persist.Store(args[0])
+    req = fireflies.crypto.CertificateRequest.load(args[1])
+
+    if not options.yes and not options.quiet: print(req.as_text())
+    if not options.yes and input("Sign this request [y/n]: ").strip() != "y":
+        sys.exit(0)
+
+    cert = store.newMemberCertificate(req, store.loadCAKey(password))
+    if options.out: cert.save(options.out)
+
+    if not options.quiet:
+        print(cert.as_text())
+        print("Saved to:", store.filenameCertificate(cert))
+        if options.out: print("Saved to:", options.out)
+
+
+if __name__ == "__main__":
+    main()

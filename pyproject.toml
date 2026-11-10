@@ -5,8 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fireflies"
 version = "0.3.0"
-description = "Scalable, intrusion-tolerant group membership for peer-to-peer overlays"
+description = "Byzantine-tolerant membership and gossip service for peer-to-peer overlay networks"
 readme = "README.md"
+license = "MIT AND GPL-2.0-only"
 license-files = ["LICENCE", "fireflies/setrecon/COPYING"]
 authors = [{ name = "Håvard Dagenborg" }]
 requires-python = ">=3.10"
@@ -18,17 +19,18 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://sourceforge.net/projects/fireflies"
+Homepage = "https://github.com/haavardj/fireflies"
+Paper = "https://doi.org/10.1145/2701418"
+
+[project.scripts]
+fireflyd = "fireflies.cli.fireflyd:main"
+ffcanew = "fireflies.cli.ffcanew:main"
+ffreq = "fireflies.cli.ffreq:main"
+ffcasign = "fireflies.cli.ffcasign:main"
+ffcamember = "fireflies.cli.ffcamember:main"
 
 [tool.setuptools]
-packages = ["fireflies", "fireflies.setrecon", "fireflies.test"]
-script-files = [
-    "scripts/fireflyd",
-    "scripts/ffcanew",
-    "scripts/ffreq",
-    "scripts/ffcasign",
-    "scripts/ffcamember",
-]
+packages = ["fireflies", "fireflies.cli", "fireflies.setrecon", "fireflies.test"]
 
 [tool.setuptools.package-data]
 "fireflies.setrecon" = ["*.h", "*.i"]

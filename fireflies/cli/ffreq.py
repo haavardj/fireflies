@@ -1,0 +1,75 @@
+"""Command-line tool ffreq."""
+
+import fireflies.crypto
+import fireflies.persist
+from optparse import OptionParser
+import sys
+
+
+def main():
+    parser = OptionParser(usage="""%prog [options] <path> <cacert> <address>
+
+Initialize Fireflies member structure. This involves creating a new private
+key and a X509 certificate request. The certificate request is used by the CA
+to create a X509 certificate. The <path> argument specifies the path to where
+member data will be stored. The <cacert> argument specifies the path to the
+CA's certificate. The <address> is an "IP:port" tuple containing the network
+address that you want to listen on.
+
+Files:
+  <path>/private/<key-hash>    - Your private key
+  <path>/cacert.pem            - CA's public certificate""")
+
+    parser.add_option("-n", dest="nick", type="str", default=None,
+                      help="Member nick-name.")
+    parser.add_option("-o", dest="out", type="str", default=None,
+                      help="Output the X509 request to this file. Defaults to './<address>-req.pem'")
+    parser.add_option("--password",
+                      dest="password", default=None,
+                      help="Password to use. If not set, you will be asked for a password when loading and saving keys.")
+    parser.add_option("-q",
+                      action="store_true", dest="quiet", default=False,
+                      help="Be quiet!")
+    parser.add_option("--nopass",
+                      dest="nopass", default=False, action="store_true",
+                      help="Do not ecrypt private key.")
+    parser.add_option("--ec",
+                      dest="ecc", default=False, action="store_true",
+                      help="Use Ecliptic Curves crypto.")
+    (options, args) = parser.parse_args()
+
+
+    if len(args) != 3:
+        parser.print_help()
+        sys.exit(0)
+
+    store = fireflies.persist.Store(args[0])
+
+    if options.nopass:
+        password = None
+    else:
+        password = options.password or fireflies.crypto.passwordPrompt("Key password: ")()
+
+    caCert = fireflies.crypto.Certificate.load(args[1])
+    store.saveCACert(caCert)
+
+    if not options.quiet:
+        print("Generating private key")
+    mPKey = fireflies.crypto.makePrivateKey(options.ecc)
+    store.savePrivateKey(mPKey, password)
+    req = fireflies.crypto.makeRequest(args[2], mPKey, nickname=options.nick)
+
+    assert req.verify(mPKey)
+
+    if not options.out:
+        options.out = args[2] + "-req.pem"
+
+    req.save(options.out)
+    if not options.quiet:
+        print(req.as_text())
+        print("Certificate request saved to: ", options.out)
+        print("Key saved to: ", store.filenameKey(mPKey))
+
+
+if __name__ == "__main__":
+    main()

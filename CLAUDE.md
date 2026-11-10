@@ -9,9 +9,8 @@ Fireflies: a Byzantine-tolerant, scalable group membership protocol and toolkit 
 Constraints that matter before editing:
 
 - **Python 3.10+.** Ported from Python 2.7 in 2026. Dependencies: Twisted, `cryptography`, pyOpenSSL (via Twisted's TLS). The `setrecon` C++ extension needs a C++ compiler, NTL and GMP (`build-essential libntl-dev libgmp-dev python3-dev` on Ubuntu); SWIG comes from PyPI at build time. The extension does not build on Windows; use WSL/Linux for gossip.
-- Licensing: MIT ([LICENCE](LICENCE)), except the set reconciliation C++ in `fireflies/setrecon/` (Agarwal and Trachtenberg, Boston University; GPL v2, [COPYING](fireflies/setrecon/COPYING)) and `scripts/vxargs` (LGPL). Do not copy code between these and the MIT files. See [README.md](README.md).
+- Licensing: MIT ([LICENCE](LICENCE)), except the set reconciliation C++ in `fireflies/setrecon/` (Agarwal and Trachtenberg, Boston University; GPL v2, [COPYING](fireflies/setrecon/COPYING)). Do not copy code between these and the MIT files. See [README.md](README.md).
 - History was converted from SourceForge CVS (2006–2014) with `cvs-fast-export`; CVS tags such as `rel-0-2` are git tags. `dd/` is a separate small git repo, ignored here.
-- `build/`, `dist/`, `lib/python/` and `_trial_temp/` are old Python 2 build output. `fireflies/setrecon/_setreconbase.so*` in the source tree are old Python 2 binaries. Edit only `fireflies/` and `scripts/`.
 
 ## Build and test
 
@@ -33,18 +32,17 @@ python -m twisted.trial fireflies.test.test_ring.NumberedRingQueryTest.testPred 
 
 ## Running a group
 
-All tools are in [scripts/](scripts/). Key passwords: `--password`, `--nopass`, or a terminal prompt.
+The tools are console scripts declared in `pyproject.toml` (`[project.scripts]`); their code is in [fireflies/cli/](fireflies/cli/), one module per tool with a `main()`. Key passwords: `--password`, `--nopass`, or a terminal prompt.
 
 1. `ffcanew <path>`: create a group CA. Options `-p` (P_byz, default 0.20), `-s` (max group size, default 1000) and `-e` (tolerance) determine the number of monitoring and gossip rings, which are encoded into the CA certificate's `O=` field as `"<monitoring> <gossip>"` (read back by `Group.nrMonitoringRings()` / `nrGossipingRings()`). Ring-count formulas are in [fireflies/util.py](fireflies/util.py) (`numMembershipRings`, `numGossipRings`).
 2. `ffreq` / `ffcasign` / `ffcamember`: request and sign member certificates. A member certificate carries the member's `ip:port` in the `L=` attribute.
 3. `fireflyd <store> [<extra stores>...]`: run a member. `--capriv <keyfile>` lets the daemon mint its own certificate from the CA key (testing only). `-b <file>` marks Byzantine members, `--ec` uses EC keys. Default port 14377 (TCP for gossip, UDP for the failure detector).
-4. `ffrunmany <n> <CA key>`: spawn n local daemons on consecutive ports from 12000. `ffpickbyzantine` picks a Byzantine subset.
 
 Store layout (see [fireflies/persist.py](fireflies/persist.py)): `<path>/cacert.pem`, `<path>/private/cakey.pem`, `<path>/private/<keyid>.pem` (PKCS#8 PEM), `<path>/certs/<ip:port>.pem` (`:` becomes `_` on Windows), plus pickled notes and accusations.
 
 ## Architecture
 
-Twisted service tree, wired up in [scripts/fireflyd](scripts/fireflyd):
+Twisted service tree, wired up in [fireflies/cli/fireflyd.py](fireflies/cli/fireflyd.py):
 
 - **`group.Group`** (`MultiService`): the runtime entry point. Holds the CA cert, own key/cert, the `View`, the TLS options (`getTLSOptions()`), and an event bus (`registerEventHandler` with events `member.crash`, `member.recover`, `data.note`, `data.accusation`, `data.certificate`; handlers run via `reactor.callLater(0, ...)`). Also auto-rebuts accusations against itself (`evSelfRebuttal`).
 - **`fd.FailureDetector`** (`Service`, child of Group): pings monitoring-ring successors over signed UDP (`PingPong`); after enough unanswered pings it creates and signs an `Accusation`. One `ExpSmoothedTimeoutPolicy` per monitored member holds the adaptive timeout (smoothed loss estimate, threshold from `pMistake`). A pong counts only if it echoes the random nonce of an unanswered ping and is signed by the pinged member (`acceptPong`); rejected pongs increment `stats.pongsRejected`.

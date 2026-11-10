@@ -72,7 +72,7 @@ The set reconciliation tests skip themselves when the extension is not built.
 
 ## Running a test group
 
-The scripts in `scripts/` manage a CA, member keys and certificates, and run members. Every script takes `--help`.
+`pip install` adds five commands: `ffcanew`, `ffreq`, `ffcasign` and `ffcamember` manage a CA, member keys and certificates, and `fireflyd` runs a member. Every command takes `--help`.
 
 The fastest way to a running group puts all keys in the CA's directory. Use it only for testing:
 
@@ -177,7 +177,4 @@ The protocol, its analysis and an evaluation on PlanetLab are in the paper below
 
 ## Licence
 
-Fireflies is under the MIT licence ([LICENCE](LICENCE)), with two exceptions:
-
-- `fireflies/setrecon/*.cpp` and `*.h` implement set reconciliation. They are based on the library by Sachin Agarwal and Ari Trachtenberg (Boston University), version 0.998 Beta, modified for Fireflies, and remain under GPL version 2 ([COPYING](fireflies/setrecon/COPYING)). The compiled extension, `fireflies.setrecon._setreconbase`, is therefore GPL, and so is any distribution that includes it.
-- `scripts/vxargs` is by Yun Mao (University of Pennsylvania) and is under the GNU LGPL, as stated in its header.
+Fireflies is under the MIT licence ([LICENCE](LICENCE)), except the set reconciliation code. The files `fireflies/setrecon/*.cpp` and `*.h` are based on the library by Sachin Agarwal and Ari Trachtenberg (Boston University), version 0.998 Beta, modified for Fireflies, and remain under GPL version 2 ([COPYING](fireflies/setrecon/COPYING)). The compiled extension, `fireflies.setrecon._setreconbase`, is therefore GPL, and so is any distribution that includes it.

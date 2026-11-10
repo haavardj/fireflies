@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+"""Command-line tool fireflyd: run a Fireflies member."""
 
 import warnings
 
@@ -14,9 +14,8 @@ from fireflies import state, crypto, group, stats, persist
 
 random.seed()
 
-groupCert = groupKey = myCert = myKey = myNote = None
-
-if __name__ == "__main__":
+def main():
+    groupCert = groupKey = myCert = myKey = myNote = None
     
     from optparse import OptionParser
     parser = OptionParser(usage="""%prog [options] <path> <path 1> ... <path n>
@@ -109,13 +108,12 @@ if __name__ == "__main__":
         
 
     # Change user/group
-    import pwd, grp
     if options.user:
+        import pwd
         os.seteuid(pwd.getpwnam(options.user)[2])
     if options.group:
+        import grp
         os.seteuid(grp.getgrnam(options.group)[2])
-    del pwd
-    del grp
        
     # Set logging verbosity
     l = logging.getLogger()
@@ -382,3 +380,7 @@ if __name__ == "__main__":
     if not options.storero: store.saveGroup(mgroup)
 
     logging.info("Shutdown")
+
+
+if __name__ == "__main__":
+    main()
