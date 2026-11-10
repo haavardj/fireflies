@@ -6,9 +6,9 @@
 //               modified by: Ari Trachtenberg, trachten@bu.edu
 //                   Version: 0.998 Beta
 //                      Date: 06/23/2004
-// Modified by:   H�rd Dagenborg Johansen <haavardj@cs.uit.no>
+// Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 // Modified at:   Wed Jan 25 14:20:08 2006
-// Licence: GPL (see LICENSE file).
+// Licence: GPL version 2 (see COPYING in this directory).
 //  
 //                
 // $Id: reconciled_set.cpp,v 1.3 2011/08/30 13:55:51 haavardj Exp $

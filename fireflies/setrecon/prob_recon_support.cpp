@@ -8,7 +8,7 @@
 //                      Date: 06/23/2004
 // Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 // Modified at:   Mon Jan 23 20:15:02 2006
-// Licence: GPL (see LICENSE file).
+// Licence: GPL version 2 (see COPYING in this directory).
 //  
 //                
 // $Id: prob_recon_support.cpp,v 1.2 2006/01/31 14:01:03 haavardj Exp $

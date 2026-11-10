@@ -5,7 +5,7 @@
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Tue Feb  7 14:18:25 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Licence:       GPL (see the LICENSE file).
+## Licence:       MIT (see the LICENCE file).
 ##  
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                

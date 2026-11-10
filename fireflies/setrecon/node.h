@@ -8,7 +8,7 @@
 //                      Date: 06/23/2004
 // Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 // Modified at:   Mon Jan 16 18:43:40 2006
-// Licence: GPL (see LICENSE file).
+// Licence: GPL version 2 (see COPYING in this directory).
 //  
 //                
 // $Id: node.h,v 1.3 2007/06/21 07:17:48 haavardj Exp $

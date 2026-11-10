@@ -1,1 +1,14 @@
-See doc/fireflies.pdf.
+Fireflies: scalable, intrusion-tolerant group membership for peer-to-peer
+overlays. See doc/fireflies.pdf.
+
+Licensing
+
+Fireflies is under the MIT licence (LICENCE), with two exceptions:
+
+- fireflies/setrecon/*.cpp and *.h implement set reconciliation. They are
+  by Sachin Agarwal and Ari Trachtenberg (Boston University), modified for
+  Fireflies, and remain under GPL version 2 (fireflies/setrecon/COPYING).
+  The compiled extension, fireflies.setrecon._setreconbase, is therefore
+  GPL, and so is any distribution that includes it.
+- scripts/vxargs is by Yun Mao (University of Pennsylvania) and is under the
+  GNU LGPL, as stated in its header.

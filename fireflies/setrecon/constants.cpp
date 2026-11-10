@@ -8,7 +8,7 @@
 //                      Date: 06/23/2004
 // Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 // Modified at:   Mon Jan 16 18:55:41 2006
-// Licence: GPL (see LICENSE file).
+// Licence: GPL version 2 (see COPYING in this directory).
 //  
 //                
 // $Id: constants.cpp,v 1.1.1.1 2006/01/20 12:41:27 haavardj Exp $

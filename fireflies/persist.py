@@ -3,7 +3,7 @@
 ## Filename:      persist.py
 ## Description:   Fireflies persistence.
 ## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Licence:       GPL (see the LICENSE file).
+## Licence:       MIT (see the LICENCE file).
 ##
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##

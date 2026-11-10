@@ -5,7 +5,7 @@
 // Modified at:   Wed Jan 25 13:59:34 2006
 // Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 //
-// Licence: GPL (see LICENSE file).
+// Licence: MIT (see the LICENCE file at the top of the repository).
 //
 //         Copyright© 2006, University of Tromsø (Norway)
 //                

@@ -6,7 +6,7 @@
 ## Modified at:   Thu Jan 26 00:04:56 2006
 ## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
 ##  
-## Licence: GPL (see LICENCE file).
+## Licence: MIT (see the LICENCE file).
 ##         Copyright© 2006, University of Tromsø (Norway)
 ##                
 ## $Id: setrecon.py,v 1.10 2014/06/16 07:49:48 haavardj Exp $

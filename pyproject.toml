@@ -7,7 +7,7 @@ name = "fireflies"
 version = "0.3.0"
 description = "Scalable, intrusion-tolerant group membership for peer-to-peer overlays"
 readme = "README"
-license-files = ["LICENCE"]
+license-files = ["LICENCE", "fireflies/setrecon/COPYING"]
 authors = [{ name = "Håvard Dagenborg" }]
 requires-python = ">=3.10"
 dependencies = [
@@ -16,10 +16,6 @@ dependencies = [
     "pyopenssl>=24",
     "service-identity>=24",
 ]
-
-[project.optional-dependencies]
-# Faster binomial CDF when computing the number of rings in ffcanew.
-stats = ["scipy"]
 
 [project.urls]
 Homepage = "https://sourceforge.net/projects/fireflies"
