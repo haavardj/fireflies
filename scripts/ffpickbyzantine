@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 import sys, random, optparse
 
@@ -21,8 +21,8 @@ fract = float(args[0])
 active = float(args[1])
 fn = args[2]
 
-sites = file(fn).readlines()
-sites = map(lambda x: x.strip(), sites)
+sites = open(fn).readlines()
+sites = [x.strip() for x in sites]
 
 byzantine = random.sample(sites, int(len(sites)*fract) )
 
@@ -30,7 +30,7 @@ random.shuffle(byzantine)
 
 for nr, host in enumerate(byzantine):
     if float(nr) / len(byzantine) < active:
-        print "%s %d" %(host, 2)
+        print("%s %d" %(host, 2))
     else:
-        print "%s %d" % (host, 1)
+        print("%s %d" % (host, 1))
 

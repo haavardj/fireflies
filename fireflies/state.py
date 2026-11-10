@@ -14,14 +14,16 @@
 
 """This module provides classes that are used to represent the state of members in a group."""
 
+import functools
+import random
+
+import twisted.internet.address
+
 import fireflies
-from fireflies.stats import Stats
+import fireflies.util
 from fireflies import crypto
 from fireflies.crypto import shortIdentity
-import bisect, setrecon, random, stats
-import M2Crypto
-import twisted
-    
+
 
 def isValidMask(mask, nrMonitoringRings):
     """
@@ -36,7 +38,7 @@ def isValidMask(mask, nrMonitoringRings):
     """
     t = fireflies.util.minmajority(nrMonitoringRings)
     if len(mask) != 2* t + 1: return False
-    if len(filter(lambda x: x == True, mask)) != t + 1: return False 
+    if len([x for x in mask if x == True]) != t + 1: return False 
     return True
     
 
@@ -64,7 +66,8 @@ class TimeStampMixin:
         self.timestamp = fireflies.time.time()
              
 
-class Accusation(object, crypto.Signable, TimeStampMixin):
+@functools.total_ordering
+class Accusation(crypto.Signable, TimeStampMixin):
     """
     Members issue Accusations to signal to other members failure suspicion. 
     Whenever a member suspects that one of its monitored members has failed, 
@@ -101,14 +104,20 @@ class Accusation(object, crypto.Signable, TimeStampMixin):
                 }
 
     def __setstate__(self, data):
-        for k,v in data.items():
+        for k,v in list(data.items()):
             setattr(self, k, v)
             
         self.touch()
         
-    def __cmp__(self, other):
-        try: return cmp(self.get_fingerprint(), other.get_fingerprint())
-        except AttributeError: return -1
+    # Accusations compare by fingerprint. Comparing with anything else
+    # gives "less than", as __cmp__ returning -1 did in Python 2.
+    def __eq__(self, other):
+        try: return self.get_fingerprint() == other.get_fingerprint()
+        except AttributeError: return False
+
+    def __lt__(self, other):
+        try: return self.get_fingerprint() < other.get_fingerprint()
+        except AttributeError: return True
 
     def __hash__(self):
         return hash(self.get_fingerprint())
@@ -124,7 +133,7 @@ class Accusation(object, crypto.Signable, TimeStampMixin):
 
         
 
-class Note(object, crypto.Signable, TimeStampMixin):
+class Note(crypto.Signable, TimeStampMixin):
     """Members issue notes to signal to other members that they are alive. In
     particular, a member will issue a new note as a rebuttal to a false
     accusation. Notes should be considered immutable after they are signed.
@@ -162,21 +171,21 @@ class Note(object, crypto.Signable, TimeStampMixin):
                 }
     
     def __setstate__(self, data):
-        for k,v in data.items():
+        for k,v in list(data.items()):
             setattr(self, k, v)
 
         self.touch()
         
-    def __cmp__(self, other):
-        try: return cmp(self.shash(), other.shash())
-        except AttributeError: return -1
+    # Python 2's __cmp__ here called a non-existent shash() method and
+    # always returned -1, so notes were only equal to themselves. The
+    # default identity-based __eq__ keeps that behaviour.
 
     def uidstr(self):
         return "N:%s-%d-%s" % (self.identity, self.epoch, str(self.mask))
 
     
 
-import fireflies
+@functools.total_ordering
 class Member(object):
     """Encapsulates known state of a group member.
 
@@ -190,9 +199,8 @@ class Member(object):
 
     def __init__(self, cert, group):
 
-        isinstance(self.group, fireflies.group.Group)
-        isinstance(cert, M2Crypto.X509.X509)
-    
+        if not isinstance(cert, crypto.Certificate): raise TypeError(cert)
+
         self._cert = cert
         self._note = None
         self.group = group
@@ -217,9 +225,6 @@ class Member(object):
         self.avgLoss = ((1-pSucc)/pSucc) + 1
 
         self._failed = True
-
-        # Make the EVP public key use something else than SHA1 as signature algoritm.
-        self._cert.get_pubkey().reset_context(md=fireflies.crypto.DIGESTALG)
 
     @property
     def logger(self):
@@ -316,11 +321,11 @@ class Member(object):
         # p1 is a list of the ring numbers we are to disable. p1 is
         # sorted according to which rings are to be disabled first.
         
-        p1 = map(lambda x: (x.timestamp, x), self.hAccusations)
+        p1 = [(x.timestamp, x) for x in self.hAccusations]
         p1.sort()
         p1.reverse()
-        p1 = map(lambda x: x[1], p1)
-        t = (self.group.nrMonitoringRings() -1) / 2
+        p1 = [x[1] for x in p1]
+        t = (self.group.nrMonitoringRings() -1) // 2
         assert self.getNote()
         assert isValidMask(self.getNote().mask, self.group.nrMonitoringRings())
              
@@ -348,16 +353,16 @@ class Member(object):
                 mask[rnr] = False
                 disabledRings += 1
                
-        assert isValidMask(mask, self.group.nrMonitoringRings()), "t=%d disabledRings=%d %d" %(t, disabledRings, len(filter(lambda x: x==False, mask)))
+        assert isValidMask(mask, self.group.nrMonitoringRings()), "t=%d disabledRings=%d %d" %(t, disabledRings, len([x for x in mask if x==False]))
         return mask            
     
     def accusers(self):
-        return map(lambda x: self.group.getMemberByIdentity(x), self.getAccusations())
+        return [self.group.getMemberByIdentity(x) for x in self.getAccusations()]
 
     def getCertificate(self):
         """
         @return: The member's latest member certificate.
-        @rtype: L{M2Crypto.X509.X509}
+        @rtype: L{fireflies.crypto.Certificate}
         """
 
         return self._cert
@@ -392,7 +397,7 @@ class Member(object):
             assert a.accused == self.identity
             if a.accuser == identity:                
                 return a
-        raise KeyError, "No such accuser %s" % member
+        raise KeyError("No such accuser %s" % member)
         
     def getPublicKey(self):
         return self._cert.get_pubkey()
@@ -457,14 +462,14 @@ class Member(object):
         assert  isinstance(note, Note)
         
         if self.identity != note.identity:
-            raise ByzantineError, "Note do not match certificate."
+            raise fireflies.ByzantineError("Note do not match certificate.")
 
         if not note.verify(self.getCertificate().get_pubkey()):
-            raise ByzantineError, "Note not signed correctly."
+            raise fireflies.ByzantineError("Note not signed correctly.")
         
         if self._note:
             if self.getEpoch() >= note.epoch:
-                raise ByzantineError, "Epoch must be larger."
+                raise fireflies.ByzantineError("Epoch must be larger.")
 
         if self._note:
             self.group.notify("data.note", self._note, False)
@@ -485,14 +490,14 @@ class Member(object):
           - the accusation is made on a ring that this member has disabled.
         """ 
 
-        if not isinstance(accusation, Accusation): raise TypeError, "Parameter %s not an accusation." % accusation
+        if not isinstance(accusation, Accusation): raise TypeError("Parameter %s not an accusation." % accusation)
         
-        if accusation.epoch != self.getEpoch(): raise ByzantineError, "Note in accusation does not match current note."
-        if accusation.accused != self.identity: raise ByzantineError, "Accusation is not for this member."
+        if accusation.epoch != self.getEpoch(): raise fireflies.ByzantineError("Note in accusation does not match current note.")
+        if accusation.accused != self.identity: raise fireflies.ByzantineError("Accusation is not for this member.")
         
         if self.isAccusedBy(accusation.accuser):
             assert accusation in self.vAccusations
-            raise KeyError, "Duplicate accusation %s"
+            raise KeyError("Duplicate accusation %s")
         
         assert accusation not in self.vAccusations
         
@@ -511,7 +516,7 @@ class Member(object):
         @raises e: L{ValueError} if accusation was not valid. 
         """
         
-        if not isinstance(accusation, Accusation): raise TypeError, "Parameter %s not an accusation." % accusation
+        if not isinstance(accusation, Accusation): raise TypeError("Parameter %s not an accusation." % accusation)
 
         self.vAccusations.remove(accusation)
         self.group.notify("data.accusation", accusation, False)
@@ -526,7 +531,7 @@ class Member(object):
                 
         a = self.getAccusationBy(member)
         if a == None:
-            raise ValueError, "No accusations for %s by %s" % (self, member)
+            raise ValueError("No accusations for %s by %s" % (self, member))
         
         self.invalidateAccusation(a)
         
@@ -553,9 +558,16 @@ class Member(object):
     def __repr__(self):
         return  "P:%s:%s-%d" % (shortIdentity(self.identity), self.getCommonName(), self.getEpoch())
 
-    def __cmp__(self, other):
-        try:
-            return cmp(self.identity, other.identity)
-        except AttributeError:
-            return False
+    # Members compare and hash by identity. View.sn2peer holds one Member
+    # object per identity, so this matches the id()-based hash Python 2 used.
+    def __eq__(self, other):
+        if not isinstance(other, Member): return NotImplemented
+        return self.identity == other.identity
+
+    def __lt__(self, other):
+        if not isinstance(other, Member): return NotImplemented
+        return self.identity < other.identity
+
+    def __hash__(self):
+        return hash(self.identity)
 #  LocalWords:  param

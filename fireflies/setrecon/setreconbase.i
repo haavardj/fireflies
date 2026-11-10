@@ -1,13 +1,13 @@
 //====================================================================
 // Filename:      setreconbase.i
 // Description:   SWIG wrapper for set-recon.
-// Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+// Author:        HÃ¥vard Dagenborg Johansen <haavardj@cs.uit.no>
 // Modified at:   Wed Jan 25 13:59:34 2006
-// Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+// Modified by:   HÃ¥vard Dagenborg Johansen <haavardj@cs.uit.no>
 //
 // Licence: GPL (see LICENSE file).
 //
-//         Copyright© 2006, University of Tromsø (Norway)
+//         CopyrightÂ© 2006, University of TromsÃ¸ (Norway)
 //                
 // $Id: setreconbase.i,v 1.2 2006/01/31 14:00:34 haavardj Exp $
 //                
@@ -289,26 +289,33 @@ public:
     return NumBytes(*self); 
   }
 
-  %cstring_output_allocate_size(char **s, int *slen, free(*$1));
-  void toBytes(char **s, int *slen)
+  // Little-endian bytes of the number, as a Python bytes object.
+  PyObject *toBytes()
   {
-    *slen = NumBytes(*self);
-    *s = (char *) malloc(*slen);
-    BytesFromZZ( (unsigned char *) *s, *self, *slen);
+    long n = NumBytes(*self);
+    std::string buf(n, '\0');
+    if (n > 0)
+      BytesFromZZ((unsigned char *) &buf[0], *self, n);
+    return PyBytes_FromStringAndSize(buf.data(), n);
   }
 
 
 };
 
 
-//%cstring_output_allocate_size(const unsigned char *p, long n, free($1));
-
-%apply (char *STRING, int LENGTH) { (char *str, int len) };
+// Inverse of ZZ.toBytes(). Takes a Python bytes object; the Python
+// wrapper in setrecon.py checks the type.
 %inline{
 
-  ZZ to_ZZFromBytes(char *str, int len)
+  ZZ _to_ZZFromBytes(PyObject *obj)
   {
-    return ZZFromBytes((unsigned char *) str, (long) len);
+    char *buf = NULL;
+    Py_ssize_t len = 0;
+    if (PyBytes_AsStringAndSize(obj, &buf, &len) < 0) {
+      PyErr_Clear();
+      len = 0;
+    }
+    return ZZFromBytes((unsigned char *) buf, (long) len);
   }
 };
 
@@ -472,7 +479,7 @@ public:
 
     def __str__(self):
       #return "%s mod %d" %(str( map(lambda x: x.rep().toInt(), self)), ZZ_p.modulus().toInt())
-      return "%s" %(str( map(lambda x: x.rep().toInt(), self)))
+      return "%s" %(str([x.rep().toInt() for x in self]))
       %}
 };
 

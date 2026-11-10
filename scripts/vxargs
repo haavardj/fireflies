@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # DHARMA Project
 # Copyright (C) 2003-2004 Yun Mao, University of Pennsylvania
@@ -22,7 +22,7 @@ vxargs: Visualized xargs with redirected output
 
 """
 version = "0.2.1"
-import os, sys, commands, time, signal
+import os, sys, subprocess, time, signal
 import curses, random, socket
 import getopt
 
@@ -117,7 +117,7 @@ class Slots:
     pids = {}
     def __init__(self, max, screen, timeout, outdir):
         self.maxChild = max
-        self.slots = range(self.maxChild)
+        self.slots = list(range(self.maxChild))
         self.screen = screen
         self.t = timeout
         self.outdir = outdir
@@ -153,13 +153,13 @@ class Slots:
                 open(os.path.join(self.outdir, 'abnormal_list'),'a').write('%s\n' % (slot.name))
         del self.pids[pid]
         s = status >> 8
-        if final_stats.has_key(s):
+        if s in final_stats:
             final_stats[s]+= 1
         else:
             final_stats[s]=1
         return slot
     def update(self):
-        for k,v in self.pids.items():
+        for k,v in list(self.pids.items()):
             v.update(k)
     def timeout(self):
         self.update()
@@ -173,7 +173,7 @@ class Slots:
             self.screen.addstr(0,0, stuff[:x*2])
             self.screen.refresh()
         else:
-            print stuff
+            print(stuff)
 
 gsl = None
 def handler(signum, frame):
@@ -215,8 +215,8 @@ def start(stdscr, max_child, hlist, outdir, randomize, commands, timeout):
             os.dup2(err, sys.stderr.fileno())
             try:
                 os.execvp(x[0],x)
-            except OSError,e:
-                print >> sys.stderr, "vxargs error before execution:",e
+            except OSError as e:
+                print("vxargs error before execution:",e, file=sys.stderr)
             sys.exit(0)
         else: #in parent process
             sl.mapPID(pid, slot)
@@ -260,7 +260,7 @@ def get_output(outdir, argument_list, out= True, err=False, status=False):
                 pass
     if not status: return result
     int_status = {}
-    for k,v in result[2].items():
+    for k,v in list(result[2].items()):
         try:
             int_status[k] = int(v.strip())
         except ValueError:
@@ -273,7 +273,7 @@ def main():
     try:
         opts,args = getopt.getopt(sys.argv[1:], options,long_opts)
     except getopt.GetoptError:
-        print "Unknown options"
+        print("Unknown options")
         usage()
         sys.exit(1)
     #set default values
@@ -284,13 +284,13 @@ def main():
     outdir = ''
     timeout = 0
     plain = False
-    if os.environ.has_key('VXARGS_OUTDIR'):
+    if 'VXARGS_OUTDIR' in os.environ:
         outdir = os.environ['VXARGS_OUTDIR']
     for o,a in opts:
         if o in ['--version']:
-            print "vxargs version",version
-            print "Copyright (c) 2004 Yun Mao (maoy@cis.upenn.edu)"
-            print "Freely distributed under GNU LGPL License"
+            print("vxargs version",version)
+            print("Copyright (c) 2004 Yun Mao (maoy@cis.upenn.edu)")
+            print("Freely distributed under GNU LGPL License")
             sys.exit(1)
         elif o in ['-h','--help']:
             usage()
@@ -303,7 +303,7 @@ def main():
             try:
                 hostfile = open(a,'r')
             except IOError:
-                print "Cannot find argument file",a
+                print("Cannot find argument file",a)
                 sys.exit(3)
         elif o in ['-o','--output']:
             outdir = a
@@ -315,25 +315,25 @@ def main():
         elif o in ['-p','--plain']:
             plain = True
         else:
-            print 'Unknown options'
+            print('Unknown options')
             usage()
             sys.exit(1)
     if len(args)<1:
-        print "No command given."
+        print("No command given.")
         usage()
         sys.exit(1)
     #now test outdir
     if outdir:
         if os.path.exists(outdir):
             if not os.path.isdir(outdir):
-                print "%s exists and is not a dir, won't continue" % outdir
+                print("%s exists and is not a dir, won't continue" % outdir)
                 sys.exit(3)
             elif ask_prompt:
                 if hostfile == sys.stdin:
-                    print "You must specify --noprompt (-y) option if no --args (-a) is given. Doing so will destroy folder %s." % (outdir)
+                    print("You must specify --noprompt (-y) option if no --args (-a) is given. Doing so will destroy folder %s." % (outdir))
                     sys.exit(3)
                 else:
-                    result = raw_input("%s exists. Continue will destroy everything in it. Are you sure? (y/n) " % (outdir))
+                    result = input("%s exists. Continue will destroy everything in it. Are you sure? (y/n) " % (outdir))
                     if result not in ['y','Y']:
                         sys.exit(3)
             os.system('rm -f %s' % (os.path.join(outdir,'*')))
@@ -351,12 +351,12 @@ def main():
             sys.exit(4)
     #post execution, output some stats
     total = 0
-    for k,v in final_stats.items():
-        print "exit code %d: %d job(s)" % (k,v)
+    for k,v in list(final_stats.items()):
+        print("exit code %d: %d job(s)" % (k,v))
         total += v
-    print "total number of jobs:", total
+    print("total number of jobs:", total)
 def usage():
-    print """\
+    print("""\
 NAME
 
   vxargs - build and execute command lines from an argument list file
@@ -456,6 +456,6 @@ cat iplist.txt | vxargs -o /tmp/result rsync -az -e ssh --delete mirror $SLICE@{
 vxargs -a iplist.txt -o /tmp/result ssh {} killall -9 java
 
 For more information, please visit http://dharma.cis.upenn.edu/planetlab/vxargs/
-"""
+""")
 if __name__=='__main__':
     main()

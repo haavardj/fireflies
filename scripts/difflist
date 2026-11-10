@@ -1,17 +1,17 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 """Show lines in file one that are not in file two."""
 
 import sys
 
 if len(sys.argv) != 3:
-	print "Usage: %d <file 1> <file 2>" % sys.argv[0]
+	print("Usage: %s <file 1> <file 2>" % sys.argv[0])
 
-l1 = file(sys.argv[1]).readlines()
-l2 = file(sys.argv[2]).readlines()
+l1 = open(sys.argv[1]).readlines()
+l2 = open(sys.argv[2]).readlines()
 
-l1 = map(lambda x: x.strip(), l1)
-l2 = map(lambda x: x.strip(), l2)
+l1 = [x.strip() for x in l1]
+l2 = [x.strip() for x in l2]
 
 for h in l1:
-    if h not in l2: print h
+    if h not in l2: print(h)

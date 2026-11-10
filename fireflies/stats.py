@@ -1,13 +1,13 @@
-# -*- coding: iso-8859-1 -*-
+# -*- coding: utf-8 -*-
 ######################################################################
 ## Filename:      stats.py
 ## Description:   Fireflies runtime statistic.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        HÃ¥vard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Tue Feb  7 14:18:02 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   HÃ¥vard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright© 2006, University of Tromsø (Norway)
+##         CopyrightÂ© 2006, University of TromsÃ¸ (Norway)
 ##                
 ## $Id: stats.py,v 1.5 2014/06/16 07:49:47 haavardj Exp $
 ##                
@@ -133,9 +133,7 @@ def addStatistic(name, doc="", pos=-1):
     statistics[name] = (doc, pos)
 
 def listStatistics():
-    keys = statistics.keys()
-    keys.sort(lambda x, y: cmp(statistics[x][1], statistics[y][1]))
-    return keys
+    return sorted(statistics, key=lambda k: statistics[k][1])
 
 def labels():
     d = listStatistics()
@@ -148,7 +146,7 @@ class Stats:
 
     def clear(self):
         d = {}
-        for k in statistics.keys():
+        for k in list(statistics.keys()):
             d[k] = 0
         self.__dict__['_data'] = d
         
@@ -159,35 +157,35 @@ class Stats:
             raise AttributeError("Invalid attribute %s" % name)
         
     def __setattr__(self, name, value):
-        if not self._data.has_key(name):
+        if name not in self._data:
             raise AttributeError("Invalid attribute %s" % name)
         self.__dict__["_data"][name] = value
 
     def __add__(self, other):
         s = Stats()
-        for k in statistics.keys():
+        for k in list(statistics.keys()):
             setattr(s, k, getattr(self, k) + getattr(other, k))
         return s
 
     def __sub__(self, other):
         s = Stats()
-        for k in statistics.keys():
+        for k in list(statistics.keys()):
             setattr(s, k, getattr(self, k) - getattr(other, k))
         return s
 
-    def __div__(self, other):
+    def __truediv__(self, other):
         s = Stats()
         if isinstance(other, Stats):
-            for k in statistics.keys():
+            for k in list(statistics.keys()):
                 setattr(s, k, getattr(self, k) / getattr(other, k))
         elif type(other) == int or type(other) == float:
-            for k in statistics.keys():
+            for k in list(statistics.keys()):
                 setattr(s, k, float(getattr(self, k)) / float(other))
         else: raise AttributeError
         return s
 
     def __str__(self):
-        d = map(lambda x: self._data[x], listStatistics())
+        d = [self._data[x] for x in listStatistics()]
         return ("%d " * len(d) ) % tuple(d)
 
 

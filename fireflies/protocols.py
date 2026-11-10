@@ -3,144 +3,84 @@
 
 import twisted
 import twisted.internet
+import twisted.internet.address
+import twisted.internet.reactor
 from twisted.internet import task, defer, protocol
 from twisted.internet.task import LoopingCall
 from twisted.protocols.basic import Int32StringReceiver
-from twisted.protocols.policies import ProtocolWrapper, WrappingFactory
 from twisted.application import service
-from twisted.protocols import policies
 
-import logging, random, os, tempfile
-import M2Crypto
-import M2Crypto.SSL.TwistedProtocolWrapper as wrapper
-from M2Crypto.SSL.Checker import WrongHost, WrongCertificate, NoCertificate 
+import logging
 
-from zope.interface import implements, Interface, Attribute
+from twisted.internet import ssl
+from twisted.internet.interfaces import IHandshakeListener
+from zope.interface import implementer
+
 import fireflies
+import fireflies.packer
 import fireflies.state
-import fireflies.group
-from fireflies import state, crypto, ring, view    
+import fireflies.stats
+from fireflies import crypto
 
 debug = False
 noiselevel = 0
-#M2Crypto.SSL.TwistedProtocolWrapper.debug = 0
 
 # A nicer print function for addresses
 twisted.internet.address.IPv4Address.__str__ = lambda x: "%s:%d" % (x.host, x.port)
-            
+
+
+class NoCertificate(Exception):
+    """The peer did not present a certificate."""
+
+
+class WrongCertificate(Exception):
+    """The peer presented a certificate other than the expected one."""
+
+
 def connect(member, factory, timeout=30, bindAddress=None):
-    """
-    A convenience function to start an SSL/TLS connection using Twisted.
-    
-    See IReactorSSL interface in Twisted. 
-    """
-    
-    ctx = member.group
+    """Open a TLS connection to member.
+
+    The peer's certificate is checked against the group CA during the
+    handshake, and against the expected member afterwards in
+    L{FirefliesProtocol.handshakeCompleted}."""
     address = member.address
-    
-    wrappingFactory = policies.WrappingFactory(factory)
-    wrappingFactory.protocol = lambda factory, wrappedProtocol: \
-                   wrapper.TLSProtocolWrapper(factory,
-                                      wrappedProtocol,
-                                      startPassThrough=0,
-                                      client=1,
-                                      contextFactory=ctx,
-                                      postConnectionCheck=ClientConnectionChecker(member.getCertificate()))
-        
-    return twisted.internet.reactor.connectTCP(address.host, address.port, wrappingFactory, timeout, bindAddress)
-                              
+    return twisted.internet.reactor.connectSSL(address.host, address.port, factory,
+                                               member.group.getTLSOptions(),
+                                               timeout, bindAddress)
 
-def listen(port,
-           factory,
-           contextFactory, 
-           backlog=5, 
-           interface='',
-           reactor=twisted.internet.reactor,  
-           postConnectionCheck=M2Crypto.SSL.TwistedProtocolWrapper._alwaysSucceedsPostConnectionCheck):
-    """
-    A convenience function to listen for SSL/TLS connections using Twisted. 
 
-    See IReactorSSL interface in Twisted. 
-    """
-    wrappingFactory = policies.WrappingFactory(factory)
-    wrappingFactory.protocol = lambda factory, wrappedProtocol: \
-                   wrapper.TLSProtocolWrapper(factory,
-                                              wrappedProtocol,
-                                              startPassThrough=0,
-                                              client=0,
-                                              contextFactory=contextFactory,
-                                              postConnectionCheck=postConnectionCheck)
-    
-    return reactor.listenTCP(port, wrappingFactory, backlog, interface)
-         
+def listen(port, factory, contextFactory, backlog=5, interface='',
+           reactor=twisted.internet.reactor):
+    """Listen for TLS connections.
+
+    contextFactory is a Twisted TLS context factory such as the one
+    returned by L{makeSSLCtx}."""
+    return reactor.listenSSL(port, factory, contextFactory, backlog, interface)
+
 
 def makeSSLCtx(certificate, key, ca):
-    if 0: isinstance(certificate, state.MemberCertificate)
-    if 0: isinstance(key, M2Crypto.EVP.PKey)
-        
-    certificate = certificate
-    key = key
-    ca = ca
-        
-    ca.verify()
-    certificate.verify(ca.get_pubkey())
-    ctx = M2Crypto.SSL.Context("sslv23")
-                
-    #M2Crypto's SSL context objects do only support loading keys and
-    #certificates from files. As such, we need to write these items to
-    #temporary files and then load the context with these.
-        
-    cD, cN = tempfile.mkstemp()
-    os.close(cD)
-    kD, kN = tempfile.mkstemp()
-    os.close(kD)
-    caD, caN = tempfile.mkstemp()
-    os.close(caD)
-        
-    certificate.save(cN)
-    
-    # We do not want to read and write private keys in cleartext.
-    secret = str(random.randint(0,2**128)) 
-    key.save_key(kN, callback=lambda x: secret)
-    ca.save(caN)
-    
-    ctx.load_cert(cN, kN, callback=lambda x: secret)       
-    ctx.set_client_CA_list_from_file(caN)
-    ctx.load_verify_locations(caN)
-    ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9) #.verify_none,0)
-    
-    ctx.set_allow_unknown_ca(False)  
-    #ctx.set_verify(M2Crypto.SSL.verify_peer | M2Crypto.SSL.verify_fail_if_no_peer_cert, 9, sslVerifyCB)
-    #ctx.set_verify(M2Crypto.SSL.verify_client_once, 2)
-    if debug: ctx.set_info_callback()
-    
-    #Remove temporary files.
-    os.remove(cN)
-    os.remove(kN)
-    os.remove(caN)
-    return ctx
-    
-   
-def sslPostConnectionCheck(peerX509, expectedHost):
-    print "Post connection check"
-    print peerX509, expectedHost
-    return True
+    """Return TLS options for a member.
 
+    Both sides present their member certificate and require the peer's
+    certificate to be signed by the group CA.
 
-class ClientConnectionChecker:
-    
-    def __init__(self, certificate):
-        self.expectedCertificate = certificate
-        
-    def __call__(self, peerCert, host=None):
-        
-        isinstance(peerCert, M2Crypto.X509.X509)
-        if peerCert is None:
-            raise NoCertificate('peer did not return certificate')
-        
-        if peerCert.get_fingerprint() != self.expectedCertificate.get_fingerprint():
-            raise WrongCertificate('peer did return wrong certificate')        
-        return True
+    @type certificate: L{fireflies.crypto.Certificate}
+    @type key: L{fireflies.crypto.PrivateKey}
+    @type ca: L{fireflies.crypto.Certificate}
+    @rtype: L{twisted.internet.ssl.CertificateOptions}
+    """
+    if not ca.verify():
+        raise ValueError("Group certificate is not self-signed.")
+    if not certificate.verify(ca):
+        raise ValueError("Member certificate is not signed by the group CA.")
+
+    own = ssl.PrivateCertificate.loadPEM(certificate.as_pem() + key.as_pem())
+    caCert = ssl.Certificate.loadPEM(ca.as_pem())
+    return ssl.CertificateOptions(privateKey=own.privateKey.original,
+                                  certificate=own.original,
+                                  verify=True,
+                                  caCerts=[caCert.original],
+                                  requireCertificate=True)
 
     
 class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactory):
@@ -375,7 +315,6 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
     def buildProtocol(self, address):
         p = self.protocol()
         p.master = True
-        p.group = self.service.group
         p.factory = self
         return p
 
@@ -411,6 +350,7 @@ class PeerServerFactory(twisted.internet.protocol.ServerFactory):
         return self.service.group.addCertificate(x509)
     
 
+@implementer(IHandshakeListener)
 class FirefliesProtocol(Int32StringReceiver):
     STATE_IDLE = "idle"
     STATE_CONNECTING = "conn"
@@ -425,7 +365,9 @@ class FirefliesProtocol(Int32StringReceiver):
     factory = None
     
     protonr = 0
-    
+    _member = None
+    _timer = None
+
     def __init__(self):
         self.stats = fireflies.stats.Stats()        
         self.protonr = FirefliesProtocol.protonr
@@ -438,10 +380,20 @@ class FirefliesProtocol(Int32StringReceiver):
             self.state = self.STATE_IDLE
             self.idle()
     
+    # Server-side protocols learn their member from the peer's
+    # certificate (postConnectionCheck); client-side ones take it from
+    # the factory. Python 2's old-style classes let the assignment
+    # shadow the property; Python 3 needs the setter.
     @property
     def member(self):
+        if self._member is not None:
+            return self._member
         return self.factory.member
-        
+
+    @member.setter
+    def member(self, member):
+        self._member = member
+
     @property
     def service(self):
         return self.factory.service
@@ -454,8 +406,20 @@ class FirefliesProtocol(Int32StringReceiver):
     def group(self):
         return self.service.group
     
+    def handshakeCompleted(self):
+        """Called by Twisted when the TLS handshake is done. The peer's
+        certificate chain has been verified against the group CA."""
+        try:
+            peer = self.transport.getPeerCertificate()
+            if peer is None:
+                raise NoCertificate("peer did not return certificate")
+            self.postConnectionCheck(crypto.Certificate(peer.to_cryptography()),
+                                     self.transport.getPeer())
+        except Exception as why:
+            self.logger.warning("post connection check failed %s: %s", self, why)
+            self.transport.abortConnection()
+
     def postConnectionCheck(self, x509, host):
-        isinstance(x509, M2Crypto.X509.X509)
         self.group.view.addCertificate(x509)
         member = self.factory.getMemberByCertificate(x509)
         
@@ -480,8 +444,7 @@ class FirefliesProtocol(Int32StringReceiver):
     
     def connectionMade(self):
         assert self.group
-        self.logger.debug("FirefliesProtocol.connectionMade %s master=%s", self, self.master)        
-        self.transport.postConnectionCheck = self.postConnectionCheck
+        self.logger.debug("FirefliesProtocol.connectionMade %s master=%s", self, self.master)
 
     def connectionLost(self, reason):
         self.state = self.STATE_TERMINATED
@@ -518,7 +481,7 @@ class FirefliesProtocol(Int32StringReceiver):
             self.sendString(fireflies.packer.PackMessage(cmd, *args))
         except KeyboardInterrupt:
             raise
-        except Exception, why:
+        except Exception as why:
             self.logger.exception("Exception: Unable to send command %s. %s", cmd, why)
             
     def stringReceived(self, data):
@@ -530,7 +493,7 @@ class FirefliesProtocol(Int32StringReceiver):
             getattr(self, "handle_" + cmd)(*args)
         except KeyboardInterrupt:
             raise
-        except Exception, why:
+        except Exception as why:
             self.logger.exception("Exception: Unable to run command: %s", why)
                     
     def hangup(self, hard=True):
@@ -559,7 +522,7 @@ class FirefliesProtocol(Int32StringReceiver):
 
     def setTimeout(self):
         if self._timer and self._timer.active():
-            raise Exception, "Timer already set."
+            raise Exception("Timer already set.")
         self._timer = twisted.internet.reactor.callLater(self.connectionTimeout, self.timedout)
 
     def cancelTimeout(self):

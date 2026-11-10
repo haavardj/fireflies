@@ -1,6 +1,6 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
-import fireflies, os.path, sys, M2Crypto, socket
+import fireflies, os.path, sys, socket
 import fireflies.crypto
 import fireflies.persist
 import sys
@@ -30,7 +30,7 @@ parser.add_option("--password",
 
 (options, args) = parser.parse_args()
 
-if 1 < len(args) < 2:
+if not 1 <= len(args) <= 2:
  parser.print_help()
  sys.exit()
 
@@ -38,32 +38,33 @@ if len(args) == 2:
  
  lines = [args[1],]
 else:
- lines = map(lambda x: x.strip(), sys.stdin.readlines())
+ lines = [x.strip() for x in sys.stdin.readlines()]
 
 if not os.path.exists(args[0]):
- print "CA does not exists."
+ print("CA does not exists.")
  sys.exit(0)
       
 store = fireflies.persist.Store(args[0])
+caKey = store.loadCAKey(options.password or fireflies.crypto.passwordPrompt("CA key password: "))
 
 for line in lines:
  
  address = "%s:%d" % (socket.gethostbyname(line), options.port)
 
  if store.hasMemberCertificateWithAddress(address) and not options.overwrite:
-  print "skipping %s existing" % address 
+  print("skipping %s existing" % address) 
   continue
   
  mpkey = fireflies.crypto.makePrivateRSAKey()
- store.savePrivateKey(mpkey, cipher=None, callback=lambda x: None)
+ store.savePrivateKey(mpkey, None)
 
  req = fireflies.crypto.makeRequest(address, mpkey, nickname=line)
  assert req.verify(mpkey)
 
- cert = store.newMemberCertificate(req, store.loadCAKey())
+ cert = store.newMemberCertificate(req, caKey)
  store.saveMemberCertificate(cert)
  
  assert fireflies.crypto.identityFromCertificate(cert)
 
- if len(args) == 2: print cert.as_text()
- print "Saved:", store.filenameCertificate(cert) 
+ if len(args) == 2: print(cert.as_text())
+ print("Saved:", store.filenameCertificate(cert)) 

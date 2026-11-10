@@ -1,13 +1,26 @@
 from twisted.trial import unittest
-from fireflies import setrecon
 import random
 
-bitsize = 160
-setrecon.init(bitsize, 10)
+try:
+    from fireflies import setrecon
+except ImportError:
+    setrecon = None
 
-            
+try:
+    import pydot
+except ImportError:
+    pydot = None
+
+bitsize = 160
+if setrecon is not None and not setrecon.initialized:
+    setrecon.init(bitsize, 10)
+
+
 class SequentialTest(unittest.TestCase):
-    
+
+    if setrecon is None:
+        skip = "The setrecon C++ extension is not built."
+
     commonSize = 300
     diffASize = 10
     diffBSize = 10
@@ -34,29 +47,30 @@ class SequentialTest(unittest.TestCase):
     def testDiff(self):
          
         aMissing, bMissing = setrecon.diffs(self.setA, self.setB)
-        self.failUnlessEqual(aMissing, self.diffB)#, "\n%s\n%s" %( aMissing-self.diffA , self.diffA - aDiff) )
-        self.failUnlessEqual(bMissing, self.diffA)#, "\n%s\n%s" %( bDiff-self.diffB , self.diffB - bDiff) )
+        self.assertEqual(aMissing, self.diffB)#, "\n%s\n%s" %( aMissing-self.diffA , self.diffA - aDiff) )
+        self.assertEqual(bMissing, self.diffA)#, "\n%s\n%s" %( bDiff-self.diffB , self.diffB - bDiff) )
 
         bMissing, aMissing = setrecon.diffs(self.setB, self.setA)
-        self.failUnlessEqual(aMissing, self.diffB)#, "\n%s\n%s" %( aMissing-self.diffA , self.diffA - aDiff) )
-        self.failUnlessEqual(bMissing, self.diffA)#, "\n%s\n%s" %( bDiff-self.diffB , self.diffB - bDiff) )
+        self.assertEqual(aMissing, self.diffB)#, "\n%s\n%s" %( aMissing-self.diffA , self.diffA - aDiff) )
+        self.assertEqual(bMissing, self.diffA)#, "\n%s\n%s" %( bDiff-self.diffB , self.diffB - bDiff) )
         
-        d = setrecon.dottySet(self.setA)
-        d = setrecon.dottySet(self.setB)
+        if pydot is not None:
+            d = setrecon.dottySet(self.setA)
+            d = setrecon.dottySet(self.setB)
 
     def testSetMembership(self):
 
         for v in self.common:
-            self.failUnless(v in self.setA)
-            self.failUnless(v in self.setB)
+            self.assertTrue(v in self.setA)
+            self.assertTrue(v in self.setB)
 
         for v in self.diffA:
-            self.failUnless(v in self.setA)
-            self.failIf(v in self.setB)
+            self.assertTrue(v in self.setA)
+            self.assertFalse(v in self.setB)
 
         for v in self.diffB:
-            self.failUnless(v in self.setB)
-            self.failIf(v in self.setA)
+            self.assertTrue(v in self.setB)
+            self.assertFalse(v in self.setA)
         
 
     def testReconciliation(self):
@@ -65,14 +79,14 @@ class SequentialTest(unittest.TestCase):
         pB = setrecon.Reconciliation(self.setB)
 
         for nA in pA.run():
-            nB = pB.next()
+            nB = next(pB)
             pA.update(nB)
             pB.update(nA)
             
         pB.requestByHashes(pA.meMissing)
         pA.requestByHashes(pB.meMissing)            
-        self.failUnlessEqual(pB.otherMissing, self.diffB)
-        self.failUnlessEqual(pA.otherMissing, self.diffA)    
+        self.assertEqual(pB.otherMissing, self.diffB)
+        self.assertEqual(pA.otherMissing, self.diffA)    
 
 class RandomSetTest(SequentialTest):
         

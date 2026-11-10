@@ -1,13 +1,13 @@
-# -*- coding: iso-8859-1 -*-
+# -*- coding: utf-8 -*-
 ######################################################################
 ## Filename:      fd.py
 ## Description:   Fireflies failure detection protocol.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        HÃ¥vard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Tue Feb  7 14:18:25 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   HÃ¥vard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright© 2006, University of Tromsø (Norway)
+##         CopyrightÂ© 2006, University of TromsÃ¸ (Norway)
 ##                
 ## $Id: fd.py,v 1.32 2014/06/16 07:49:47 haavardj Exp $
 ##                
@@ -23,13 +23,13 @@ from fireflies.state import Accusation, Note, Member
 import socket
 from math import *
 
-import crypto
+from . import crypto
 import fireflies
 import fireflies.group
 import fireflies.state
-import new, random
+import random
 
-from packer import FirefliesPacker, FirefliesUnpacker
+from .packer import FirefliesPacker, FirefliesUnpacker
 
 noisy = 0
 MSG_PING = 0x23
@@ -72,7 +72,7 @@ class PingMsg(crypto.Signable):
         self.toSn = toSn
         self.noun = PingMsg.count
         PingMsg.count += 1
-        self.signature = 0
+        self.signature = b""
         
     def uidstr(self):
         return "ping-%s-%s-%d" % (self.fromSn, self.toSn, self.noun)
@@ -84,10 +84,18 @@ class PongMsg(crypto.Signable):
         self.fromSn = ping.toSn
         self.toSn = ping.fromSn
         self.noun = ping.noun
-        self.signature = 0
+        self.signature = b""
     
     def uidstr(self):
         return "pong-%s-%s-%d" % (self.fromSn, self.toSn, self.noun)
+
+def _restore(cls, state):
+    """Create an instance of cls from state without calling __init__
+    (replaces Python 2's new.instance)."""
+    obj = cls.__new__(cls)
+    obj.__dict__.update(state)
+    return obj
+
 
 class FDMsgPacker(FirefliesPacker):
     """Serializer for Ping and Pong messages.""" 
@@ -106,7 +114,7 @@ class FDMsgPacker(FirefliesPacker):
 
     def pack_msgid(self, mid):
         assert mid >= 0 and mid < 256
-        self.pack_fstring(1, chr(mid))
+        self.pack_fstring(1, bytes([mid]))
 
     def pack_msg(self, msg):
         tpe = type(msg)
@@ -131,7 +139,7 @@ class FDMsgUnpacker(FirefliesUnpacker):
                  'toSn': toSn,
                  'noun': noun,
                  'signature': signature}
-        return new.instance(PingMsg, state)
+        return _restore(PingMsg, state)
 
     def unpack_PongMsg(self):
         fromSn = self.unpack_identity()
@@ -142,10 +150,10 @@ class FDMsgUnpacker(FirefliesUnpacker):
                  'toSn': toSn,
                  'noun': noun,
                  'signature': signature}
-        return new.instance(PongMsg, state)
+        return _restore(PongMsg, state)
 
     def unpack_msgid(self):
-        return ord(self.unpack_fstring(1))
+        return self.unpack_fstring(1)[0]
 
     def unpack_msg(self):
         msgType = self.unpack_msgid()
@@ -222,7 +230,7 @@ class FailureDetector(Service):
         self._task.stop()
         #self._task = None
 
-        for m,t in self.monitoring.items():
+        for m,t in list(self.monitoring.items()):
             assert isinstance(t, twisted.internet.task.LoopingCall)
             assert isinstance(m, Member)
             t.stop()
@@ -243,7 +251,7 @@ class FailureDetector(Service):
 
         myPartners = partners(self.group.getMe())
         
-        for currentPartner, timer in self.monitoring.items():
+        for currentPartner, timer in list(self.monitoring.items()):
             if not currentPartner in myPartners:
                 self.logger.info("Stop monitoring %s", currentPartner)
                 assert isinstance(timer, twisted.internet.task.LoopingCall)
@@ -318,7 +326,7 @@ class FailureDetector(Service):
                     self.protocol.ping(member)
                 except KeyboardInterrupt:
                     raise
-                except Exception, why:
+                except Exception as why:
                     self.logger.exception("error pinging: %s", why)
 
                 member.nPing += 1
@@ -402,7 +410,8 @@ class PingPong(DatagramProtocol):
         receiver.group.stats.udpW += len(data)
         self.transport.write(data, (h, p))
 
-    def datagramReceived(self, data, (host, port)):
+    def datagramReceived(self, data, addr):
+        (host, port) = addr
         if not self.factory.running: 
             self.logger.warning("Datagram received while stopped")
             return 
@@ -420,6 +429,6 @@ class PingPong(DatagramProtocol):
             getattr(self, "handle_" + msg.__class__.__name__)(msg)            
         except KeyboardInterrupt:
             return
-        except Exception, why:
+        except Exception as why:
             self.logger.warning("Error in message from %s:%d: %s", host, port, why)            
 

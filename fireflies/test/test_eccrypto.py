@@ -2,7 +2,6 @@ from twisted.trial import unittest
 import fireflies
 from fireflies import crypto
 import binascii
-import M2Crypto
 
 def noGeygens(): pass
 
@@ -12,10 +11,10 @@ class SubjectKeyIdentifierBugTest(unittest.TestCase):
 
     def setUp(self):
         self.caKey = crypto.makePrivateECKey()
-        self.caCert = crypto.makeCACert(self.caKey, "test", 25)         
+        self.caCert = crypto.makeCACert(self.caKey, "test", 25, 5)         
         self.mKey = crypto.makePrivateECKey()
         self.req = fireflies.crypto.makeRequest(str(0), self.mKey)
-        self.mCert = fireflies.crypto.makeCert(self.req, self.caCert, self.caKey, sn=0)
+        self.mCert = fireflies.crypto.makeCert(self.req, self.caCert, self.caKey, sn=1)
 
     
     def testAccess(self):
@@ -23,7 +22,7 @@ class SubjectKeyIdentifierBugTest(unittest.TestCase):
         for x in range(10):
             mKey = crypto.makePrivateECKey()
             req = fireflies.crypto.makeRequest(str(x), mKey)
-            mCert = fireflies.crypto.makeCert(req, self.caCert, self.caKey, sn=x)            
+            mCert = fireflies.crypto.makeCert(req, self.caCert, self.caKey, sn=x + 1)            
             mCert.verify(self.caCert.get_pubkey())
             crypto.identityFromCertificate(mCert)
 
@@ -32,30 +31,30 @@ class CertificateTest(unittest.TestCase):
         
     def setUp(self):
         self.caKey = crypto.makePrivateECKey()
-        self.caCert = crypto.makeCACert(self.caKey, "test", 25)         
+        self.caCert = crypto.makeCACert(self.caKey, "test", 25, 5)         
         self.mKey = crypto.makePrivateECKey()
         self.req = fireflies.crypto.makeRequest("127.0.0.1:1", self.mKey)
-        self.mCert = fireflies.crypto.makeCert(self.req, self.caCert, self.caKey, sn=0)
+        self.mCert = fireflies.crypto.makeCert(self.req, self.caCert, self.caKey, sn=1)
 
     def testRequest(self):
-        self.failUnless(self.req.verify(self.mKey))
-        self.failUnless(self.req.verify(self.mCert.get_pubkey()))
-        self.failIf(self.req.verify(self.caKey))
-        self.failIf(self.req.verify(self.caCert.get_pubkey()))
+        self.assertTrue(self.req.verify(self.mKey))
+        self.assertTrue(self.req.verify(self.mCert.get_pubkey()))
+        self.assertFalse(self.req.verify(self.caKey))
+        self.assertFalse(self.req.verify(self.caCert.get_pubkey()))
                 
     def testUniqueness(self):
-        self.failIfEqual(self.caCert.as_der(), self.mCert.as_der())
+        self.assertNotEqual(self.caCert.as_der(), self.mCert.as_der())
         
     def testKeys(self):
-        self.failUnless(self.caCert.verify(self.caCert.get_pubkey()))
-        self.failUnless(self.caCert.verify(self.caKey))
-        self.failIf(self.caCert.verify(self.mCert.get_pubkey()))
-        self.failIf(self.caCert.verify(self.mKey))
+        self.assertTrue(self.caCert.verify(self.caCert.get_pubkey()))
+        self.assertTrue(self.caCert.verify(self.caKey))
+        self.assertFalse(self.caCert.verify(self.mCert.get_pubkey()))
+        self.assertFalse(self.caCert.verify(self.mKey))
         
-        self.failUnless(self.mCert.verify(self.caCert.get_pubkey()))
-        self.failUnless(self.mCert.verify(self.caKey))
-        self.failIf(self.mCert.verify(self.mCert.get_pubkey()))
-        self.failIf(self.mCert.verify(self.mKey))
+        self.assertTrue(self.mCert.verify(self.caCert.get_pubkey()))
+        self.assertTrue(self.mCert.verify(self.caKey))
+        self.assertFalse(self.mCert.verify(self.mCert.get_pubkey()))
+        self.assertFalse(self.mCert.verify(self.mKey))
         
     def testCaCertSigned(self):
         self.mCert.verify(self.caCert.get_pubkey())        
@@ -65,14 +64,14 @@ class CertificateTest(unittest.TestCase):
         pkey = self.caCert.get_pubkey()        
         id1 = crypto.subjectKeyIdentifierToID(crypto.computeSubjectKeyIdentifier(pkey))
         id2 = crypto.identityFromCertificate(self.caCert)
-        self.failUnless(id2 == id1)
+        self.assertTrue(id2 == id1)
 
         pkey = self.mCert.get_pubkey()        
         id3 = crypto.subjectKeyIdentifierToID(crypto.computeSubjectKeyIdentifier(pkey))
         id4 = crypto.identityFromCertificate(self.mCert)
-        self.failUnless(id2 == id1)
+        self.assertTrue(id2 == id1)
         
-        self.failIf(id1 == id3)
+        self.assertFalse(id1 == id3)
         
 
     def testSignable(self):
@@ -84,15 +83,15 @@ class CertificateTest(unittest.TestCase):
         s3.sign(self.caKey)
 
 
-        self.failUnlessEqual(s1.get_fingerprint(), s2.get_fingerprint(), s3.get_fingerprint())
-        self.failUnless(s1.signature, s2.signature)
-        self.failIfEqual(s1.signature, s3.signature)
+        self.assertEqual(s1.get_fingerprint(), s2.get_fingerprint(), s3.get_fingerprint())
+        self.assertTrue(s1.signature, s2.signature)
+        self.assertNotEqual(s1.signature, s3.signature)
  
-        self.failUnless(s1.verify(self.mCert.get_pubkey()))
-        self.failUnless(s2.verify(self.mKey))                        
-        self.failUnless(s3.verify(self.caKey))                        
+        self.assertTrue(s1.verify(self.mCert.get_pubkey()))
+        self.assertTrue(s2.verify(self.mKey))                        
+        self.assertTrue(s3.verify(self.caKey))                        
         
-        self.failIf(s1.verify(self.caKey))
+        self.assertFalse(s1.verify(self.caKey))
         
     def testSignatureLenght(self):
  
@@ -100,7 +99,7 @@ class CertificateTest(unittest.TestCase):
         p = fireflies.packer.FirefliesPacker()
         p.pack_cert(self.caCert)
         
-        print len(p.get_buffer())
+        print(len(p.get_buffer()))
         
         
         

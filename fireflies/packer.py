@@ -15,11 +15,17 @@
 from fireflies.state import Note, Accusation
 from fireflies.crypto import identitySize
 from fireflies.util import long_to_bytes, bytes_to_long
-import M2Crypto
-import xdrlib, new, socket
-import struct
+from fireflies import crypto, xdr
+import socket
 import binascii
-import setrecon
+
+# The set reconciliation extension is only needed for the gossip
+# messages. Everything else works without it.
+try:
+    from fireflies import setrecon
+except ImportError:
+    setrecon = None
+
 
 SERIAL_LENGTH = identitySize()
 HASH_LENGTH = identitySize()
@@ -94,14 +100,14 @@ cmd2code = {
     }
 
 code2cmd = {}
-for k, v in cmd2code.items():
+for k, v in list(cmd2code.items()):
     code2cmd[v] = k
 
 
 def PackMessage(cmd, *args):
 
     p = FirefliesPacker()
-    p.pack_fstring(1, chr(cmd2code[cmd]))
+    p.pack_fstring(1, bytes([cmd2code[cmd]]))
 
     if cmd == "partner":
         note, = args
@@ -159,11 +165,11 @@ def PackMessage(cmd, *args):
         elif isinstance(data, Note):
             p.pack_uint(DATA_NOTE_ID)
             p.pack_note(data)
-        elif isinstance(data, M2Crypto.X509.X509):
+        elif isinstance(data, crypto.Certificate):
             p.pack_uint(DATA_CERTIFICATE_ID)
             p.pack_cert(data)
         else:
-            raise ValueError, "Unknown data type", data
+            raise ValueError("Unknown data type", data)
         # note, accus, or cert
 
     elif cmd == "reconcile_data":
@@ -174,11 +180,11 @@ def PackMessage(cmd, *args):
         elif isinstance(data, Note):
             p.pack_uint(DATA_NOTE_ID)
             p.pack_note(data)
-        elif isinstance(data, M2Crypto.X509.X509):
+        elif isinstance(data, crypto.Certificate):
             p.pack_uint(DATA_CERTIFICATE_ID)
             p.pack_cert(data)
         else:
-            raise ValueError, "Unknown data type", data
+            raise ValueError("Unknown data type", data)
         # note, accus, or cert
 
     elif cmd in ["reconcile_data_req",]:
@@ -195,14 +201,14 @@ def PackMessage(cmd, *args):
         # No arguments.
         pass                
     else:
-        raise RuntimeError, "Unknown command."
+        raise RuntimeError("Unknown command.")
 
     return p.get_buffer()
 
 def unpackMessage(data):
     cmd = "N/A"
     p = FirefliesUnpacker(data)
-    cmd = code2cmd[ord(p.unpack_fstring(1))]
+    cmd = code2cmd[p.unpack_fstring(1)[0]]
     args = ()
     if cmd == "partner":
         args = (p.unpack_note(),)
@@ -222,7 +228,7 @@ def unpackMessage(data):
                 p.unpack_short())
 
     elif cmd == "reconcile":
-        args = (p.unpack_string(),
+        args = (p.unpack_string().decode("utf-8"),
                 p.unpack_string()
                 )
     elif cmd == "digest_match":
@@ -282,17 +288,17 @@ def unpackMessage(data):
         args = ()
             
     else:
-        raise Exception, "unknown command."
+        raise Exception("unknown command.")
 
     p.done()    
     return cmd, args
 
     
 
-class FirefliesPacker(xdrlib.Packer):
+class FirefliesPacker(xdr.Packer):
 
     def __init__(self):
-        xdrlib.Packer.__init__(self)
+        xdr.Packer.__init__(self)
 
     def pack_ZZ(self, zz):
         assert isinstance(zz, setrecon.ZZ)
@@ -337,14 +343,14 @@ class FirefliesPacker(xdrlib.Packer):
         self.pack_string(signature)
 
     def pack_short(self, short):
-        self.pack_fstring(1, chr(short))
+        self.pack_fstring(1, bytes([short]))
 
     def pack_mask(self, mask):
         masklen = len(mask)        
         assert masklen < 256 and masklen >= 0
-        self.pack_fstring(1, chr(masklen))
+        self.pack_fstring(1, bytes([masklen]))
         
-        maskbytes = masklen/8
+        maskbytes = masklen // 8
         if (masklen % 8) != 0:
             maskbytes += 1
         
@@ -353,11 +359,11 @@ class FirefliesPacker(xdrlib.Packer):
             if mask[x]:
                 b += (2**x)                
         s = long_to_bytes(b)
-        s = "\0" *(maskbytes - len(s)) + s
+        s = b"\x00" *(maskbytes - len(s)) + s
         self.pack_fstring(maskbytes,s)
         
     def pack_cert(self, cert):
-        assert isinstance(cert, M2Crypto.X509.X509)
+        assert isinstance(cert, crypto.Certificate)
         self.pack_string(cert.as_der())
         
     def pack_note(self, note):
@@ -395,10 +401,10 @@ class FirefliesPacker(xdrlib.Packer):
         self.pack_identity(ref)
 
 
-class FirefliesUnpacker(xdrlib.Unpacker):
+class FirefliesUnpacker(xdr.Unpacker):
 
-    def __ini__(self, data):
-        xdrlib.Unpacker.__init__(self, data)
+    def __init__(self, data):
+        xdr.Unpacker.__init__(self, data)
 
     def unpack_ZZ(self):
         #l = self.unpack_fstring(1)
@@ -432,7 +438,7 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         return node
 
     def unpack_identity(self):
-        return binascii.hexlify(self.unpack_fstring(SERIAL_LENGTH)).upper()
+        return binascii.hexlify(self.unpack_fstring(SERIAL_LENGTH)).decode("ascii").upper()
         #return self.unpack_string()
 
     def unpack_address(self):
@@ -444,11 +450,11 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         return self.unpack_string()
 
     def unpack_short(self):
-        return ord(self.unpack_fstring(1))
+        return self.unpack_fstring(1)[0]
 
     def unpack_mask(self):
-        masklen = ord(self.unpack_fstring(1))        
-        maskbytes = masklen/8
+        masklen = self.unpack_fstring(1)[0]        
+        maskbytes = masklen // 8
         if (masklen % 8) != 0:
             maskbytes += 1
         b = bytes_to_long(self.unpack_fstring(maskbytes))
@@ -459,7 +465,7 @@ class FirefliesUnpacker(xdrlib.Unpacker):
         return l
                     
     def unpack_cert(self):
-        return M2Crypto.X509.load_cert_der_string(self.unpack_string())
+        return crypto.Certificate.fromDER(self.unpack_string())
 
     def unpack_note(self):
         identity = self.unpack_identity()

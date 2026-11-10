@@ -1,14 +1,14 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 import sys, socket
 
 """DNS resolve the given addresses"""
 
 if len(sys.argv) < 2:
-	print "Usage: %d <file>"  % (sys.argv[0])
+	print("Usage: %s <file>" % sys.argv[0])
 	sys.exit(0)
 	
-l1 = file(sys.argv[1]).readlines()
-l1 = map(lambda x: socket.gethostbyname(x.strip()), l1)
+l1 = open(sys.argv[1]).readlines()
+l1 = [socket.gethostbyname(x.strip()) for x in l1]
 
 for h in l1:
-    print h
+    print(h)

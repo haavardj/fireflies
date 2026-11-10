@@ -1,13 +1,13 @@
-# -*- coding: iso-8859-1 -*-
+# -*- coding: utf-8 -*-
 ######################################################################
 ## Filename:      ring.py
 ## Description:   Ring classes.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        HÃ¥vard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Tue Jan 24 10:39:41 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   HÃ¥vard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
 ##  
-##         Copyright© 2006,2007, Håvard D Johansen (Norway)
+##         CopyrightÂ© 2006,2007, HÃ¥vard D Johansen (Norway)
 ##                
 ## $Id: ring.py,v 1.24 2014/06/16 07:49:47 haavardj Exp $
 ##                
@@ -16,7 +16,8 @@
 import bisect, hashlib
 
 def _ringIterator(ring, start=0):
-    for x in ring.items()[start:]:
+    for idx in range(start, len(ring)):
+        x = ring[idx]
         yield x
         
 def __ringTraverse(ring, idx):
@@ -38,7 +39,7 @@ class Ring(object):
     This implementation uses the return value of the items hash
     function as the sort keys. To use a different sort key,
     re-implement the _sortKey method in a subclass. Keys can be any
-    object that implements a __hash__ and __cmp__ method, and is
+    object that implements __hash__ and ordering methods, and is
     unique to each object.    
     """
 
@@ -80,7 +81,7 @@ class Ring(object):
         return key in self.__key2itm
     
     def items(self):
-        return self.__key2itm.values()
+        return list(self.__key2itm.values())
 
     def index(self, item):
         """Return the item's index in the ring. 
@@ -91,7 +92,7 @@ class Ring(object):
         try:
             return self.__keylist.index(key)
         except ValueError:
-            raise ValueError, "Item %s not in ring" % str(item)
+            raise ValueError("Item %s not in ring" % str(item))
         
     def insert(self, item):
         """Insert item into the ring. 
@@ -101,7 +102,7 @@ class Ring(object):
 
         key = self._sortKey(item)
         if key in self.__key2itm:
-            raise ValueError, "Item %s already in list" % (str(item))        
+            raise ValueError("Item %s already in list" % (str(item)))        
         idx = bisect.bisect_right(self.__keylist, key)
         self.__keylist.insert(idx, key)
         self.__key2itm[key] = item
@@ -115,7 +116,7 @@ class Ring(object):
         try:
             del self[self.index(item)]
         except ValueError:
-            raise ValueError, "Item %s not in ring" % str(item)
+            raise ValueError("Item %s not in ring" % str(item))
         
     def __delitem__(self, idx):
         key = self.__keylist[idx]
@@ -279,7 +280,7 @@ class NameHashedRing(NamedRing):
             return NameHashedRing.mRingIDCache[iId][self.identity]
         except KeyError:
             ids = NameHashedRing.mRingIDCache.get(iId, {})
-            idOnRing = hashlib.new("SHA1", "%s-%s" % (iId, self.identity)).digest()
+            idOnRing = hashlib.sha1(("%s-%s" % (iId, self.identity)).encode("utf-8")).digest()
             ids[self.identity] = idOnRing
             NameHashedRing.mRingIDCache[iId] = ids
             return idOnRing
@@ -300,11 +301,11 @@ class RingSet(object):
 
     def succ(self, itm, func=lambda x: True):
         """Return for each ring the first successor of itm for which func evaluates to true."""
-        return map(lambda x: x.succ(itm, func), self._rings)
+        return [x.succ(itm, func) for x in self._rings]
 
     def pred(self, itm, func=lambda x: True):
         """Return for each ring the first predecessor of itm for which func evaluates to true."""
-        return map(lambda x: x.pred(itm, func), self._rings)
+        return [x.pred(itm, func) for x in self._rings]
     
     def insertItem(self, itm):
         """Insert itm in all rings."""
@@ -510,11 +511,24 @@ class Relation:
         """Return the rank of the items relative to each other."""
         return self.ring.rank(self.item, self.otherItem)
         
-    def __cmp__(self, other):
-        """Compare rank. Note: this might be semantically bad idea since objects
-        might have differend otherItem and ring attributes."""
+    # Compare rank. Note: this might be semantically bad idea since objects
+    # might have differend otherItem and ring attributes.
+    def __eq__(self, other):
+        return self.rank() == other.rank()
 
-        return cmp(self.rank(), other.rank())
+    def __lt__(self, other):
+        return self.rank() < other.rank()
+
+    def __le__(self, other):
+        return self.rank() <= other.rank()
+
+    def __gt__(self, other):
+        return self.rank() > other.rank()
+
+    def __ge__(self, other):
+        return self.rank() >= other.rank()
+
+    __hash__ = None
 
 class SuccessorRelation(Relation):
     """Rule determining if two an item is the successor of another item in a ring."""

@@ -1,6 +1,7 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 
-import fireflies, os.path, sys, M2Crypto
+import os.path, sys
+import fireflies
 import fireflies.crypto
 import fireflies.persist
 import fireflies.util
@@ -13,7 +14,7 @@ Initialize a Fireflies Certificate Authority (CA). This includes creating the
 CA's private key and a corresponding self signed X509 certificate. The <path>
 arguments spesifies the directory where the repository will be stored.
 
-Files: 
+Files:
   <path>/cacert.pem          - CA's public certificate.
   <path>/private/cakey.pem   - CA's private key""")
 
@@ -47,29 +48,21 @@ if len(args) != 1:
     sys.exit(0)
 
 if os.path.exists(args[0]) and not options.overwrite:
-    print "CA exists. Please remove or use -o option."
+    print("CA exists. Please remove or use -o option.")
     sys.exit(0)
 
-def passwd(*args):
-    return options.password
-
-if options.password: passwdcb = lambda x: options.password
-else: passwdcb= M2Crypto.util.passphrase_callback
-if options.nopass: cipher = None
-else: cipher = 'aes_128_cbc'
-
+if options.nopass:
+    password = None
+else:
+    password = options.password or fireflies.crypto.passwordPrompt("CA key password: ")()
 
 if not options.name:
-    options.name = os.path.basename(args[0])
+    options.name = os.path.basename(os.path.normpath(args[0]))
 
-
-if options.ecc:
-    pkey = fireflies.crypto.makePrivateECKey()
-else:
-    pkey = fireflies.crypto.makePrivateRSAKey()
+pkey = fireflies.crypto.makePrivateKey(options.ecc)
 
 mrings = fireflies.util.numMembershipRings(options.pByz, options.maxGroupSize, options.tolerance, options.maxGroupSize)
-grings = fireflies.util.numGossipRings(options.pByz, options.maxGroupSize, options.tolerance)
+grings = int(fireflies.util.numGossipRings(options.pByz, options.maxGroupSize, options.tolerance))
 
 cert = fireflies.crypto.makeCACert(pkey, options.name, mrings, grings)
 
@@ -77,13 +70,13 @@ assert cert.verify(pkey)
 assert cert.verify()
 store = fireflies.persist.Store(args[0])
 store.saveCACert(cert)
-store.saveCaPrivKey(pkey, cipher=cipher, callback=passwdcb)
+store.saveCaPrivKey(pkey, password)
 
-print cert.as_text()
+print(cert.as_text())
 
 store = fireflies.persist.Store(args[0])
 c1 = store.loadCACertificate()
-k1 = store.loadCAKey(callback=passwdcb)
+k1 = store.loadCAKey(password)
 
 assert c1.verify(k1)
 assert c1.verify()

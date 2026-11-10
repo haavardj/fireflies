@@ -1,50 +1,45 @@
-#!/usr/bin/env python
-# -*- coding: iso-8859-1 -*-
-######################################################################
-## Filename:      setup.py
-## Description:   Fireflies setup file.
-## Author:        Håard Dagenborg Johansen <haavardj@cs.uit.no>
-##                
-## $Id: setup.py,v 1.10 2011/08/30 13:55:51 haavardj Exp $
-##                
-######################################################################
+#!/usr/bin/env python3
+"""Build script for the set reconciliation C++ extension.
 
-from distutils.core import setup, Extension
-import glob, os.path
+Project metadata is in pyproject.toml. The extension needs a C++
+compiler and the NTL and GMP libraries (on Debian/Ubuntu:
+build-essential libntl-dev libgmp-dev python3-dev). SWIG comes from
+PyPI as a build dependency.
 
-#########################################################################
+Set FIREFLIES_NO_EXT=1 to skip the extension. Everything except the
+gossip protocol then works.
+"""
 
-sourcePath = os.path.basename(__file__)
+import os
 
-
-module1 = Extension('fireflies.setrecon._setreconbase',
-                    #extra_compile_args=["-fno-dce",],
-                    swig_opts=["-c++",],
-                    sources = ['fireflies/setrecon/constants.cpp',
-                               'fireflies/setrecon/node.cpp',
-                               'fireflies/setrecon/prob_recon_support.cpp',
-                               'fireflies/setrecon/reconciled_set.cpp',
-			       'fireflies/setrecon/setreconbase.i' #_wrap.cxx'
-                               ],
-                    libraries=['ntl', 'gmp'],
-                    )
-
-#'fireflies/setrecon/setreconbase.i',
+from setuptools import Extension, setup
+from setuptools.command.build_py import build_py
 
 
-setup(name="fireflies",
-      version="0.2",
-      description="Fireflies.",
-      author="Haavard D Johansen",
-      author_email="haavardj@cs.uit.no",
-      url="http://sourceforge.net/projects/fireflies",
-      scripts=['scripts/ffcanew', 'scripts/fireflyd',
-               'scripts/ffreq', 'scripts/ffcasign'],
-      packages=['fireflies', 'fireflies.web', 'fireflies.setrecon'],
-      license="GPL",
-      ext_modules = [module1],
-      package_data = {'fireflies.web': ["*.html", "css/*.css"]}
-      )
+class BuildPyAfterExt(build_py):
+    """Run build_ext first so SWIG's generated setreconbase.py exists
+    when the Python files are collected."""
+
+    def run(self):
+        if self.distribution.ext_modules:
+            self.run_command("build_ext")
+        super().run()
 
 
+ext_modules = []
+if not os.environ.get("FIREFLIES_NO_EXT"):
+    ext_modules.append(Extension(
+        "fireflies.setrecon._setreconbase",
+        sources=[
+            "fireflies/setrecon/constants.cpp",
+            "fireflies/setrecon/node.cpp",
+            "fireflies/setrecon/prob_recon_support.cpp",
+            "fireflies/setrecon/reconciled_set.cpp",
+            "fireflies/setrecon/setreconbase.i",
+        ],
+        swig_opts=["-c++"],
+        libraries=["ntl", "gmp"],
+        language="c++",
+    ))
 
+setup(ext_modules=ext_modules, cmdclass={"build_py": BuildPyAfterExt})

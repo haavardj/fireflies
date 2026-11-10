@@ -25,7 +25,8 @@ from fireflies.state import Note, Accusation, Member
 from fireflies.crypto import identityFromCertificate, shortIdentity
 import fireflies.stats
 from fireflies import ring
-import M2Crypto
+from fireflies import crypto
+from functools import reduce
 
 LOGDISCARDING=False
 
@@ -94,7 +95,7 @@ class AccusationTable(fireflies.ring.RankTable):
     def valid(self):
         """Return true if item can make accusations for base. This means that the ranktable
         contains at least one entry that is not INVALID."""
-        return bool(filter(lambda x: x != self.INVALID, self))
+        return bool([x for x in self if x != self.INVALID])
     
     def computeRanks(self):
         for nr, ring in enumerate(rings):
@@ -142,7 +143,7 @@ class View:
         @param member: The member suspected of having failed.
         @type member: fireflies.state.Member
         """
-        if member in self._timers.keys(): raise ValueError("Timer already started.")
+        if member in list(self._timers.keys()): raise ValueError("Timer already started.")
         self._timers[member] = twisted.internet.reactor.callLater(self.group.tRebuttal, self._toRebuttalTimer, member)
         
     def _toRebuttalTimer(self, member):
@@ -194,7 +195,7 @@ class View:
         return self.sn2peer[id]
 
     def getMembersByAddress(self, address):
-        return filter(lambda x: x.cert.address == address, self.pRing)
+        return [x for x in self.pRing if x.cert.address == address]
 
     def rebuttalTime(self):
         return self.rebuttalTime                 
@@ -259,7 +260,7 @@ class View:
         """
 
         self.group.stats.certsTotal += 1
-        if not isinstance(elm, M2Crypto.X509.X509): raise TypeError, type(elm)
+        if not isinstance(elm, crypto.Certificate): raise TypeError(type(elm))
 
         if not elm.verify(self.group.getPublicKey()):
             self.group.stats.certsInvalid += 1
@@ -302,7 +303,7 @@ class View:
         if not note.identity in self.sn2peer:
             self.group.stats.notesInvalid += 1
             self.logger.warning("warning: discard %s invalid unknown peer", note)
-            raise ValueError, "Unknown peer"
+            raise ValueError("Unknown peer")
         
         member = self.getMemberByIdentity(note.identity)
     
@@ -311,12 +312,12 @@ class View:
                 
         if not note.verify(member.getCertificate().get_pubkey()):
             self.group.stats.notesInvalid += 1
-            raise ValueError, "Invalid Signature"
+            raise ValueError("Invalid Signature")
         
         if not fireflies.state.isValidMask(note.mask, self.group.nrMonitoringRings()): 
             self.group.stats.notesInvalid += 1
             self.logger.warning("warning: discard %s invalid mask", note)
-            raise fireflies.ByzantineError, "Invalid mask %s from %s" % (str(note.mask), note)
+            raise fireflies.ByzantineError("Invalid mask %s from %s" % (str(note.mask), note))
 
         # Old note        
         if member.getEpoch() > note.epoch:
@@ -405,7 +406,7 @@ class View:
         if not accusedID in self.sn2peer:
             self.group.stats.accusationsInvalid += 1
             self.logger.warning("warning: discard %s Unknown accused", self.pprint(accusation))
-            raise ValueError, "Unknown Accused"
+            raise ValueError("Unknown Accused")
 
         accused = self.group.getMemberByIdentity(accusedID)
         assert isinstance(accused, Member)            
@@ -414,7 +415,7 @@ class View:
         if not accuserID in self.sn2peer:
             self.group.stats.accusationsInvalid += 1
             self.logger.warning("warning: discard %s Unknown accuser", self.pprint(accusation))
-            raise ValueError, "Unkown Accuser"
+            raise ValueError("Unkown Accuser")
         
         accuser = self.group.getMemberByIdentity(accuserID)
         assert isinstance(accuser, Member)  
@@ -484,7 +485,7 @@ class View:
             assert self.hasActiveTimer(accused) or accused.isFailed()
 
             nrRemoved = 0
-            accusers = map(lambda x: self.group.getMemberByIdentity(x.accuser), accused.getAccusations())
+            accusers = [self.group.getMemberByIdentity(x.accuser) for x in accused.getAccusations()]
             for a in accusers:
                 assert isinstance(a, Member), "a=%s" % a
                 oldAT = AccusationTable(a, accused, self.mRings)
@@ -497,17 +498,17 @@ class View:
                     try:
                         assert accused.isAccusedBy(a)
                         accused.invalidateAccusationBy(a)
-                    except ValueError, why:
+                    except ValueError as why:
                         self.logger.exception("Exception: Cannot invalidate accusation %s: ", why)
                         raise
                     
-            accusers = map(lambda x: self.group.getMemberByIdentity(x.accuser), accused.getAccusations())
+            accusers = [self.group.getMemberByIdentity(x.accuser) for x in accused.getAccusations()]
 
             # Accusers might be empty now, but only if some accusations have been removed above.
             assert accusers or nrRemoved > 0            
             
             # List of AccusationTable, one for each existing accuser.
-            ats = map(lambda x: AccusationTable(x, accused, self.mRings), accusers)
+            ats = [AccusationTable(x, accused, self.mRings) for x in accusers]
 
             # Combine remaining AccusationTables to that each entry 
             # list the rank of the accuser on that particular ring.
@@ -539,7 +540,7 @@ class View:
         """
         
         if member.isAccused():
-            raise ValueError, "We can only check non-accused members."
+            raise ValueError("We can only check non-accused members.")
 
         # A non-accused member should always be live.
         assert member.isLive()

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 import sys, os, time, optparse, socket
 from random import randint, random
 
@@ -23,19 +23,19 @@ parser.add_option("-c", "--command", dest="command",
 
 
 if len(args) < 2:
-    print parser.print_help()
+    print(parser.print_help())
     sys.exit()
 
 try:
     num = int(args[0])
 except ValueError:
-    print "Please supply a valid number."
+    print("Please supply a valid number.")
     sys.exit()
     
 for x in range(num):
 
     port = options.port + x
-    print "Spawning %d at :%d" % (x, port)
+    print("Spawning %d at :%d" % (x, port))
     pid=os.spawnlp(os.P_NOWAIT, 
                    options.command,
                    options.command,
@@ -47,9 +47,9 @@ for x in range(num):
     pidmap[pid] = x
     time.sleep(0.3)
     
-for pid, host in pidmap.items():
-    print "Waitfor", host
+for pid, host in list(pidmap.items()):
+    print("Waitfor", host)
     os.waitpid(pid,0)
 
-print "All ok"
+print("All ok")
 

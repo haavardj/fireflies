@@ -19,7 +19,7 @@
 ## statistical distributions
 ## 10/2004 Wolfgang.Urban@schule.at
 ###################################
-import math, struct
+import math
 import twisted.internet
 
 # #######################
@@ -144,51 +144,20 @@ def binomial_list(n,p):
 
 
 def long_to_bytes(n, blocksize=0):
-    """long_to_bytes(n:long, blocksize:int) : string
-    Convert a long integer to a byte string.
+    """Convert a non-negative integer to a big-endian byte string.
 
-    If optional blocksize is given and greater than zero, pad the front of the
-    byte string with binary zeros so that the length is a multiple of
-    blocksize.
+    If blocksize is greater than zero, pad the front with zero bytes so
+    that the length is a multiple of blocksize. Zero encodes as b'\x00'.
     """
-    # after much testing, this algorithm was deemed to be the fastest
-    s = ''
-    n = long(n)
-    pack = struct.pack
-    while n > 0:
-        s = pack('>I', n & 0xffffffffL) + s
-        n = n >> 32
-    # strip off leading zeros
-    for i in range(len(s)):
-        if s[i] != '\000':
-            break
-    else:
-        # only happens when n == 0
-        s = '\000'
-        i = 0
-    s = s[i:]
-    # add back some pad bytes.  this could be done more efficiently w.r.t. the
-    # de-padding being done above, but sigh...
+    n = int(n)
+    s = n.to_bytes(max(1, (n.bit_length() + 7) // 8), "big")
     if blocksize > 0 and len(s) % blocksize:
-        s = (blocksize - len(s) % blocksize) * '\000' + s
+        s = (blocksize - len(s) % blocksize) * b"\x00" + s
     return s
 
 def bytes_to_long(s):
-    """bytes_to_long(string) : long
-    Convert a byte string to a long integer.
-
-    This is (essentially) the inverse of long_to_bytes().
-    """
-    acc = 0L
-    unpack = struct.unpack
-    length = len(s)
-    if length % 4:
-        extra = (4 - length % 4)
-        s = '\000' * extra + s
-        length = length + extra
-    for i in range(0, length, 4):
-        acc = (acc << 32) + unpack('>I', s[i:i+4])[0]
-    return acc
+    """Convert a big-endian byte string to an integer. Inverse of long_to_bytes()."""
+    return int.from_bytes(s, "big")
 
 
 class TimeoutMixin:
@@ -223,13 +192,13 @@ class ObserveableMixin:
     def registerObserver(self, o, *args, **kwargs):
         if self._observers == None:
             self._observers = {}
-        self._observers.append[o] = (args, kwargs)
+        self._observers[o] = (args, kwargs)
 
     def deregisterObserver(self, o):
         del self._observers[o]
         
     def notify(self, *args, **kwargs):
-        for o, oArgs, oKwargs, in self._observers.items():
+        for o in list(self._observers):
             o(*args, **kwargs)
         
 
@@ -247,6 +216,7 @@ class TimestampMixin:
     def setTimestamp(self):
         """Set time-stamp according to the time returned by
         fireflies.time.time."""
+        import fireflies
         self._timestamp = fireflies.time.time()
         
 
@@ -254,8 +224,8 @@ try:
     from scipy.stats import binom as _binom
     def binomCDF(k, n, p):
         return _binom(n, p).cdf(k)
-except ImportError, why:
-    print "Cannot find scipy. Using alternative binom calculation."
+except ImportError as why:
+    print("Cannot find scipy. Using alternative binom calculation.")
     def binomCDF(k,n,p):
         return binomialc(k,n,p)
 
@@ -287,7 +257,7 @@ def proofv4(pcorr, N, c=1.0):
 def minmajority(num):
     # Should always be odd
     assert num % 2 == 1    
-    return (num - 1) / 2
+    return (num - 1) // 2
     
 def numMembershipRings(pByz, N, epsilon=0.99, maxSize=1000):
     """Compute the minimum k=2t+1 such that the probability of more than t out of
@@ -312,7 +282,7 @@ def numHalfMembershipRings(pByz, N, epsilon=0.99, maxSize=1000):
         if epsilon <= binomCDF(t, 2*t+1, pByz)**N: 
             return t
 
-    raise ValueError, "Cannot compute number if rings from pByz=%f" % pByz
+    raise ValueError("Cannot compute number if rings from pByz=%f" % pByz)
 
 def numGossipRings(pByz, N, epsilon=0.99):
     

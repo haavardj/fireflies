@@ -12,16 +12,14 @@
 ##                
 ######################################################################
 
-import logging, M2Crypto, fireflies
+import logging, fireflies
 from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFactory
 from twisted.protocols.basic import Int32StringReceiver
 import twisted.internet
 from twisted.internet import defer
 from twisted.application.service import Service
-from zope.interface import implements
-from M2Crypto.SSL.Checker import WrongHost, WrongCertificate, NoCertificate 
 
-from fireflies import setrecon, ring
+from fireflies import crypto, setrecon, ring
 import fireflies.protocols
 from fireflies.packer import FirefliesPacker, FirefliesUnpacker
 from fireflies.state import Note, Accusation, Member
@@ -56,18 +54,11 @@ class AccusationSet(setrecon.ReconSet):
 
 class X509Set(setrecon.ReconSet):
     def elmToZZp(self, elm):
-        if not isinstance(elm, M2Crypto.X509.X509): raise ValueError
-        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))    
+        if not isinstance(elm, crypto.Certificate): raise ValueError
+        # 256-bit SHA-256 digest of the DER encoding. (M2Crypto used the
+        # 32-character MD5 hex fingerprint, also 256 bits.)
+        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.digest()))
 
-def sslPostConnectionCheck(peerX509, expectedHost):
-    print peerX509, expectedHost
-    return True
-
-def sslVerifyCB(sslCTX_ptr, x509_ptr, a,b,c):
-    x509 = M2Crypto.X509.X509(x509_ptr, 0)
-    print x509.as_text()
-    return True
-        
 
 
 class GossipBase(fireflies.protocols.FirefliesProtocol):
@@ -109,7 +100,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
 
         if self.nodes == []:
             self.setTimeout()
-            self.reqBuff = filter(lambda x:  x not in self.set, self.reqBuff)
+            self.reqBuff = [x for x in self.reqBuff if x not in self.set]
             if LOGSETRECON: self.logger.debug("reconcile_data_req->%s %d ", self, len(self.reqBuff))
             self.sendCommand("reconcile_data_req", self.reqBuff)
             self.reqBuff = []
@@ -293,7 +284,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
                 
             try:
                 d = self.set[x]
-            except KeyError, e:
+            except KeyError as e:
                 self.logger.warning("reconcile_data -> %s %s removed", self, x)
             else:
 
@@ -328,9 +319,9 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
         for itm in tmpbuff:
             try:
                 self.appendfunc(itm)
-            except ValueError, why:
+            except ValueError as why:
                 self.logger.warning("reconcile_done error in data %s %s", itm, why) 
-            except KeyError, why:
+            except KeyError as why:
                 self.logger.warning("reconcile_done error in data %s %s", itm, why) 
                 
         if self.master:
@@ -364,10 +355,10 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
         n = set.getRootPartition()
         hsh = hashlib.sha1()
         
-        hv = map(lambda x: str(x), n.hash_vector)
+        hv = [str(x) for x in n.hash_vector]
         hv.sort()
         for x in hv:            
-            hsh.update(x)
+            hsh.update(x.encode("ascii"))
 
         if LOGSETRECON: self.logger.debug("reconcile->%s %s hash=%s", self, name, str(hsh.hexdigest()))                
         self.sendCommand("reconcile", name, hsh.digest())
@@ -414,10 +405,10 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
         n = self.set.getRootPartition()
         hsh = hashlib.sha1()
         
-        hv = map(lambda x: str(x), n.hash_vector)
+        hv = [str(x) for x in n.hash_vector]
         hv.sort()
         for x in hv:            
-            hsh.update(x)
+            hsh.update(x.encode("ascii"))
         
         if digest == hsh.digest():
             if LOGSHASHCHECK: self.logger.debug("digest_match->%s True", self)
@@ -538,12 +529,12 @@ class Gossip(Service):
         if name == "data.accusation": sset = self.aSet
         elif name == "data.note": sset = self.nSet
         elif name == "data.certificate": sset = self.cSet
-        else: raise RuntimeError, "Invalid data event", name
+        else: raise RuntimeError("Invalid data event", name)
                 
         if status == True:
             try:
                 sset.insert(itm)
-            except Exception, why:
+            except Exception as why:
                 self.logger.exception("Insert error %s %s", itm, why)
         else:
             sset.remove(itm)
@@ -584,7 +575,7 @@ class Gossip(Service):
                 self.neighborPool[m] = factory
                 factory.doStart()
             else:
-                assert self.neighborPool.has_key(m)
+                assert m in self.neighborPool
                                 
         # Add all certificates, notes, and accusations to our data sets.
         self.cSet = X509Set(PARTITION_FACTOR, RECON_EXTRA)
@@ -614,7 +605,7 @@ class Gossip(Service):
 
         address = self.group.getMe().address
         self.logger.info("Binding gossip to tcp %s:%d", address.host, address.port)
-        self._port = fireflies.protocols.listen(address.port, self.sFactory, self.parent, interface=address.host,postConnectionCheck=sslPostConnectionCheck)
+        self._port = fireflies.protocols.listen(address.port, self.sFactory, self.group.getTLSOptions(), interface=address.host)
         self.sFactory.doStart()
 
         self._task.start(self.updateInterval, now=False)
@@ -630,7 +621,7 @@ class Gossip(Service):
             try:
                 self.group.removeEventHandler(hdlr)
             except ValueError:
-                print "Eventhandler not found:", hdlr[0]
+                print("Eventhandler not found:", hdlr[0])
                 raise
 
         self.eventHandlers = []
@@ -645,7 +636,7 @@ class Gossip(Service):
         # Any connected servers will be disconnected below.
         self.connectedAsServer = set()
         
-        for member, factory in self.neighborPool.items():
+        for member, factory in list(self.neighborPool.items()):
             if factory.isActive():
                 assert factory in self.active
                 factory.deactivate()
@@ -661,9 +652,9 @@ class Gossip(Service):
         
     def update(self):
         outbound = self.rings.succ(self.group.getMe(), lambda x: x.isLive())
-        outbound = filter(lambda x: x != self.group.getMe(), outbound)
+        outbound = [x for x in outbound if x != self.group.getMe()]
         inbound = self.rings.pred(self.group.getMe(), lambda x: x.isLive())
-        inbound = filter(lambda x: x != self.group.getMe(), inbound)
+        inbound = [x for x in inbound if x != self.group.getMe()]
        
         for f in self.active:
             if not f.isActive():
@@ -684,7 +675,7 @@ class Gossip(Service):
                     self.logger.error("error: inactive factory %s in active", factory)
 
         # Deactivate outbound connections
-        toDeactivate = filter(lambda x: not x.member in outbound, self.active)
+        toDeactivate = [x for x in self.active if not x.member in outbound]
         for factory in toDeactivate:
             self.logger.debug("deactivating previous gossip partner %s", factory)
             factory.deactivate()

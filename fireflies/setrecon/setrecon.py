@@ -1,21 +1,71 @@
-# -*- coding: iso-8859-1 -*-
+# -*- coding: utf-8 -*-
 ######################################################################
 ## Filename:      setrecon.py
 ## Description:   High-Level set-recon library.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        HÃ¥vard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Modified at:   Thu Jan 26 00:04:56 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Modified by:   HÃ¥vard Dagenborg Johansen <haavardj@cs.uit.no>
 ##  
 ## Licence: GPL (see LICENCE file).
-##         Copyright© 2006, University of Tromsø (Norway)
+##         CopyrightÂ© 2006, University of TromsÃ¸ (Norway)
 ##                
 ## $Id: setrecon.py,v 1.10 2014/06/16 07:49:48 haavardj Exp $
 ##                
 ######################################################################
 
-from setreconbase import *
+from .setreconbase import *
+from . import setreconbase as _base
 from fireflies.util import long_to_bytes, bytes_to_long
-import hashlib 
+import hashlib
+
+
+#
+# Python 3 adaptations of the SWIG proxies. Python 3 ignores __cmp__
+# and __div__, and != no longer falls back to identity, so comparing a
+# ZZ_p with None would hit SWIG's overload dispatch and raise.
+#
+
+def to_ZZFromBytes(data):
+    """Convert a little-endian byte string (NTL's ZZFromBytes order) to a ZZ."""
+    if not isinstance(data, (bytes, bytearray)):
+        raise TypeError("to_ZZFromBytes needs bytes, got %s" % type(data).__name__)
+    return _base._to_ZZFromBytes(bytes(data))
+
+
+def _zz_cmp(self, other):
+    return self.__cmp__(other)
+
+def _zz_op(test):
+    def op(self, other):
+        if not isinstance(other, (ZZ, int)):
+            return NotImplemented
+        return test(_zz_cmp(self, other))
+    return op
+
+ZZ.__eq__ = _zz_op(lambda c: c == 0)
+ZZ.__ne__ = _zz_op(lambda c: c != 0)
+ZZ.__lt__ = _zz_op(lambda c: c < 0)
+ZZ.__le__ = _zz_op(lambda c: c <= 0)
+ZZ.__gt__ = _zz_op(lambda c: c > 0)
+ZZ.__ge__ = _zz_op(lambda c: c >= 0)
+ZZ.__hash__ = lambda self: hash(str(self))
+ZZ.__truediv__ = ZZ.__div__
+
+_zzp_eq = ZZ_p.__eq__
+
+def _zzp_equal(self, other):
+    if not isinstance(other, (ZZ_p, int)):
+        return NotImplemented
+    return bool(_zzp_eq(self, other))
+
+def _zzp_notequal(self, other):
+    r = _zzp_equal(self, other)
+    return r if r is NotImplemented else not r
+
+ZZ_p.__eq__ = _zzp_equal
+ZZ_p.__ne__ = _zzp_notequal
+ZZ_p.__hash__ = lambda self: hash(str(self))
+ZZ_p.__truediv__ = ZZ_p.__div__
 
 initialized = False
 bitsize = 0
@@ -43,7 +93,8 @@ def init(bz=160, mm=3):
     if initialized:
         raise RuntimeError("Already initialized")    
 
-    reconciled_set_init(bitsize, mbar)
+    # SWIG 4.1+ no longer generates the flattened reconciled_set_init.
+    reconciled_set.init(bitsize, mbar)
     initialized = True
     
 def isEmptyNode(node): 
@@ -75,10 +126,15 @@ class Reconciliation:
         self.otherMissing = set()
 
     def run(self):
+        # PEP 479: a StopIteration escaping a generator is an error.
         while 1:
-            yield self.next()
+            try:
+                n = next(self)
+            except StopIteration:
+                return
+            yield n
    
-    def next(self):
+    def __next__(self):
         if self.current: self.current.unref()
         if not self.nodes: raise StopIteration
         self.current = self.nodes.pop(0)
@@ -139,12 +195,12 @@ class Reconciliation:
 
         else:
             for x in a:            
-                assert not self.rset.has_key(x) #i not in setA
+                assert x not in self.rset #i not in setA
                 assert x not in self.meMissing
                 self.meMissing.add(x)
                 
             for x in b:
-                assert self.rset.has_key(x)
+                assert x in self.rset
                 assert x not in self.otherMissing
                 #print "add to bMissing", x
                 self.otherMissing.add(self.rset[x])
@@ -254,13 +310,13 @@ def diffs(setA, setB):
                 nodeBs = t + nodeBs
         else:
             for x in a:            
-                assert setB.has_key(x) 
-                assert not setA.has_key(x) 
+                assert x in setB 
+                assert x not in setA 
                 assert x not in aMissing
                 aMissing.add(x)
             for x in b:
-                assert setA.has_key(x) 
-                assert not setB.has_key(x) 
+                assert x in setA 
+                assert x not in setB 
                 assert x not in bMissing
                 bMissing.add(x)
             
@@ -270,8 +326,8 @@ def diffs(setA, setB):
     assert not nodeAs
     #nodeA.unref()
     #nodeB.unref()
-    aDiff = set(map(lambda x: setB[x], aMissing))
-    bDiff = set(map(lambda x: setA[x], bMissing))
+    aDiff = set([setB[x] for x in aMissing])
+    bDiff = set([setA[x] for x in bMissing])
     return aDiff, bDiff
     
     
@@ -294,7 +350,7 @@ class ReconSet:
         return self._recon.create_node()
     
     def items(self):
-        return self._data.values()
+        return list(self._data.values())
 
     def __contains__(self, elm):
 
@@ -314,7 +370,7 @@ class ReconSet:
         return self._data[key]
     
     def __iter__(self):
-        return iter(self._data.values())
+        return iter(list(self._data.values()))
     
     def has_key(self, key):
         try:
@@ -343,7 +399,7 @@ class ReconSet:
     def hash(self):
         hsh = hashlib.new()
         n = self.getRootPartition()
-        hv = map(lambda x: str(x), n.hash_vector)
+        hv = [str(x) for x in n.hash_vector]
         hv.sort()
         for x in hv: hsh.update(x)
         return hsh.digest()
@@ -383,9 +439,9 @@ class ReconSet:
 
         def _(lvl, node):
             if node.isTerminal():
-                print "  "*lvl, self.internal2external(node.hash_vector), "*"
+                print("  "*lvl, self.internal2external(node.hash_vector), "*")
             else:
-                print "  "*lvl, self.internal2external(node.hash_vector)
+                print("  "*lvl, self.internal2external(node.hash_vector))
             for child in iterChildren(node, self._recon.p):
                 if child: _(lvl+1, child)
         _(0, self.getRootPartition())

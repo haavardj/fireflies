@@ -1,297 +1,573 @@
-# -*- coding: iso-8859-1 -*-
+# -*- coding: utf-8 -*-
 ######################################################################
 ## Filename:      crypto.py
 ## Description:   Fireflies crypto functions.
-## Author:        Håvard Dagenborg Johansen <haavardj@cs.uit.no>
-## Modified at:   Mon Jan 23 20:29:49 2006
-## Modified by:   Håvard Dagenborg Johansen <haavardj@cs.uit.no>
+## Author:        HÃ¥vard Dagenborg Johansen <haavardj@cs.uit.no>
 ## Licence:       GPL (see the LICENSE file).
-##  
-##         Copyright© 2006, University of Tromsø (Norway)
-##                
-## $Id: crypto.py,v 1.32 2014/06/16 07:49:47 haavardj Exp $
-##                
+##
+##         CopyrightÂ© 2006, University of TromsÃ¸ (Norway)
+##
 ######################################################################
 
-"""Cryptographic stuff."""
+"""Cryptographic stuff: keys, X509 certificates and requests, signing.
 
-import fireflies, M2Crypto, struct, hashlib, random
-import M2Crypto.EC
+Built on the `cryptography` package. The classes below wrap its objects
+and keep the method names the rest of Fireflies used with M2Crypto
+(get_subject, get_pubkey, verify, as_der, ...).
 
-DIGESTALG="sha256"
-DIGESTSIZE=256
+Signatures use SHA-256: PKCS#1 v1.5 for RSA keys, ECDSA for EC keys.
+"""
+
+import datetime
+import hashlib
+
+from cryptography import x509
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+from cryptography.x509.oid import NameOID
+
+DIGESTALG = "sha256"
+DIGESTSIZE = 256
 KEYSIZE = 2048
-SIGNATURESIZE = KEYSIZE / 8
+SIGNATURESIZE = KEYSIZE // 8
 
-class GroupCertificate(M2Crypto.X509.X509):
-    
-    def uidstr(self):
-        return "GroupCertificate:%d" % (self.get_fingerprint())
+# TLS 1.3 only allows ECDSA on P-256, P-384 and P-521, so P-224
+# (secp224r1, used before the Python 3 port) is no longer an option.
+ECCURVE = ec.SECP256R1
+
+_HASH = hashes.SHA256
+
+
+def _toBytes(data):
+    if isinstance(data, str):
+        return data.encode("utf-8")
+    return bytes(data)
+
+
+def _now():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+#
+# Keys
+#
+
+class PublicKey:
+    """A public RSA or EC key."""
+
+    def __init__(self, key):
+        self.key = key
+
+    def as_der(self):
+        """Return the key as DER-encoded SubjectPublicKeyInfo."""
+        return self.key.public_bytes(serialization.Encoding.DER,
+                                     serialization.PublicFormat.SubjectPublicKeyInfo)
+
+    def verify(self, signature, data, hashAlgorithm=None):
+        """Return True if signature is a valid signature of data."""
+        if not signature:
+            return False
+        h = hashAlgorithm or _HASH()
+        try:
+            if isinstance(self.key, rsa.RSAPublicKey):
+                self.key.verify(bytes(signature), _toBytes(data), padding.PKCS1v15(), h)
+            elif isinstance(self.key, ec.EllipticCurvePublicKey):
+                self.key.verify(bytes(signature), _toBytes(data), ec.ECDSA(h))
+            else:
+                raise TypeError("Unsupported key type %s" % type(self.key))
+        except InvalidSignature:
+            return False
+        return True
+
+    def public_key(self):
+        return self
+
+    def __eq__(self, other):
+        return isinstance(other, PublicKey) and self.as_der() == other.as_der()
+
+    def __hash__(self):
+        return hash(self.as_der())
+
+
+class PrivateKey:
+    """A private RSA or EC key."""
+
+    def __init__(self, key):
+        self.key = key
+
+    @classmethod
+    def generateRSA(cls, size=KEYSIZE):
+        return cls(rsa.generate_private_key(public_exponent=65537, key_size=size))
+
+    @classmethod
+    def generateEC(cls, curve=ECCURVE):
+        return cls(ec.generate_private_key(curve()))
+
+    @classmethod
+    def fromPEM(cls, data, password=None):
+        """Load a PEM key. password is a string, bytes, None, or a
+        callable returning one; it is only used if the key is encrypted."""
+        data = _toBytes(data)
+        try:
+            return cls(serialization.load_pem_private_key(data, None))
+        except TypeError:
+            # The key is encrypted.
+            pw = _password(password)
+            if pw is None:
+                raise ValueError("Private key is encrypted; a password is needed.")
+            return cls(serialization.load_pem_private_key(data, pw))
+
+    @classmethod
+    def load(cls, path, password=None):
+        with open(path, "rb") as f:
+            return cls.fromPEM(f.read(), password)
+
+    def as_pem(self, password=None):
+        pw = _password(password)
+        if pw:
+            enc = serialization.BestAvailableEncryption(pw)
+        else:
+            enc = serialization.NoEncryption()
+        return self.key.private_bytes(serialization.Encoding.PEM,
+                                      serialization.PrivateFormat.PKCS8, enc)
+
+    def save(self, path, password=None):
+        with open(path, "wb") as f:
+            f.write(self.as_pem(password))
+
+    def public_key(self):
+        return PublicKey(self.key.public_key())
+
+    def as_der(self):
+        """Return the public part as DER-encoded SubjectPublicKeyInfo.
+
+        Matches M2Crypto's EVP.PKey.as_der(), which identities are derived from."""
+        return self.public_key().as_der()
+
+    def sign(self, data):
+        data = _toBytes(data)
+        if isinstance(self.key, rsa.RSAPrivateKey):
+            return self.key.sign(data, padding.PKCS1v15(), _HASH())
+        if isinstance(self.key, ec.EllipticCurvePrivateKey):
+            return self.key.sign(data, ec.ECDSA(_HASH()))
+        raise TypeError("Unsupported key type %s" % type(self.key))
+
+    def verify(self, signature, data):
+        return self.public_key().verify(signature, data)
+
+
+def _password(password):
+    if callable(password):
+        password = password()
+    if password is None or password == b"" or password == "":
+        return None
+    return _toBytes(password)
+
+
+def passwordPrompt(prompt="Password: "):
+    """Return a callable that asks for a password on the terminal.
+    Use it as the password argument to load or save keys."""
+    import getpass
+    def ask():
+        return getpass.getpass(prompt)
+    return ask
+
+
+def _publicKey(key):
+    """Accept a PublicKey, PrivateKey or certificate and return a PublicKey."""
+    if isinstance(key, Certificate):
+        return key.get_pubkey()
+    if isinstance(key, (PublicKey, PrivateKey)):
+        return key.public_key()
+    raise TypeError("Not a key: %r" % (key,))
+
+
+def makePrivateECKey(curve=ECCURVE, md=DIGESTALG):
+    return PrivateKey.generateEC(curve)
+
+
+def makePrivateRSAKey(size=KEYSIZE, callback=None, md=DIGESTALG):
+    return PrivateKey.generateRSA(size)
+
+
+def makePrivateKey(ecc=False):
+    return makePrivateECKey() if ecc else makePrivateRSAKey()
+
+
+#
+# Names, certificates and requests
+#
+
+class Subject:
+    """X509 name with the attribute names M2Crypto used."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def _get(self, oid):
+        attrs = self.name.get_attributes_for_oid(oid)
+        return attrs[0].value if attrs else None
+
+    @property
+    def CN(self):
+        return self._get(NameOID.COMMON_NAME)
+
+    @property
+    def O(self):
+        return self._get(NameOID.ORGANIZATION_NAME)
+
+    @property
+    def L(self):
+        return self._get(NameOID.LOCALITY_NAME)
+
+    commonName = CN
+    organizationName = O
+    localityName = L
+
+    def __str__(self):
+        return self.name.rfc4514_string()
+
+
+def _makeName(CN=None, O=None, L=None):
+    attrs = []
+    if CN is not None:
+        attrs.append(x509.NameAttribute(NameOID.COMMON_NAME, CN))
+    if O is not None:
+        attrs.append(x509.NameAttribute(NameOID.ORGANIZATION_NAME, O))
+    if L is not None:
+        attrs.append(x509.NameAttribute(NameOID.LOCALITY_NAME, L))
+    return x509.Name(attrs)
+
+
+class Certificate:
+    """An X509 certificate (group CA or member)."""
+
+    def __init__(self, cert):
+        if not isinstance(cert, x509.Certificate):
+            raise TypeError(cert)
+        self.x509 = cert
+
+    @classmethod
+    def fromDER(cls, data):
+        return cls(x509.load_der_x509_certificate(bytes(data)))
+
+    @classmethod
+    def fromPEM(cls, data):
+        return cls(x509.load_pem_x509_certificate(_toBytes(data)))
+
+    @classmethod
+    def load(cls, path):
+        with open(path, "rb") as f:
+            data = f.read()
+        if data.lstrip().startswith(b"-----BEGIN"):
+            return cls.fromPEM(data)
+        return cls.fromDER(data)
+
+    def as_der(self):
+        return self.x509.public_bytes(serialization.Encoding.DER)
+
+    def as_pem(self):
+        return self.x509.public_bytes(serialization.Encoding.PEM)
+
+    def save(self, path):
+        with open(path, "wb") as f:
+            f.write(self.as_pem())
+
+    save_pem = save
+
+    def get_subject(self):
+        return Subject(self.x509.subject)
+
+    def get_issuer(self):
+        return Subject(self.x509.issuer)
+
+    def get_pubkey(self):
+        return PublicKey(self.x509.public_key())
+
+    def get_serial_number(self):
+        return self.x509.serial_number
+
+    def digest(self):
+        """SHA-256 digest of the DER encoding."""
+        return hashlib.sha256(self.as_der()).digest()
+
+    def get_fingerprint(self, md=DIGESTALG):
+        return hashlib.new(md, self.as_der()).hexdigest().upper()
+
+    def verify(self, key=None):
+        """Return True if the certificate is signed by key.
+
+        key can be a public key, a private key or the issuer's
+        certificate. Without key, check that the certificate is self-signed."""
+        pub = self.get_pubkey() if key is None else _publicKey(key)
+        return pub.verify(self.x509.signature,
+                          self.x509.tbs_certificate_bytes,
+                          self.x509.signature_hash_algorithm)
+
+    def check_ca(self):
+        try:
+            bc = self.x509.extensions.get_extension_for_class(x509.BasicConstraints)
+        except x509.ExtensionNotFound:
+            return False
+        return bc.value.ca
+
+    @property
+    def identity(self):
+        return identityFromCertificate(self)
 
     def name(self):
-        self.get_subject().commonName
-        
+        return self.get_subject().CN
+
     def nrMonitoringRings(self):
-        return int(self.get_subject().organizationName.split()[0])
+        return int(self.get_subject().O.split()[0])
 
     def nrGossipingRings(self):
-        return int(self.get_subject().organizationName.split()[1])
+        return int(self.get_subject().O.split()[1])
 
-    def identity(self):
+    def uidstr(self):
         return self.get_fingerprint()
 
-class MemberCertificate(M2Crypto.X509.X509):
-    
-    def __getstate__(self):
-        return self.x509.as_der()
-    
-    def __setstate__(self, data):        
-        bio = M2Crypto.BIO.MemoryBuffer(data) 
-        self.x509 = M2Crypto.m2.d2i_x509(bio._ptr())
-        assert M2Crypto.m2.x509_type_check(self.x509)
-        #self._pyfree = 1
-        
-    def uidstr(self):
-        return "%s" % self.get_fingerprint()
-    
-    def identity(self):
-        return self.get_fingerprint(md=DIGESTALG)
+    def as_text(self):
+        c = self.x509
+        try:
+            ski = identityFromCertificate(self)
+        except LookupError:
+            ski = "-"
+        return "\n".join([
+            "Certificate:",
+            "    Serial:      %d" % c.serial_number,
+            "    Subject:     %s" % c.subject.rfc4514_string(),
+            "    Issuer:      %s" % c.issuer.rfc4514_string(),
+            "    Not before:  %s" % c.not_valid_before_utc,
+            "    Not after:   %s" % c.not_valid_after_utc,
+            "    CA:          %s" % self.check_ca(),
+            "    Identity:    %s" % ski,
+            "    Fingerprint: %s" % self.get_fingerprint(),
+        ])
+
+    def __eq__(self, other):
+        return isinstance(other, Certificate) and self.as_der() == other.as_der()
+
+    def __hash__(self):
+        return hash(self.as_der())
+
+    def __repr__(self):
+        return "<Certificate %s>" % self.get_subject()
 
 
-def fingerprint(data, outputbinary=False):
-    h = M2Crypto.EVP.MessageDigest(DIGESTALG)
-    h.update(data)
-    digest = h.final()
-    if not outputbinary: 
-        digest = hex(M2Crypto.util.octx_to_num(digest))[2:-1]
-    return digest
+# Kept for code that refers to the old names.
+GroupCertificate = Certificate
+MemberCertificate = Certificate
 
-def long_to_bytes(n, blocksize=0):
-    """long_to_bytes(n:long, blocksize:int) : string
-    Convert a long integer to a byte string.
 
-    If optional blocksize is given and greater than zero, pad the front of the
-    byte string with binary zeros so that the length is a multiple of
-    blocksize.
-    """
-    # after much testing, this algorithm was deemed to be the fastest
-    s = ''
-    n = long(n)
-    pack = struct.pack
-    while n > 0:
-        s = pack('>I', n & 0xffffffffL) + s
-        n = n >> 32
-    # strip off leading zeros
-    for i in range(len(s)):
-        if s[i] != '\000':
-            break
-    else:
-        # only happens when n == 0
-        s = '\000'
-        i = 0
-    s = s[i:]
-    # add back some pad bytes.  this could be done more efficiently w.r.t. the
-    # de-padding being done above, but sigh...
-    if blocksize > 0 and len(s) % blocksize:
-        s = (blocksize - len(s) % blocksize) * '\000' + s
-    return s
+class CertificateRequest:
+    """An X509 certificate signing request."""
 
-def bytes_to_long(s):
-    """bytes_to_long(string) : long
-    Convert a byte string to a long integer.
+    def __init__(self, csr):
+        self.csr = csr
 
-    This is (essentially) the inverse of long_to_bytes().
-    """
-    acc = 0L
-    unpack = struct.unpack
-    length = len(s)
-    if length % 4:
-        extra = (4 - length % 4)
-        s = '\000' * extra + s
-        length = length + extra
-    for i in range(0, length, 4):
-        acc = (acc << 32) + unpack('>I', s[i:i+4])[0]
-    return acc
+    @classmethod
+    def fromPEM(cls, data):
+        return cls(x509.load_pem_x509_csr(_toBytes(data)))
 
-def makePrivateECKey(curve=M2Crypto.EC.NID_secp224r1, md=DIGESTALG):
-    parms = M2Crypto.EC.gen_params(M2Crypto.EC.NID_secp224r1)
-    parms.gen_key()
-    
-    bits = str(random.getrandbits(256))    
-    b = M2Crypto.BIO.MemoryBuffer()
-    parms.save_key_bio(b, callback=lambda x: bits)
-    evp = M2Crypto.EVP.load_key_bio(b, callback=lambda x: bits)
-    return evp 
+    @classmethod
+    def load(cls, path):
+        with open(path, "rb") as f:
+            return cls.fromPEM(f.read())
 
-def makePrivateRSAKey(size=KEYSIZE, callback=M2Crypto.RSA.keygen_callback, md=DIGESTALG):     
-    rsa = M2Crypto.RSA.gen_key(size, M2Crypto.m2.RSA_F4, callback)
-    #pkey = M2Crypto.EVP.load_key_string(rsa.as_pem(callback=None), callback=None)
-    pkey = M2Crypto.EVP.PKey(md=md)
-    if not pkey.assign_rsa(rsa): raise RuntimeError, "Error assigning rsa key"
-    return pkey
+    def as_pem(self):
+        return self.csr.public_bytes(serialization.Encoding.PEM)
 
-def makeCACert(pkey, groupName, mRings, gRings): 
+    def save(self, path):
+        with open(path, "wb") as f:
+            f.write(self.as_pem())
 
-    name = M2Crypto.X509.X509_Name()
-    name.CN = groupName
-    name.O = "%d %d" % (mRings, gRings)
-    
-    cert = GroupCertificate()
- 
-    cert.set_serial_number(0)
-    cert.set_version(2)
-    cert.set_subject(name)
-    cert.set_issuer(name)
-    cert.set_pubkey(pkey)
-    notBefore = M2Crypto.m2.x509_get_not_before(cert.x509)
-    notAfter  = M2Crypto.m2.x509_get_not_after(cert.x509)
-    M2Crypto.m2.x509_gmtime_adj(notBefore, 0)
-    days = 30
-    M2Crypto.m2.x509_gmtime_adj(notAfter, 60*60*24*days)    
-    
-    kid = computeSubjectKeyIdentifier(pkey)
-    ext = M2Crypto.X509.new_extension('subjectKeyIdentifier', kid, 0)
-    cert.add_ext(ext)       
+    def get_subject(self):
+        return Subject(self.csr.subject)
 
-    ext = M2Crypto.X509.new_extension('basicConstraints', 'CA:TRUE')    
-    cert.add_ext(ext)      
-    
-    # Does not work yet due to M2Crypto issues
-    #ext3 = M2Crypto.X509.new_extension('authorityKeyIdentifier', 'keyid,issuer:always', 0)
-    #cert.add_ext(ext3)       
+    def get_pubkey(self):
+        return PublicKey(self.csr.public_key())
 
-    cert.sign(pkey, DIGESTALG)
-    assert cert.check_ca() != 0    
+    def verify(self, key=None):
+        """True if the request's signature is valid and, if key is given,
+        the request holds that key."""
+        if not self.csr.is_signature_valid:
+            return False
+        if key is not None and _publicKey(key) != self.get_pubkey():
+            return False
+        return True
+
+    def as_text(self):
+        return "\n".join([
+            "Certificate request:",
+            "    Subject:     %s" % self.csr.subject.rfc4514_string(),
+            "    Key ID:      %s" % computeSubjectKeyIdentifier(self.get_pubkey()),
+        ])
+
+
+def makeCACert(pkey, groupName, mRings, gRings, days=30):
+    """Create a self-signed group CA certificate.
+
+    The number of monitoring and gossip rings is stored in the subject's
+    O attribute as "<mRings> <gRings>"."""
+    name = _makeName(CN=groupName, O="%d %d" % (mRings, gRings))
+    now = _now()
+    pub = pkey.public_key()
+    cert = (x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(pub.key)
+            .serial_number(1)
+            .not_valid_before(now)
+            .not_valid_after(now + datetime.timedelta(days=days))
+            .add_extension(x509.SubjectKeyIdentifier(_skiDigest(pub)), critical=False)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .add_extension(x509.KeyUsage(digital_signature=True, content_commitment=False,
+                                         key_encipherment=False, data_encipherment=False,
+                                         key_agreement=False, key_cert_sign=True,
+                                         crl_sign=True, encipher_only=False,
+                                         decipher_only=False), critical=True)
+            .sign(pkey.key, _HASH()))
+    cert = Certificate(cert)
+    assert cert.check_ca()
     return cert
 
+
 def makeRequest(address, pkey, version=0, nickname=None):
-    """Create X509 certificate request.
-    
-    @param address: IP:port tuble containing the contact address.
-    @type address: str
-    @param pkey: Private key of requester.
-    @type pkey: L{M2Crypto.EVP.PKey}
-    @param nicname: Alternative member name.
-    @type nicname: str
-    @return: Certificate request.
-    @rtype: L{M2Crypto.X509.Request}
+    """Create an X509 certificate request.
+
+    @param address: "IP:port" contact address. Stored in the L attribute.
+    @param pkey: Private key of the requester.
+    @param nickname: Member name for the CN attribute. Defaults to address.
+    @rtype: L{CertificateRequest}
     """
-    if nickname==None: nickname=address
-    req = M2Crypto.X509.Request()
-    req.set_pubkey(pkey)
-    subject = M2Crypto.X509.X509_Name()
-    subject.commonName = nickname
-    subject.localityName = address    
-    req.set_subject_name(subject)
-    req.set_version(version)
-    req.sign(pkey, DIGESTALG)
+    if nickname is None:
+        nickname = address
+    csr = (x509.CertificateSigningRequestBuilder()
+           .subject_name(_makeName(CN=nickname, L=address))
+           .sign(pkey.key, _HASH()))
+    req = CertificateRequest(csr)
     assert req.verify(pkey)
     return req
 
 
-def makeCert(req, caCert, caPkey, sn=0, notBefore=0, notAfter=60*60*24*30):
-    """Create a X509 member certificate.
-    @param req: X509 request.
-    @type req: L{M2Crypto.X509.Request}
-    @param sn: serial number.
-    @param caCert: CA's certificate
-    @type caCert: L{M2Crypto.X509.X509}
-    @param caPkey: CA's private key.
-    @type caPkey: L{M2Crypto.EVP.PKey}
-    @return: Member certificate.
-    @rtype: L{M2Crypto.X509.X509}
+def makeCert(req, caCert, caPkey, sn=1, notBefore=0, notAfter=60*60*24*30):
+    """Create an X509 member certificate from a request.
+
+    @param req: Certificate request.
+    @param caCert: The CA's certificate.
+    @param caPkey: The CA's private key.
+    @param sn: Serial number (must be positive).
+    @param notBefore: Start of validity, in seconds relative to now.
+    @param notAfter: End of validity, in seconds relative to now.
+    @rtype: L{Certificate}
     """
-    
-    isinstance(caCert, M2Crypto.X509.X509)
-    pkey = req.get_pubkey()
-    if not req.verify(pkey):
-        raise ValueError, 'Error verifying request.'
-    
-    sub = req.get_subject()
-    cert = M2Crypto.X509.X509()
-    cert.set_serial_number(sn)
-    cert.set_version(req.get_version())
-    cert.set_subject(sub)
-    cert.set_issuer(caCert.get_subject())
-    cert.set_pubkey(pkey)    
-    
-    M2Crypto.m2.x509_gmtime_adj(M2Crypto.m2.x509_get_not_before(cert.x509), notBefore)
-    M2Crypto.m2.x509_gmtime_adj(M2Crypto.m2.x509_get_not_after(cert.x509), notAfter)
-    
-    ext = M2Crypto.X509.new_extension('subjectKeyIdentifier',  computeSubjectKeyIdentifierFromCertificate(cert), critical=0)    
-    cert.add_ext(ext)
-    
-    # Does not work due to M2Crypto issues
-    #ext = M2Crypto.X509.new_extension('authorityKeyIdentifier',  "keyid,issuer", critical=0)    
-    #cert.add_ext(ext)
-
-    cert.sign(caPkey, DIGESTALG)
-    
-    try:
-        identityFromCertificate(cert)
-    except LookupError:
-        print "subjectKeyIdentifier missing", newid, ext1.get_name(), ext1.get_value()
-        raise
-
+    if not req.verify():
+        raise ValueError("Error verifying request.")
+    pub = req.get_pubkey()
+    now = _now()
+    cert = (x509.CertificateBuilder()
+            .subject_name(req.csr.subject)
+            .issuer_name(caCert.x509.subject)
+            .public_key(pub.key)
+            .serial_number(sn)
+            .not_valid_before(now + datetime.timedelta(seconds=notBefore))
+            .not_valid_after(now + datetime.timedelta(seconds=notAfter))
+            .add_extension(x509.SubjectKeyIdentifier(_skiDigest(pub)), critical=False)
+            # Copy the CA's own key identifier. from_issuer_public_key()
+            # would compute a SHA-1 one that does not match it.
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(
+                caCert.x509.extensions.get_extension_for_class(x509.SubjectKeyIdentifier).value),
+                critical=False)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .sign(caPkey.key, _HASH()))
+    cert = Certificate(cert)
+    identityFromCertificate(cert)
     return cert
 
+
+def loadCertificate(path):
+    return Certificate.load(path)
+
+
+def loadRequest(path):
+    return CertificateRequest.load(path)
+
+
+def loadPrivateKey(path, password=None):
+    return PrivateKey.load(path, password)
+
+
+#
+# Hashing and identities
+#
+
+def fingerprint(data, outputbinary=False):
+    digest = hashlib.new(DIGESTALG, _toBytes(data))
+    if outputbinary:
+        return digest.digest()
+    return digest.hexdigest()
+
+
 def sHashDict(d):
-    """Compute a deterministic secure hash from a dictionary.
-    Because dictinaries elements are unordered, a deterministic hash cannot be computed directly.
-    This function will produce a hash of a dictionary by sorting the keys. 
+    """Compute a deterministic hash of a dictionary by hashing its
+    items sorted by key.
 
-    @param d: Dictionary to be hashed.
-    @type d: dict
-    @return: Hash value
-    @rtype: str
-    @raise e: TypeError if d is not a dictionary.
+    @raise TypeError: if d is not a dictionary.
     """
-
     if not isinstance(d, dict):
         raise TypeError
-    h = M2Crypto.EVP.MessageDigest(DIGESTALG)
-    
-    ks = d.keys()
-    ks.sort()
-    for k in ks:
-        h.update("%s=%s," %(str(k), str(d[k])))
-    return h.final()
+    h = hashlib.new(DIGESTALG)
+    for k in sorted(d, key=str):
+        h.update(("%s=%s," % (k, d[k])).encode("utf-8"))
+    return h.digest()
+
 
 def identitySize():
-    """Returns the size (in bytes) of identity numbers."""    
-    return DIGESTSIZE/8
+    """Returns the size (in bytes) of identity numbers."""
+    return DIGESTSIZE // 8
+
+
+def _skiDigest(pkey):
+    return hashlib.new(DIGESTALG, _publicKey(pkey).as_der()).digest()
+
 
 def computeSubjectKeyIdentifierFromCertificate(cert):
-    if not isinstance(cert, M2Crypto.X509.X509): raise ValueError
+    if not isinstance(cert, Certificate):
+        raise ValueError(cert)
     return computeSubjectKeyIdentifier(cert.get_pubkey())
 
+
 def computeSubjectKeyIdentifier(pkey):
-    if not isinstance(pkey, M2Crypto.EVP.PKey): raise ValueError
-    h = hashlib.new(DIGESTALG, pkey.as_der() )
-    client_serial = h.hexdigest().upper()
-    client_serial_hex = ''
-    
-    for byte in xrange(h.digestsize):
-        client_serial_hex += client_serial[byte*2] + client_serial[byte*2+1]
-        if byte < h.digestsize -1:
-            client_serial_hex += ':'            
-    return client_serial_hex
+    """Return the key identifier as colon-separated upper-case hex."""
+    if not isinstance(pkey, (PublicKey, PrivateKey)):
+        raise ValueError(pkey)
+    return ":".join("%02X" % b for b in _skiDigest(pkey))
+
 
 def identityFromCertificate(cert):
-    if not isinstance(cert, M2Crypto.X509.X509): raise TypeError
+    """Return the member identity: the subjectKeyIdentifier as upper-case hex."""
+    if not isinstance(cert, Certificate):
+        raise TypeError(cert)
     try:
-        ext = cert.get_ext("subjectKeyIdentifier")
-    except LookupError, why:
+        ext = cert.x509.extensions.get_extension_for_class(x509.SubjectKeyIdentifier)
+    except x509.ExtensionNotFound:
         raise LookupError("No subjectKeyIdentifier in %s" % cert.as_text())
-    
-    return subjectKeyIdentifierToID(ext.get_value())
+    return ext.value.digest.hex().upper()
+
 
 def shortIdentity(identity):
     return identity[-4:-1]
 
+
 def subjectKeyIdentifierToID(s):
-    return s.replace(":","")
-    
+    return s.replace(":", "")
+
+
+#
+# Signed objects
+#
 
 class ImmutableMixin:
     """Mixin for immutable classes."""
@@ -300,61 +576,43 @@ class ImmutableMixin:
 
     def makeImmutable(self):
         self.__setattr__ = self.__setattr_im__
-  
+
 
 class Signable:
-    """Mixin for classes that are signable. Use in compination with
-    RSAVerifyingKey and RSASigningKey.
+    """Mixin for signable objects.
 
-    Subclasses needs to implement the uidstr method.
-    
-    Warning: The computed hash will be cached. If the object changes and the
-    hash must reflect these changes, the shashClear method will force the hash
-    to be recomputed."""
+    Subclasses implement uidstr(), which returns the string that is signed.
 
-    signature = ""
+    The fingerprint is cached. If the object changes, clear
+    _fingerprint to have it recomputed."""
+
+    signature = b""
     _fingerprint = None
 
     def uidstr(self):
-        """Return a unique string identifier for this object.
-
-        The returned string is needed when signing the object. This
-        method needs to be implemented in subclasses."""
-        
+        """Return a unique string identifying this object. This is what is signed."""
         raise NotImplementedError
-    
+
+    def uidbytes(self):
+        return _toBytes(self.uidstr())
+
     def sign(self, pKey):
-        pKey.reset_context(md=DIGESTALG)
-        isinstance(pKey, M2Crypto.EVP.PKey)                
-        pKey.sign_init()
-        pKey.update(self.uidstr())
-        self.signature = pKey.sign_final()
-        pKey.reset_context()
+        self.signature = pKey.sign(self.uidbytes())
 
     def verify(self, pKey):
-        pKey.reset_context(md=DIGESTALG)
-        isinstance(pKey, M2Crypto.EVP.PKey)        
-        pKey.verify_init()
-        pKey.verify_update(self.uidstr())
-        result = pKey.verify_final(self.signature)
-
-        return result
+        return _publicKey(pKey).verify(self.signature, self.uidbytes())
 
     def get_fingerprint(self):
-        if not self._fingerprint:       
-            dig = M2Crypto.EVP.MessageDigest(DIGESTALG)
-            dig.update(self.uidstr())
-            self._fingerprint = dig.final()
+        if not self._fingerprint:
+            self._fingerprint = hashlib.new(DIGESTALG, self.uidbytes()).digest()
         return self._fingerprint
 
 
 class SignableString(Signable):
     """A signable string."""
-    
-    signature = ""
-    
+
     def __init__(self, string):
         self.string = string
-        
+
     def uidstr(self):
         return self.string

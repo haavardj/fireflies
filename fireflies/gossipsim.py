@@ -12,14 +12,12 @@
 ##                
 ######################################################################
 
-import logging, M2Crypto, fireflies
+import logging, fireflies
 from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFactory
 from twisted.protocols.basic import Int32StringReceiver
 import twisted.internet
 from twisted.internet import defer
 from twisted.application.service import Service
-from zope.interface import implements
-from M2Crypto.SSL.Checker import WrongHost, WrongCertificate, NoCertificate 
 
 from fireflies import setrecon, ring
 import fireflies.protocols
@@ -59,22 +57,10 @@ class AccusationSet(setrecon.ReconSet):
 class X509Set(setrecon.ReconSet):
 
     def elmToZZp(self, elm):
-        #if not isinstance(elm, M2Crypto.X509.X509): raise ValueError
-        #return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))
         if not hasattr(elm, "__zz_value_x"):
-            elm.__zz_value_x = setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))        
+            elm.__zz_value_x = setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.digest()))
         return elm.__zz_value_x
 
-
-def sslPostConnectionCheck(peerX509, expectedHost):
-    print peerX509, expectedHost
-    return True
-
-def sslVerifyCB(sslCTX_ptr, x509_ptr, a,b,c):
-    x509 = M2Crypto.X509.X509(x509_ptr, 0)
-    print x509.as_text()
-    return True
-        
 
 
 
@@ -163,9 +149,9 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
             try:
                 if not itm in self.dataset:
                     self.appendfunc(itm)
-            except ValueError, why:
+            except ValueError as why:
                 self.logger.warning("reconcile_done error in data %s %s", itm, why) 
-            except KeyError, why:
+            except KeyError as why:
                 self.logger.warning("reconcile_done error in data %s %s", itm, why) 
                 
         if self.master:
@@ -199,10 +185,10 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
         n = dataset.getRootPartition()
         hsh = hashlib.sha1()
         
-        hv = map(lambda x: str(x), n.hash_vector)
+        hv = [str(x) for x in n.hash_vector]
         hv.sort()
         for x in hv:            
-            hsh.update(x)
+            hsh.update(x.encode("ascii"))
 
         self.logger.debug("reconcile->%s %s hash=%s", self, name, str(hsh.hexdigest()))                
         self.sendCommand("reconcile", name, hsh.digest())
@@ -242,10 +228,10 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
         n = self.dataset.getRootPartition()
         hsh = hashlib.sha1()
         
-        hv = map(lambda x: str(x), n.hash_vector)
+        hv = [str(x) for x in n.hash_vector]
         hv.sort()
         for x in hv:            
-            hsh.update(x)
+            hsh.update(x.encode("ascii"))
         
         if digest == hsh.digest():
             self.logger.debug("digest_match->%s True", self)
@@ -373,12 +359,12 @@ class Gossip(Service):
         if name == "data.accusation": sset = self.aSet
         elif name == "data.note": sset = self.nSet
         elif name == "data.certificate": sset = self.cSet
-        else: raise RuntimeError, "Invalid data event", name
+        else: raise RuntimeError("Invalid data event", name)
                 
         if status == True:
             try:
                 sset.insert(itm)
-            except Exception, why:
+            except Exception as why:
                 self.logger.exception("Insert error %s %s", itm, why)
         else:
             sset.remove(itm)
@@ -404,7 +390,7 @@ class Gossip(Service):
         address = self.group.getMe().address
         
         self.logger.info("Binding gossip to tcp %s:%d", address.host, address.port)
-        self._port = fireflies.protocols.listen(address.port, self.sFactory, self.parent, interface=address.host,postConnectionCheck=sslPostConnectionCheck)
+        self._port = fireflies.protocols.listen(address.port, self.sFactory, self.group.getTLSOptions(), interface=address.host)
         self.sFactory.doStart()
 
         interval = self.rate # / float(len(self.rings.getRings()))
@@ -429,7 +415,7 @@ class Gossip(Service):
                     factory.connectedProtocol.hangup()                   
             factory.doStop()               
              
-        for member, factory in self.neighborPool.items():
+        for member, factory in list(self.neighborPool.items()):
             if factory.isActive():
                 factory.deactivate()
                 self.active.remove(factory)
@@ -440,12 +426,12 @@ class Gossip(Service):
         
     def update(self):
         outbound = self.rings.succ(self.group.getMe(), lambda x: x.isLive())
-        outbound = filter(lambda x: x != self.group.getMe(), outbound)
+        outbound = [x for x in outbound if x != self.group.getMe()]
         inbound = self.rings.pred(self.group.getMe(), lambda x: x.isLive())
-        inbound = filter(lambda x: x != self.group.getMe(), inbound)
+        inbound = [x for x in inbound if x != self.group.getMe()]
 
         # Deactivate outbound connections
-        toDeactivate = filter(lambda x: not x.member in outbound, self.active)
+        toDeactivate = [x for x in self.active if not x.member in outbound]
         
         for f in self.active:
             assert f.isActive()

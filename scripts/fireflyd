@@ -1,32 +1,20 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 
 import warnings
 
 warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 
 from twisted.internet import reactor, task
-import random, sys, os.path, logging, socket, pickle, os, glob
+import errno, random, sys, os.path, logging, socket, os
 import logging.handlers
 import fireflies
-from fireflies import gossip, state, fd, crypto, group, stats, persist
-import M2Crypto
+import fireflies.fd, fireflies.gossip, fireflies.group
+from fireflies import state, crypto, group, stats, persist
 
 
 random.seed()
 
-from twisted.python import threadable
-threadable.init()
-del threadable
-
-
-M2Crypto.util.passphrase_callback
-M2Crypto.EVP.load_key
-
 groupCert = groupKey = myCert = myKey = myNote = None
-
-
-def askPassword(prompt=""):
-    pass
 
 if __name__ == "__main__":
     
@@ -90,9 +78,6 @@ if __name__ == "__main__":
                       dest="rundir", default="./",
                       help="Rundir.")
     
-    parser.add_option("-s", "--stats",
-                      action="store_true", dest="stats", default=False,
-                      help="Enable the web-stats.")
     parser.add_option("--verbose",
                       action="store_true", dest="verbose", default=False,
                       help="Verbose output.")
@@ -113,15 +98,14 @@ if __name__ == "__main__":
     (options, args) = parser.parse_args()
     
     if len(args) < 1:
-        print parser.print_help()
+        parser.print_help()
         sys.exit()
 
     myAddress = "%s:%d" % (options.address, options.port)
 
-    if options.password: passwdcb = lambda x: options.password
-    else: passwdcb= M2Crypto.util.passphrase_callback
-    if options.nopass: cipher = None
-    else: cipher = 'aes_128_cbc'
+    # password is used to read keys, keyPassword to write them.
+    password = options.password or crypto.passwordPrompt("Key password: ")
+    keyPassword = None if options.nopass else password
         
 
     # Change user/group
@@ -143,7 +127,7 @@ if __name__ == "__main__":
     #Check byzantine setting.
     byzantine = 0
     if options.byzantine:
-        for line in file(options.byzantine).readlines():
+        for line in open(options.byzantine).readlines():
             line = line.strip()
             if line == "": continue
             
@@ -164,11 +148,11 @@ if __name__ == "__main__":
         if os.fork(): 
             os._exit(0)
         os.setsid() #???
-        os.umask(077)
+        os.umask(0o77)
         for i in range(3):
             try:
                 os.close(i)
-            except OSError, e:
+            except OSError as e:
                 if e.errno != errno.EBADF:
                     raise
         log_hdlr = logging.handlers.RotatingFileHandler(os.path.join(options.logdir, myAddress), "a", 100000000, 10)
@@ -182,9 +166,9 @@ if __name__ == "__main__":
     # Init Store.
     try:
         store = persist.Store(args[0])
-        extStores = map(lambda x: persist.Store(x), args[1:])
-    except Exception, why:
-        print "Unable to initialize store.", why
+        extStores = [persist.Store(x) for x in args[1:]]
+    except Exception as why:
+        print("Unable to initialize store.", why)
         sys.exit(0)
 
          
@@ -201,7 +185,7 @@ if __name__ == "__main__":
                 break
         if not groupCert:    
             if options.cacert:
-                groupCert = M2Crypto.X509.load_cert(options.cacert)
+                groupCert = crypto.Certificate.load(options.cacert)
                 store.saveCACert(groupCert)
                 logging.info("Import group certificate from %s", options.cacert)
             else:                
@@ -222,11 +206,11 @@ if __name__ == "__main__":
         # Try to generate certificate.
         if not myCert:        
             if not options.capriv:
-                print "Unable to find or create member certificate for address=%s" % myAddress
+                print("Unable to find or create member certificate for address=%s" % myAddress)
                 sys.exit(0)
 
-            groupKey = M2Crypto.EVP.load_key(options.capriv, passwdcb)
-            if not groupCert.verify(groupKey): raise ValueError, "CA cert and CA key do not match."
+            groupKey = crypto.PrivateKey.load(options.capriv, password)
+            if not groupCert.verify(groupKey): raise ValueError("CA cert and CA key do not match.")
 
             if options.ecc:
                 myKey = fireflies.crypto.makePrivateECKey()
@@ -239,25 +223,25 @@ if __name__ == "__main__":
             logging.info("Saving private key %s", store.filenameKey(myKey))
             logging.info("Saving new certificate %s", store.filenameCertificate(myCert))
             store.saveMemberCertificate(myCert)
-            store.savePrivateKey(myKey, cipher, passwdcb)
+            store.savePrivateKey(myKey, keyPassword)
 
     if not store.hasKeyForCertificate(myCert):
         for extstore in extStores:
             if extstore.hasKeyForCertificate(myCert):
                 logging.info("Found suitable key in %s", extstore.dirRoot)
-                store.savePrivateKey(extstore.loadPrivateKeyForCert(myCert, passwdcb), cipher, passwdcb)
+                store.savePrivateKey(extstore.loadPrivateKeyForCert(myCert, password), keyPassword)
                 break
                                 
     try:
-        myKey = store.loadPrivateKeyForCert(myCert, passwdcb)
-    except KeyError, why:
-        print "Unable to load private key.", why
+        myKey = store.loadPrivateKeyForCert(myCert, password)
+    except KeyError as why:
+        print("Unable to load private key.", why)
         sys.exit()
 
     try:
         myNote = store.loadNoteFromCert(myCert)
-    except KeyError, why:
-        print "Cannot find note. Will create new one.", why
+    except KeyError as why:
+        print("Cannot find note. Will create new one.", why)
             
     assert myCert.verify(groupCert.get_pubkey())
         
@@ -289,8 +273,8 @@ if __name__ == "__main__":
     for note in store.loadNotes():
         try:
             mgroup.view.addNote(note)
-        except ValueError, e:
-            print "Error loading note %s %s" % (note, e)
+        except ValueError as e:
+            print("Error loading note %s %s" % (note, e))
                     
     for acc in store.loadAccusations():
         try:
@@ -312,20 +296,11 @@ if __name__ == "__main__":
             mgroup.view.addAccusation(accu)
 
     store.saveGroup(mgroup)
-    
 
-    # Start the web-stat server. The web-stat server modifies
-    # checkpoints the stats to the log. If it's not running, we need
-    # to do it here.
-    if options.stats:
-        import fireflies.web
-        ws = fireflies.web.NodeViewer(mgroup)
-        ws.start()
-        
     bogomips = 0
 
     try:
-        lines = file("/proc/cpuinfo").readlines()
+        lines = open("/proc/cpuinfo").readlines()
     except Exception:
         logging.warning("unable to open /proc/cpuinfo.")
     else:
@@ -372,7 +347,7 @@ if __name__ == "__main__":
             store.clear()
             store.saveGroup(mgroup)
             logging.info("writing state.")
-        except Exception, why:
+        except Exception as why:
             logging.error("Failed saving group.")
 
     def persistMyOwnNote(name, note, s):
@@ -401,7 +376,7 @@ if __name__ == "__main__":
 
     try:
         reactor.run()
-    except Exception, why:
+    except Exception as why:
         logging.exception("reactor crash? %s", why)
 
     if not options.storero: store.saveGroup(mgroup)

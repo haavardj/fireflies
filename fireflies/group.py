@@ -22,7 +22,7 @@ from fireflies.view import View
 from fireflies.crypto import identityFromCertificate
 import fireflies.stats
 import fireflies.protocols
-import M2Crypto
+from fireflies import crypto
 
 
 
@@ -43,11 +43,11 @@ class Group(MultiService):
         private key.
         
         @param groupCertificate: The public certificate of the group CA.
-        @type groupCertificate: L{M2Crypto.X509.X509}
+        @type groupCertificate: L{fireflies.crypto.Certificate}
         @param myKey: Your private key. 
-        @type myKey: L{M2Crypto.EVP.PKey}
+        @type myKey: L{fireflies.crypto.PrivateKey}
         @param myCertificate: Your member certificate, signed by the CA's private key,
-        @type myCertificate: L{M2Crypto.X509.X509}
+        @type myCertificate: L{fireflies.crypto.Certificate}
         @param myNote: Your most up-to-date note. When re-joning a group
         a note can be supplied here. This argument is never
         necessary but speeds up the joining process. If not specified a
@@ -61,16 +61,16 @@ class Group(MultiService):
         self.logger = logger
         
         
-        if not isinstance(groupCertificate,  M2Crypto.X509.X509): raise ValueError, groupCertificate
+        if not isinstance(groupCertificate, crypto.Certificate): raise ValueError(groupCertificate)
         self._groupCertificate = groupCertificate
         
     
         self.name = groupCertificate.get_subject().commonName
 
-        if not isinstance(myKey, M2Crypto.EVP.PKey): raise ValueError, myKey
+        if not isinstance(myKey, crypto.PrivateKey): raise ValueError(myKey)
         self._myKey = myKey
         
-        if not isinstance(myCertificate, M2Crypto.X509.X509): raise ValueError, myCertificate
+        if not isinstance(myCertificate, crypto.Certificate): raise ValueError(myCertificate)
 
         self.view = View(self)
 
@@ -121,10 +121,10 @@ class Group(MultiService):
         return self.view.sn2peer[id]
 
     def getMembersByAddress(self, address):
-        return filter(lambda x: x.cert.address == address, self.view.pRing)        
+        return [x for x in self.view.pRing if x.cert.address == address]        
 
     def createEventChannel(self, name):
-        if self._eventSinkRegistry.has_key(name):
+        if name in self._eventSinkRegistry:
             raise KeyError("Name %s exist as eventhandler" %name)
         self._eventSinkRegistry[name] = []
     
@@ -174,7 +174,7 @@ class Group(MultiService):
         """
         @return: List of all event names.
         """
-        return self._eventSinkRegistry.keys()
+        return list(self._eventSinkRegistry.keys())
 
     def notify(self, name, *args, **kwargs):
         """Publish an event.
@@ -242,7 +242,7 @@ class Group(MultiService):
     def getGroupCertificate(self):
         """
         @return: Get group certificate.
-        @rtype: L{M2Crypto.X509.X509}
+        @rtype: L{fireflies.crypto.Certificate}
         """
         return self._groupCertificate
 
@@ -262,7 +262,7 @@ class Group(MultiService):
     def getMyKey(self):
         """
         @return: Return your private key.
-        @rtype: L{M2Crypto.EVP.PKey}
+        @rtype: L{fireflies.crypto.PrivateKey}
         """
         return self._myKey
 
@@ -291,9 +291,14 @@ class Group(MultiService):
         self.stats.leave += 1
         self.nextEpoch()
                 
+    def getTLSOptions(self):
+        """@return: TLS options (a Twisted context factory) for this member."""
+        return self._sslCtx
+
     def getContext(self):
-        return self._sslCtx        
-    
+        """Lets the group itself be used as a Twisted context factory."""
+        return self._sslCtx.getContext()
+
 import fireflies.stats
 def collectStatistic(group):
     isinstance(group, Group)
