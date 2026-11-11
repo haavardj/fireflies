@@ -2,7 +2,7 @@
 
 Fireflies is a membership and gossip service for peer-to-peer overlay networks, written in Python on Twisted. Each member keeps a view of the entire membership and gossips with a small set of neighbours. The protocol tolerates Byzantine members: corrupt members cannot incorrectly modify the views of correct members.
 
-[Paper](https://doi.org/10.1145/2701418) · [Install](#install) · [Running a test group](#running-a-test-group) · [Citing Fireflies](#citing-fireflies) · [Licence](#licence)
+[Paper](https://doi.org/10.1145/2701418) · [Install](#install) · [Running a test group](#running-a-test-group) · [Web UI](#web-ui) · [Citing Fireflies](#citing-fireflies) · [Licence](#licence)
 
 ## Background
 
@@ -49,6 +49,8 @@ The attack model assumes that corrupt members cannot break the cryptography, tha
   sudo apt install build-essential libntl-dev libgmp-dev python3-dev
   ```
 
+- For the optional web UI: [Klein](https://github.com/twisted/klein) and [Jinja2](https://jinja.palletsprojects.com/). pip installs these with the `web` extra.
+
 The set reconciliation extension does not build on Windows. There you can use everything except gossip, or run Fireflies under WSL.
 
 ## Install
@@ -60,7 +62,7 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
 ```
 
-Set `FIREFLIES_NO_EXT=1` to skip the C++ extension.
+Set `FIREFLIES_NO_EXT=1` to skip the C++ extension. Use `pip install -e ".[web]"` to include the web UI.
 
 Run the tests with Twisted Trial:
 
@@ -68,7 +70,7 @@ Run the tests with Twisted Trial:
 python -m twisted.trial fireflies.test
 ```
 
-The set reconciliation tests skip themselves when the extension is not built.
+The set reconciliation tests skip themselves when the extension is not built, and the web UI tests when Klein is not installed.
 
 ## Running a test group
 
@@ -92,14 +94,24 @@ Each daemon finds the certificate for its own address, loads the matching key an
 
 ## Web UI
 
-A member can serve its view as web pages: the members and their status, the monitoring rings, the members it pings with their timeout state, its gossip partners, and its statistics. Install the extra dependencies, then pass `--web` to `fireflyd`:
+A member can serve its view as web pages. Install the extra dependencies, then pass `--web` to `fireflyd`:
 
 ```sh
 pip install -e ".[web]"
 fireflyd --nopass -a 127.0.0.1 -p 15001 --web 8001 ca
 ```
 
-Open <http://127.0.0.1:8001/>. The Graphs page plots member counts, traffic and protocol data over the last hour, sampled every 10 seconds. The UI binds to 127.0.0.1 unless you pass `--web-address`. It has no authentication, so do not expose it to untrusted networks. `/api/members` and `/api/stats` return the same data as JSON.
+Open <http://127.0.0.1:8001/>. The pages are:
+
+- **Members:** every member with its status (live, accused or failed), epoch and number of accusations. Each member links to a page with its accusations, its ring mask, its neighbours on each monitoring ring and its certificate.
+- **Rings:** the members of each monitoring ring in ring order.
+- **Monitoring:** the members this member pings, with unanswered pings, the timeout threshold τ and the estimated pings per pong, and its gossip partners with the state of each connection.
+- **Graphs:** member counts, data added to the view, TCP and UDP traffic, and rejected items over the last hour, sampled every 10 seconds.
+- **Statistics:** every counter with a description.
+
+`/api/members`, `/api/stats` and `/api/history` return the same data as JSON.
+
+The UI binds to 127.0.0.1 unless you pass `--web-address`. It has no authentication, so do not expose it to untrusted networks.
 
 The UI uses [Klein](https://github.com/twisted/klein), [Jinja2](https://jinja.palletsprojects.com/) and [Chart.js](https://www.chartjs.org/). Klein runs on the Twisted reactor, so pages read the member's state directly, without threads or locks.
 
