@@ -99,9 +99,9 @@ pip install -e ".[web]"
 fireflyd --nopass -a 127.0.0.1 -p 15001 --web 8001 ca
 ```
 
-Open <http://127.0.0.1:8001/>. The UI binds to 127.0.0.1 unless you pass `--web-address`. It has no authentication, so do not expose it to untrusted networks. `/api/members` and `/api/stats` return the same data as JSON.
+Open <http://127.0.0.1:8001/>. The Graphs page plots member counts, traffic and protocol data over the last hour, sampled every 10 seconds. The UI binds to 127.0.0.1 unless you pass `--web-address`. It has no authentication, so do not expose it to untrusted networks. `/api/members` and `/api/stats` return the same data as JSON.
 
-The UI uses [Klein](https://github.com/twisted/klein) and [Jinja2](https://jinja.palletsprojects.com/). Klein runs on the Twisted reactor, so pages read the member's state directly, without threads or locks.
+The UI uses [Klein](https://github.com/twisted/klein), [Jinja2](https://jinja.palletsprojects.com/) and [Chart.js](https://www.chartjs.org/). Klein runs on the Twisted reactor, so pages read the member's state directly, without threads or locks.
 
 ## Running a real group
 
@@ -191,3 +191,5 @@ The protocol, its analysis and an evaluation on PlanetLab are in the paper below
 ## Licence
 
 Fireflies is under the MIT licence ([LICENCE](LICENCE)), except the set reconciliation code. The files `fireflies/setrecon/*.cpp` and `*.h` are based on the library by Sachin Agarwal and Ari Trachtenberg (Boston University), version 0.998 Beta, modified for Fireflies, and remain under GPL version 2 ([COPYING](fireflies/setrecon/COPYING)). The compiled extension, `fireflies.setrecon._setreconbase`, is therefore GPL, and so is any distribution that includes it.
+
+The web UI bundles Chart.js 4.5.1 (`fireflies/web/static/chart.umd.min.js`), which is under the MIT licence of its contributors ([chart.js-LICENSE.md](fireflies/web/static/chart.js-LICENSE.md)).

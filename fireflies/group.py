@@ -301,12 +301,14 @@ class Group(MultiService):
 
 import fireflies.stats
 def collectStatistic(group):
+    """Sum the group's counters and any separate per-member counters.
+    Members share the group's Stats object, so count each object once."""
     isinstance(group, Group)
     s0 = fireflies.stats.Stats()
-    
-    s0 += group.stats
-    
-    for n in group.getAllMembers():
-        s0 += n.stats
+    seen = set()
+    for s in [group.stats] + [n.stats for n in group.getAllMembers()]:
+        if id(s) not in seen:
+            seen.add(id(s))
+            s0 += s
     return s0
     

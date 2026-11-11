@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Graphs{% endblock %}
+{% block head %}
+<script src="/static/chart.umd.min.js?v=4.5.1" defer></script>
+<script src="/static/graphs.js?v={{ v }}" defer></script>
+{% endblock %}
+{% block content %}
+<p class="muted">Sampled every {{ interval }} s, last {{ (span / 60)|round|int }} minutes. Data as JSON at <a href="/api/history">/api/history</a>.</p>
+<p id="graphs-empty" class="muted" hidden>Waiting for the second sample…</p>
+<div class="charts" data-interval="{{ interval }}">
+  <figure class="chart" data-chart="members" data-unit="members" data-status="1">
+    <figcaption><b>Members</b><span>count</span></figcaption>
+    <div class="plot"><canvas aria-label="Live, accused and failed members over time" role="img"></canvas></div>
+    <details><summary>Table</summary><div class="table"></div></details>
+  </figure>
+  <figure class="chart" data-chart="received" data-unit="/min">
+    <figcaption><b>Data received</b><span>items per minute</span></figcaption>
+    <div class="plot"><canvas aria-label="Notes, accusations and certificates received per minute" role="img"></canvas></div>
+    <details><summary>Table</summary><div class="table"></div></details>
+  </figure>
+  <figure class="chart" data-chart="tcp" data-unit="B/s">
+    <figcaption><b>Gossip traffic (TCP)</b><span>bytes per second</span></figcaption>
+    <div class="plot"><canvas aria-label="TCP bytes read and written per second" role="img"></canvas></div>
+    <details><summary>Table</summary><div class="table"></div></details>
+  </figure>
+  <figure class="chart" data-chart="udp" data-unit="B/s">
+    <figcaption><b>Ping traffic (UDP)</b><span>bytes per second</span></figcaption>
+    <div class="plot"><canvas aria-label="UDP bytes read and written per second" role="img"></canvas></div>
+    <details><summary>Table</summary><div class="table"></div></details>
+  </figure>
+  <figure class="chart" data-chart="rejected" data-unit="/min">
+    <figcaption><b>Rejected</b><span>items per minute</span></figcaption>
+    <div class="plot"><canvas aria-label="Rejected pongs, invalid notes and invalid accusations per minute" role="img"></canvas></div>
+    <details><summary>Table</summary><div class="table"></div></details>
+  </figure>
+</div>
+{% endblock %}

@@ -4,7 +4,11 @@ Each function reads the group in the reactor thread and returns plain
 dicts and lists, so templates never touch live protocol objects.
 """
 
+import collections
 import time
+
+from twisted.application.service import Service
+from twisted.internet.task import LoopingCall
 
 import fireflies
 from fireflies.group import collectStatistic
@@ -37,6 +41,14 @@ def memberRow(member, me):
     }
 
 
+def counts(group):
+    out = {"all": 0, "live": 0, "accused": 0, "failed": 0}
+    for m in group.view.getAllMembers():
+        out["all"] += 1
+        out[status(m)] += 1
+    return out
+
+
 def overview(group, started):
     me = group.getMe()
     view = group.view
@@ -50,12 +62,7 @@ def overview(group, started):
         "monitoringRings": group.nrMonitoringRings(),
         "gossipRings": group.nrGossipingRings(),
         "rebuttal": group.tRebuttal,
-        "counts": {
-            "all": len(rows),
-            "live": sum(1 for r in rows if r["status"] == "live"),
-            "accused": sum(1 for r in rows if r["status"] == "accused"),
-            "failed": sum(1 for r in rows if r["status"] == "failed"),
-        },
+        "counts": counts(group),
         "members": rows,
     }
 
@@ -155,3 +162,69 @@ def _service(group, name):
         return group.getServiceNamed(name)
     except KeyError:
         return None
+
+
+class History(Service):
+    """Samples member counts and statistics counters at a fixed interval
+    and keeps the most recent samples for the graphs."""
+
+    name = "webhistory"
+
+    # Counters drawn as rates, grouped by chart. Each entry is
+    # (series label, statistic name).
+    RATES = {
+        "tcp": [("read", "tcpR"), ("written", "tcpW")],
+        "udp": [("read", "udpR"), ("written", "udpW")],
+        "received": [("notes", "notesTotal"), ("accusations", "accusationsTotal"),
+                     ("certificates", "certsTotal")],
+        "rejected": [("pongs", "pongsRejected"), ("notes", "notesInvalid"),
+                     ("accusations", "accusationsInvalid")],
+    }
+    PER_MINUTE = {"received", "rejected"}
+
+    def __init__(self, group, interval=10, size=360):
+        self.group = group
+        self.interval = interval
+        self.samples = collections.deque(maxlen=size)
+        self._task = None
+
+    def startService(self):
+        Service.startService(self)
+        self._task = LoopingCall(self.sample)
+        self._task.start(self.interval, now=True)
+
+    def stopService(self):
+        Service.stopService(self)
+        if self._task and self._task.running:
+            self._task.stop()
+
+    def sample(self, now=None):
+        s = collectStatistic(self.group)
+        names = {name for chart in self.RATES.values() for _, name in chart}
+        self.samples.append({
+            "t": time.time() if now is None else now,
+            "counts": counts(self.group),
+            "stats": {name: getattr(s, name) for name in names},
+        })
+
+    def series(self):
+        """Return the samples as chart series. Rates need two samples,
+        so the first sample only serves as the starting point."""
+        out = {"interval": self.interval, "t": [],
+               "members": {k: [] for k in ("live", "accused", "failed")}}
+        for chart, series in self.RATES.items():
+            out[chart] = {label: [] for label, _ in series}
+        samples = list(self.samples)
+        for prev, cur in zip(samples, samples[1:]):
+            dt = cur["t"] - prev["t"]
+            if dt <= 0:
+                continue
+            out["t"].append(round(cur["t"] * 1000))
+            for k in out["members"]:
+                out["members"][k].append(cur["counts"][k])
+            for chart, series in self.RATES.items():
+                scale = 60.0 / dt if chart in self.PER_MINUTE else 1.0 / dt
+                for label, name in series:
+                    delta = cur["stats"][name] - prev["stats"][name]
+                    out[chart][label].append(round(delta * scale, 2))
+        return out

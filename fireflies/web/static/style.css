@@ -5,9 +5,15 @@
   --line: #e4e7ec;
   --head: #f6f7f9;
   --accent: #2f6fdb;
-  --live: #1f9d55;
-  --accused: #d98e04;
-  --failed: #d14343;
+  /* Status colours (same in both modes), always shown with a text label. */
+  --live: #0ca30c;
+  --accused: #fab219;
+  --failed: #d03b3b;
+  /* Categorical series for graphs, validated for colour-vision deficiency
+     against the light and dark surfaces. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -17,6 +23,9 @@
     --line: #2a2f37;
     --head: #1b1f26;
     --accent: #6ea0ff;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
   }
 }
 * { box-sizing: border-box; }
@@ -62,6 +71,14 @@ th { color: var(--muted); font-weight: 600; background: var(--head); }
 table.ring { width: auto; }
 table.ring caption { text-align: left; color: var(--muted); padding: 4px 0; }
 details { margin-top: 24px; }
+.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr)); gap: 16px; }
+figure.chart { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; min-width: 0; }
+figure.chart figcaption { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
+figure.chart figcaption span { color: var(--muted); font-size: 12px; }
+figure.chart .plot { position: relative; height: 220px; }
+figure.chart details { margin-top: 8px; }
+figure.chart summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+figure.chart .table { max-height: 240px; overflow-y: auto; }
 @media (max-width: 600px) {
   nav { margin-left: 0; }
   table { display: block; overflow-x: auto; }

@@ -39,4 +39,4 @@ packages = ["fireflies", "fireflies.cli", "fireflies.setrecon", "fireflies.test"
 [tool.setuptools.package-data]
 "fireflies.setrecon" = ["*.h", "*.i"]
 "fireflies.web.templates" = ["*.html"]
-"fireflies.web.static" = ["*.css"]
+"fireflies.web.static" = ["*.css", "*.js", "*.md"]

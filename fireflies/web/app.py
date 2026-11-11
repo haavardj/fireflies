@@ -8,6 +8,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 from klein import Klein
 from twisted.web.static import File
 
+import fireflies
 from fireflies.web import model
 
 
@@ -17,10 +18,11 @@ class WebUI:
 
     app = Klein()
 
-    def __init__(self, group, refresh=10):
+    def __init__(self, group, refresh=10, history=None):
         self.group = group
         self.refresh = refresh
         self.started = time.time()
+        self.history = history or model.History(group)
         self.env = Environment(
             loader=PackageLoader("fireflies.web", "templates"),
             autoescape=select_autoescape(["html"]),
@@ -31,6 +33,7 @@ class WebUI:
         context.setdefault("refresh", self.refresh)
         context.setdefault("groupName", self.group.name)
         context.setdefault("meAddress", self.group.getMe().getAddress())
+        context.setdefault("v", fireflies.version)
         return self.env.get_template(template).render(**context)
 
     @app.route("/")
@@ -59,6 +62,17 @@ class WebUI:
     def stats(self, request):
         return self.render(request, "stats.html", page="stats", stats=model.stats(self.group))
 
+    @app.route("/graphs")
+    def graphs(self, request):
+        return self.render(request, "graphs.html", page="graphs", refresh=None,
+                           interval=self.history.interval,
+                           span=self.history.interval * self.history.samples.maxlen)
+
+    @app.route("/api/history")
+    def apiHistory(self, request):
+        request.setHeader(b"Content-Type", b"application/json")
+        return json.dumps(self.history.series())
+
     @app.route("/api/members")
     def apiMembers(self, request):
         request.setHeader(b"Content-Type", b"application/json")
@@ -75,10 +89,14 @@ class WebUI:
 
 
 def listen(group, port, interface="127.0.0.1"):
-    """Serve the web UI for group on interface:port. Returns the
-    listening port."""
+    """Serve the web UI for group on interface:port. The history sampler
+    runs as a child service of group, so it starts and stops with it.
+    Returns the listening port; its webui attribute is the WebUI."""
     from twisted.internet import reactor
     from twisted.web.server import Site
 
     ui = WebUI(group)
-    return reactor.listenTCP(port, Site(ui.app.resource()), interface=interface)
+    ui.history.setServiceParent(group)
+    listening = reactor.listenTCP(port, Site(ui.app.resource()), interface=interface)
+    listening.webui = ui
+    return listening

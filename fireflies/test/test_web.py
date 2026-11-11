@@ -63,3 +63,24 @@ class WebUITest(unittest.TestCase):
         self.assertEqual(members["counts"]["all"], 3)
         stats = json.loads(await self.get("/api/stats"))
         self.assertIn("pongsRejected", stats)
+
+    async def test_graphs(self):
+        history = self.port.webui.history
+        history.sample(now=1000.0)
+        self.group.stats.tcpR += 500
+        self.group.stats.notesTotal += 3
+        history.sample(now=1010.0)
+        data = json.loads(await self.get("/api/history"))
+        self.assertEqual(data["t"], [1010000])
+        self.assertEqual(data["tcp"]["read"], [50.0])          # bytes per second
+        self.assertEqual(data["received"]["notes"], [18.0])    # per minute
+        self.assertEqual(data["members"]["live"], [3])
+        body = await self.get("/graphs")
+        self.assertIn("/static/graphs.js", body)
+        self.assertIn("Chart.js v4", await self.get("/static/chart.umd.min.js"))
+        self.assertIn("/api/history", await self.get("/static/graphs.js"))
+
+    def test_history_needs_two_samples(self):
+        history = self.port.webui.history
+        history.sample(now=1000.0)
+        self.assertEqual(history.series()["t"], [])

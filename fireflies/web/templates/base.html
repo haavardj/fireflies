@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   {% if refresh %}<meta http-equiv="refresh" content="{{ refresh }}">{% endif %}
   <title>{% block title %}{{ meAddress }}{% endblock %} · Fireflies</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ v }}">
+  {% block head %}{% endblock %}
 </head>
 <body>
 <header>
@@ -15,6 +16,7 @@
     <a href="/" {% if page == "overview" %}class="on"{% endif %}>Members</a>
     <a href="/rings" {% if page == "rings" %}class="on"{% endif %}>Rings</a>
     <a href="/monitoring" {% if page == "monitoring" %}class="on"{% endif %}>Monitoring</a>
+    <a href="/graphs" {% if page == "graphs" %}class="on"{% endif %}>Graphs</a>
     <a href="/stats" {% if page == "stats" %}class="on"{% endif %}>Statistics</a>
   </nav>
 </header>
