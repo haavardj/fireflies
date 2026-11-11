@@ -6,9 +6,9 @@ MONITORING_RINGS = 7
 GOSSIP_RINGS = 3
 
 
-def makeCA(ecc=False, name="testgroup"):
+def makeCA(ecc=False, name="testgroup", mRings=MONITORING_RINGS, gRings=GOSSIP_RINGS):
     key = crypto.makePrivateKey(ecc)
-    return crypto.makeCACert(key, name, MONITORING_RINGS, GOSSIP_RINGS), key
+    return crypto.makeCACert(key, name, mRings, gRings), key
 
 
 def makeMember(caCert, caKey, address, sn, ecc=False):

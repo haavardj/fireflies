@@ -157,7 +157,10 @@ class Ring(object):
             return False
        
     def betweenSucc(self, start, stop):
-        """Return all clockwise items between (but not including) start item and stop item."""
+        """Return all clockwise items between (but not including) start item and stop item.
+
+        Raises ValueError if start or stop is not in the ring."""
+        self.index(stop)
         lst = []
         s = self.succ(start)
         while s:
@@ -167,7 +170,10 @@ class Ring(object):
         return lst        
                 
     def betweenPred(self, start, stop):
-        """Return all counter-clockwiste items between (but not including) start and stop."""
+        """Return all counter-clockwise items between (but not including) start and stop.
+
+        Raises ValueError if start or stop is not in the ring."""
+        self.index(stop)
         lst = []
         s = self.pred(start)
         while s:
@@ -206,12 +212,13 @@ class Ring(object):
         
     def succ(self, item, func=lambda x: True):
         """Return the first successor of item for which func evaluates
-        to True. itm is never evaluated. The default func always evaluates to True.
+        to True. The default func always evaluates to True.
 
-        Raises ValueError if item is not in the ring. 
+        The search goes once around the ring and ends at item itself, so
+        item is returned if func is True for item and for no other item.
+        Callers rely on this. Returns None if func is True for no item.
 
-        Returns None if func never evaluates to True.
-        
+        Raises ValueError if item is not in the ring.
         """
         l = len(self.__keylist)
         key = self._sortKey(item)
@@ -225,12 +232,13 @@ class Ring(object):
         return self.__key2itm[key]
     
     def pred(self, item, func=lambda x: True):
-        """Returns the first predecessor of item for which func evaluates to
-        True. itm is never evaluated. The default func always evaluates to True.
+        """Return the first predecessor of item for which func evaluates to
+        True. The default func always evaluates to True.
 
-        Raises ValueError if item is not in the ring. 
+        As for succ, item itself is returned if func is True for item and
+        for no other item. Returns None if func is True for no item.
 
-        Returns None if func never evaluates to True.
+        Raises ValueError if item is not in the ring.
         """
 
         l = len(self.__keylist)
@@ -347,8 +355,10 @@ class RingSet(object):
     def hasItem(self, item):
         return item in self.getItems()
     
-    def hadRing(self, ring):
+    def hasRing(self, ring):
         return ring in self.getRings()
+
+    hadRing = hasRing  # old misspelt name
     
     def itemCount(self):
         return len(self.getItems())
@@ -423,7 +433,8 @@ class RankTable(object):
 
         v = type(self)(0, self.base, self.rings)
         for nr, ring in enumerate(self.rings):
-            v[nr] = min(self[nr], other[nr])           
+            v[nr] = min(self[nr], other[nr])
+        return v
 
     def __isub__(self, other):
         if other.base != self.base:

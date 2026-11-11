@@ -292,18 +292,73 @@ class RankTableTest(unittest.TestCase):
         base = random.choice(self.objs)
         rts = [ring.RankTable(x.pred(base), base, self.rings) for x in self.rings]
 
-        r0 = ring.RankTable(0, base, self.rings)        
+        # rts[nr] holds base's predecessor on ring nr, which has the
+        # maximum rank on that ring. The sum takes the maximum per ring.
+        maxrank = self.rings[0].maxrank
+
+        r0 = ring.RankTable(0, base, self.rings)
         for r in rts:
-            r0 = r0 + r 
-        for nr, rt0 in enumerate(rts):
-            self.assertEqual(self.rings[0].maxrank, rt0[nr])
-            
-        r0 = ring.RankTable(0, base, self.rings)        
+            r0 = r0 + r
+        self.assertEqual(list(r0), [maxrank] * len(self.rings))
+
+        r0 = ring.RankTable(0, base, self.rings)
         for r in rts:
-            r0 += r            
-        for nr, rt0 in enumerate(rts):
-            self.assertEqual(self.rings[0].maxrank, rt0[nr])
+            r0 += r
+        self.assertEqual(list(r0), [maxrank] * len(self.rings))
 
         r0 = reduce(lambda x, y: x+y, rts)
-        for nr, rt0 in enumerate(rts):
-            self.assertEqual(self.rings[0].maxrank, rt0[nr])
+        self.assertEqual(list(r0), [maxrank] * len(self.rings))
+
+    def testRankSubtraction(self):
+        base = random.choice(self.objs)
+        rts = [ring.RankTable(x.pred(base), base, self.rings) for x in self.rings]
+        r0 = reduce(lambda x, y: x - y, rts)
+        self.assertIsNotNone(r0)
+        for nr in range(len(self.rings)):
+            self.assertEqual(r0[nr], min(rt[nr] for rt in rts))
+
+
+class RingHelperTest(unittest.TestCase):
+    """traverse, betweenSucc, betweenPred and the relations, on a ring
+    ordered 0, 1, ..., 9."""
+
+    def setUp(self):
+        self.ring = TestRing()
+        self.objs = [RingObject(x) for x in range(10)]
+        for obj in self.objs:
+            self.ring.insert(obj)
+
+    def sns(self, items):
+        return [x.sn for x in items]
+
+    def testTraverse(self):
+        self.assertEqual(self.sns(self.ring.traverse(self.objs[7])), [8, 9, 0, 1, 2, 3, 4, 5, 6])
+
+    def testTraverseSingleItem(self):
+        r = TestRing()
+        r.insert(self.objs[0])
+        self.assertEqual(list(r.traverse(self.objs[0])), [])
+
+    def testBetweenSucc(self):
+        self.assertEqual(self.sns(self.ring.betweenSucc(self.objs[8], self.objs[2])), [9, 0, 1])
+        self.assertEqual(self.ring.betweenSucc(self.objs[3], self.objs[4]), [])
+
+    def testBetweenPred(self):
+        self.assertEqual(self.sns(self.ring.betweenPred(self.objs[2], self.objs[8])), [1, 0, 9])
+        self.assertEqual(self.ring.betweenPred(self.objs[4], self.objs[3]), [])
+
+    def testBetweenStopNotInRing(self):
+        self.assertRaises(ValueError, self.ring.betweenSucc, self.objs[0], RingObject(99))
+        self.assertRaises(ValueError, self.ring.betweenPred, self.objs[0], RingObject(99))
+
+    def testRelations(self):
+        a, b, c = self.objs[4], self.objs[5], self.objs[6]
+        self.assertTrue(ring.SuccessorRelation(a, b, self.ring).isValid())
+        self.assertFalse(ring.SuccessorRelation(a, c, self.ring).isValid())
+        self.assertTrue(ring.PredecessorRelation(b, a, self.ring).isValid())
+        self.assertFalse(ring.PredecessorRelation(c, a, self.ring).isValid())
+
+    def testSuccReturnsItemWhenOnlyItMatches(self):
+        me = self.objs[3]
+        self.assertIs(self.ring.succ(me, lambda x: x is me), me)
+        self.assertIsNone(self.ring.succ(me, lambda x: False))

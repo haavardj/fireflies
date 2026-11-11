@@ -3,7 +3,6 @@
 import fireflies, os.path, sys, socket
 import fireflies.crypto
 import fireflies.persist
-import sys
 from optparse import OptionParser
 
 

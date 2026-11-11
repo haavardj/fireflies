@@ -109,8 +109,10 @@ class ObserveableMixin:
             del self._observers[o]
         
     def notify(self, *args, **kwargs):
-        for o in list(self._observers or ()):
-            o(*args, **kwargs)
+        """Call each observer with the arguments given to notify, followed
+        by those given when it registered."""
+        for o, (oArgs, oKwargs) in list((self._observers or {}).items()):
+            o(*(args + oArgs), **dict(oKwargs, **kwargs))
         
 
 class TimestampMixin:
@@ -133,7 +135,6 @@ class TimestampMixin:
 
 binomCDF = binomialc
 
-import math
 from math import log, sqrt
 
 

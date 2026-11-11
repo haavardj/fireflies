@@ -579,8 +579,11 @@ class Gossip(Service):
                 self.neighborPool[m] = factory
                 factory.doStart()
             else:
-                assert m in self.neighborPool
-                                
+                # Restart after stopService, which stopped every factory.
+                factory = self.neighborPool[m]
+                if not factory.numPorts:
+                    factory.doStart()
+
         # Add all certificates, notes, and accusations to our data sets.
         self.cSet = X509Set(PARTITION_FACTOR, RECON_EXTRA)
         self.nSet = NoteSet(PARTITION_FACTOR, RECON_EXTRA)

@@ -392,16 +392,18 @@ class FailureDetector(Service):
             self.group.view.addAccusation(accusation)
             self.logger.warning("created %s attack", member)
 
-        elif self.group.badness == 0:
-            #Do not accuse if this node has already made an accusation
-            #on this ring.
+        else:
+            # Correct members (badness 0) and passive attackers (badness 1)
+            # ping alike; a passive attacker never accuses.
             policy = self.getPolicy(member)
 
             if policy.isTimedOut():
 
-                #Passive attack. Do nothing.
+                # Passive attack: stay silent about the timed-out member.
                 if self.group.badness == 1:
                     self.logger.warning("passive %s attack", member)
+                    policy.reset()
+                    self.outstanding.pop(member, None)
                 else:
                     note = member.getNote()
                     assert note is not None, "only live members are monitored"

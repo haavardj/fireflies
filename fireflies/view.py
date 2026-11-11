@@ -82,16 +82,27 @@ def canAccuse(accuser, accused, rings=None):
     if not rings: 
         rings = accused.group.view.mRings
 
-    for ring in rings:
-        if canAccuseOnRing(accuser, accused, ring): 
+    for r in rings:
+        if canAccuseOnRing(accuser, accused, r):
             return True
     return False
 
 class AccusationTable(ring.RankTable):
     """Extends the RankTable with a validity check. Also, items that
-    are not valid accusers of base are given rank 0.    
-    """   
-        
+    are not valid accusers of base are given rank 0.
+
+    On each ring the entry is the accuser's rank relative to the accused
+    if the accuser may accuse on that ring (canAccuseOnRing), otherwise
+    INVALID. An accusation is valid if it is valid on some ring (Rule 8 of
+    the TOCS paper), and accusers are compared only on rings where they
+    are valid.
+    """
+
+    def __init__(self, item, base, rings):
+        ring.RankTable.__init__(self, item, base, rings)
+        if item:
+            self.computeRanks()
+
     @property
     def valid(self):
         """Return true if item can make accusations for base. This means that the ranktable
@@ -99,12 +110,9 @@ class AccusationTable(ring.RankTable):
         return bool([x for x in self if x != self.INVALID])
     
     def computeRanks(self):
-        # Not called anywhere: valid is therefore true for any accuser that
-        # is in the rings. Enforcing Rule 8 of the TOCS paper needs this.
-        for nr, ring in enumerate(self.rings):
-            
-            if canAccuseOnRing(self.item, self.base, ring):
-                self[nr] = ring.rank(self.base, self.item) 
+        for nr, r in enumerate(self.rings):
+            if canAccuseOnRing(self.item, self.base, r):
+                self[nr] = r.rank(self.item, self.base)
             else:
                 self[nr] = self.INVALID
             
@@ -568,14 +576,14 @@ class View:
             # should exist.
                         
             accusedSuccessors = set()            
-            for ring in self.mRings.getRings():
-                x = ring.succ(member)
+            for r in self.mRings.getRings():
+                x = r.succ(member)
                 
                 # this will always terminate. At latest when complete ring has been traversed
                 # and x == member (member.isLive() is always True thus member.isAccused() is False)
                 while x.isAccused(): 
                     accusedSuccessors.add(x)
-                    x = ring.succ(x)
+                    x = r.succ(x)
             
             for accused in accusedSuccessors:
                     

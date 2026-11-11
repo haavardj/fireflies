@@ -112,13 +112,14 @@ def main():
     keyPassword = None if options.nopass else password
         
 
-    # Change user/group
-    if options.user:
-        import pwd
-        os.seteuid(pwd.getpwnam(options.user)[2])
+    # Drop privileges. Change the group first: once the user is no
+    # longer root, the group cannot be changed.
     if options.group:
         import grp
-        os.seteuid(grp.getgrnam(options.group)[2])
+        os.setgid(grp.getgrnam(options.group).gr_gid)
+    if options.user:
+        import pwd
+        os.setuid(pwd.getpwnam(options.user).pw_uid)
        
     # Set logging verbosity
     l = logging.getLogger()
@@ -326,6 +327,7 @@ def main():
         global netErrOld, netErrNew
         netErrNew = fireflies.group.collectStatistic(mgroup)
         diff = netErrNew - netErrOld
+        netErrOld = netErrNew
         if diff.udpR == 0:
             logging.error("No incoming UDP. Exiting")
             reactor.stop()

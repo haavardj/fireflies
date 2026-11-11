@@ -10,7 +10,6 @@ from twisted.internet import task, defer, protocol
 from twisted.internet.protocol import ReconnectingClientFactory, ServerFactory
 from twisted.internet.task import LoopingCall
 from twisted.protocols.basic import Int32StringReceiver
-from twisted.application import service
 
 import logging
 
@@ -246,9 +245,17 @@ class ReconnectingPeerFactory(ReconnectingClientFactory):
             
             hisOutbound = self.service.rings.succ(him, lambda x: x.isLive() or x == me)
             myOutbound = self.service.rings.succ(me, lambda x: x.isLive() or x == him)
-            hisConnectionRing = hisOutbound.index(me)            
+
+            if me not in hisOutbound or him not in myOutbound:
+                # Our views disagree on who is live, so the rings cannot
+                # pick a connection. Keep the one that already exists.
+                protocol.hangup()
+                self.logger.info("clientConnected hangup %s, views differ; keep existing", protocol)
+                return
+
+            hisConnectionRing = hisOutbound.index(me)
             myconnectionRing = myOutbound.index(him)
-             
+
             if hisConnectionRing < myconnectionRing:
                 protocol.hangup()
                 self.logger.info("serverConnected hangup my connection %s, use his", protocol)
@@ -298,11 +305,15 @@ class ReconnectingPeerFactory(ReconnectingClientFactory):
             protocol.hangup()
             self.logger.info("hangup -> %s Already connected as client", him)
         
+        elif him not in myOutbound:
+            # Our views disagree on who is live (see clientConnected).
+            # Keep the existing connection.
+            protocol.hangup()
+            self.logger.info("hangup -> %s views differ; keep existing", him)
+
         else:
-            assert him in myOutbound
-            
-            hisConnectionRing = hisOutbound.index(me)            
-            myconnectionRing = myOutbound.index(him)            
+            hisConnectionRing = hisOutbound.index(me)
+            myconnectionRing = myOutbound.index(him)
             
             if hisConnectionRing < myconnectionRing:
                 oldProtocol = self.connectedProtocol
