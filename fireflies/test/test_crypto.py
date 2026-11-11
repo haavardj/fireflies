@@ -11,16 +11,16 @@ class SubjectKeyIdentifierBugTest(unittest.TestCase):
         self.caKey = crypto.makePrivateRSAKey(callback=noGeygens)
         self.caCert = crypto.makeCACert(self.caKey, "test", 25, 5)         
         self.mKey = crypto.makePrivateRSAKey(callback=noGeygens)
-        self.req = fireflies.crypto.makeRequest(str(0), self.mKey)
-        self.mCert = fireflies.crypto.makeCert(self.req, self.caCert, self.caKey, sn=1)
+        self.req = crypto.makeRequest(str(0), self.mKey)
+        self.mCert = crypto.makeCert(self.req, self.caCert, self.caKey, sn=1)
 
     
     def testAccess(self):
         
         for x in range(10):
             mKey = crypto.makePrivateRSAKey(callback=noGeygens)
-            req = fireflies.crypto.makeRequest(str(x), mKey)
-            mCert = fireflies.crypto.makeCert(req, self.caCert, self.caKey, sn=x + 1)            
+            req = crypto.makeRequest(str(x), mKey)
+            mCert = crypto.makeCert(req, self.caCert, self.caKey, sn=x + 1)            
             mCert.verify(self.caCert.get_pubkey())
             crypto.identityFromCertificate(mCert)
 
@@ -31,8 +31,8 @@ class CertificateTest(unittest.TestCase):
         self.caKey = crypto.makePrivateRSAKey(callback=noGeygens)
         self.caCert = crypto.makeCACert(self.caKey, "test", 25, 5)         
         self.mKey = crypto.makePrivateRSAKey(callback=noGeygens)
-        self.req = fireflies.crypto.makeRequest("127.0.0.1:1", self.mKey)
-        self.mCert = fireflies.crypto.makeCert(self.req, self.caCert, self.caKey, sn=1)
+        self.req = crypto.makeRequest("127.0.0.1:1", self.mKey)
+        self.mCert = crypto.makeCert(self.req, self.caCert, self.caKey, sn=1)
 
     def testRequest(self):
         self.assertTrue(self.req.verify(self.mKey))
@@ -89,13 +89,3 @@ class CertificateTest(unittest.TestCase):
         self.assertTrue(s3.verify(self.caKey))                        
         
         self.assertFalse(s1.verify(self.caKey))
-        
-        
-def main():
-    unittest.main()
-
-
-
-
-if __name__ == "__main__":
-    main()

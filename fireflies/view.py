@@ -21,12 +21,13 @@ as specified by the Fireflies protocol.
 import twisted.internet
 import logging
 import fireflies
-from fireflies.state import Note, Accusation, Member
+from fireflies.state import Note, Accusation, Member, isValidMask
 from fireflies.crypto import identityFromCertificate, shortIdentity
 import fireflies.stats
 from fireflies import ring
 from fireflies import crypto
 from functools import reduce
+from fireflies.util import reactor
 
 LOGDISCARDING=False
 
@@ -86,7 +87,7 @@ def canAccuse(accuser, accused, rings=None):
             return True
     return False
 
-class AccusationTable(fireflies.ring.RankTable):
+class AccusationTable(ring.RankTable):
     """Extends the RankTable with a validity check. Also, items that
     are not valid accusers of base are given rank 0.    
     """   
@@ -98,7 +99,9 @@ class AccusationTable(fireflies.ring.RankTable):
         return bool([x for x in self if x != self.INVALID])
     
     def computeRanks(self):
-        for nr, ring in enumerate(rings):
+        # Not called anywhere: valid is therefore true for any accuser that
+        # is in the rings. Enforcing Rule 8 of the TOCS paper needs this.
+        for nr, ring in enumerate(self.rings):
             
             if canAccuseOnRing(self.item, self.base, ring):
                 self[nr] = ring.rank(self.base, self.item) 
@@ -123,8 +126,6 @@ class View:
         @type group: fireflies.group.Group
         """
 
-        isinstance(group, fireflies.group.Group)
-                
         self.group = group
         self.sn2peer = {} # Maps identity nr's to peer objects.
         
@@ -144,7 +145,7 @@ class View:
         @type member: fireflies.state.Member
         """
         if member in list(self._timers.keys()): raise ValueError("Timer already started.")
-        self._timers[member] = twisted.internet.reactor.callLater(self.group.tRebuttal, self._toRebuttalTimer, member)
+        self._timers[member] = reactor.callLater(self.group.tRebuttal, self._toRebuttalTimer, member)
         
     def _toRebuttalTimer(self, member):
         assert isinstance(member, Member)
@@ -308,13 +309,14 @@ class View:
         member = self.getMemberByIdentity(note.identity)
     
         assert isinstance(member, Member)
-        if member.getNote(): assert member.getNote().identity == note.identity
+        old = member.getNote()
+        if old: assert old.identity == note.identity
                 
         if not note.verify(member.getCertificate().get_pubkey()):
             self.group.stats.notesInvalid += 1
             raise ValueError("Invalid Signature")
         
-        if not fireflies.state.isValidMask(note.mask, self.group.nrMonitoringRings()): 
+        if not isValidMask(note.mask, self.group.nrMonitoringRings()): 
             self.group.stats.notesInvalid += 1
             self.logger.warning("warning: discard %s invalid mask", note)
             raise fireflies.ByzantineError("Invalid mask %s from %s" % (str(note.mask), note))
@@ -332,7 +334,9 @@ class View:
             # from disk during a restart, this could happen. If note is mine, then we rebutt, which will
             # incalidate both of the inconsistent notes.
             
-            if member.getNote().uidstr() != note.uidstr():
+            old = member.getNote()
+            assert old is not None
+            if old.uidstr() != note.uidstr():
                 self.logger.warning("warning: %s note with same epoch but different content.", self.pprint(note))
                 
                 if member == self.group.getMe():
@@ -432,18 +436,19 @@ class View:
             return #ValueError, "Invalid accuser note"
             
         # Check that accusation is recent.
-        if not accused.getNote():
+        accusedNote = accused.getNote()
+        if not accusedNote:
             accuser.stats.accuseByzantine += 1
             accused.stats.accusedByzantine += 1            
             self.logger.warning("warning: discard %s byzantine behaviour", self.pprint(accusation))
             return #ValueError, "Invalid accused note"
         
-        if accusation.epoch < accused.getNote().epoch:
+        if accusation.epoch < accusedNote.epoch:
             self.group.stats.accusationsRedundant += 1
             if LOGDISCARDING: self.logger.debug("discard %s old note", self.pprint(accusation))
             return 
         
-        if accusation.epoch > accused.getNote().epoch:
+        if accusation.epoch > accusedNote.epoch:
             self.group.stats.accusationsInvalid += 1
             self.logger.warning("warning: discard %s newer note", self.pprint(accusation))
             return 
@@ -574,30 +579,30 @@ class View:
             
             for accused in accusedSuccessors:
                     
-                for a in x.getAccusations():
+                for a in list(accused.getAccusations()):
                     isinstance(a, Accusation)
                     accuser = self.getMemberByIdentity(a.accuser)
                     assert accused == self.getMemberByIdentity(a.accused)
                     
-                    at = fireflies.view.AccusationTable(accuser, accused, self.mRings.getRings())
+                    at = AccusationTable(accuser, accused, self.mRings.getRings())
                     
                     # Remove accusations that are no longer valid.
                     # If the accused has no more accusations, then it is considered live. 
                     # This implies that the successor of the accused also must be checked.
-                    if not at.valid():
-                        x.invalidateAccusation(a)
+                    if not at.valid:
+                        accused.invalidateAccusation(a)
                         self.logger.info("del %s invalidated by %s", self.pprint(a), member)
                         
-                        if not x.isAccused():
-                            if x.isFailed():
-                                self._recover(x)
-                                self.logger.info("%s live (accusations invalidated)", x)
-                                self.group.notify("member.recover", x, fireflies.EV_RECOVER_INVALIDATED)
+                        if not accused.isAccused():
+                            if accused.isFailed():
+                                self._recover(accused)
+                                self.logger.info("%s live (accusations invalidated)", accused)
+                                self.group.notify("member.recover", accused, fireflies.EV_RECOVER_INVALIDATED)
                             else:
-                                self._stopRebuttalTimer(x)
+                                self._stopRebuttalTimer(accused)
                                 self.logger.info("%s invalidated", self.pprint(a))
 
-                            check.append(x) 
+                            check.append(accused) 
       
 
     def pprint(self, data):

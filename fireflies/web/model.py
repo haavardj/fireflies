@@ -11,6 +11,7 @@ from twisted.application.service import Service
 from twisted.internet.task import LoopingCall
 
 import fireflies
+import fireflies.stats
 from fireflies.group import collectStatistic
 
 
@@ -185,6 +186,7 @@ class History(Service):
     def __init__(self, group, interval=10, size=360):
         self.group = group
         self.interval = interval
+        self.size = size
         self.samples = collections.deque(maxlen=size)
         self._task = None
 

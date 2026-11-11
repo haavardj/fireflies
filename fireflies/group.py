@@ -23,6 +23,7 @@ from fireflies.crypto import identityFromCertificate
 import fireflies.stats
 import fireflies.protocols
 from fireflies import crypto
+from fireflies.util import reactor
 
 
 
@@ -99,9 +100,6 @@ class Group(MultiService):
             self._myKey,
             self._groupCertificate)
         
-    def getMemberByIdentity(self, fid):
-        return self.view.getMemberByIdentity()
-    
     def getLiveMembers(self):
         """@return: Return an iterable object of all currently live members."""
         return self.view.aRing
@@ -190,7 +188,7 @@ class Group(MultiService):
                 nk.update(k)
                 nk.update(kwargs)
                 na = args + a
-                twisted.internet.reactor.callLater(0, f, name, *na, **nk)
+                reactor.callLater(0, f, name, *na, **nk)
         except KeyError:
             self.logger.error("error: notify %s but no subscribers", name)
             raise
@@ -275,10 +273,10 @@ class Group(MultiService):
         return self._groupCertificate.get_subject().commonName
     
     def nrMonitoringRings(self):
-        return int(self.getGroupCertificate().get_subject().organizationName.split()[0])
+        return self.getGroupCertificate().nrMonitoringRings()
         
     def nrGossipingRings(self):
-        return int(self.getGroupCertificate().get_subject().organizationName.split()[1])
+        return self.getGroupCertificate().nrGossipingRings()
 
     def startService(self):
         self.logger.info("join group %s as %s. Badness=%d", self.getGroupName(), self.getMe(), self.badness)
@@ -287,9 +285,10 @@ class Group(MultiService):
 
     def stopService(self):
         self.logger.info("leave group %s", self.getGroupName())      
-        MultiService.stopService(self)
+        d = MultiService.stopService(self)
         self.stats.leave += 1
         self.nextEpoch()
+        return d
                 
     def getTLSOptions(self):
         """@return: TLS options (a Twisted context factory) for this member."""

@@ -11,6 +11,15 @@ import fireflies.group
 from fireflies import crypto, packer, persist, state, xdr
 from fireflies.test.helpers import makeCA, makeMember
 
+from typing import TYPE_CHECKING, Any
+
+# The mixins below use TestCase methods; tell the type checker so without
+# making them test cases trial would collect.
+if TYPE_CHECKING:
+    _TestCase = unittest.TestCase
+else:
+    _TestCase = object
+
 
 class XDRTest(unittest.TestCase):
 
@@ -46,7 +55,7 @@ class XDRTest(unittest.TestCase):
         self.assertRaises(EOFError, xdr.Unpacker(b"\x00\x00").unpack_uint)
 
 
-class _GroupTestBase:
+class _GroupTestBase(_TestCase):
 
     ecc = False
 
@@ -65,7 +74,7 @@ class _GroupTestBase:
 
     def tearDown(self):
         # Group.notify schedules callbacks; cancel them.
-        from twisted.internet import reactor
+        from fireflies.util import reactor
         for call in reactor.getDelayedCalls():
             call.cancel()
 
@@ -109,7 +118,7 @@ class _GroupStateTests(_GroupTestBase):
 
 class _WireFormatTests(_GroupTestBase):
 
-    def roundTrip(self, cmd, *args):
+    def roundTrip(self, cmd: str, *args: Any) -> Any:
         return packer.unpackMessage(packer.PackMessage(cmd, *args))
 
     def testNote(self):

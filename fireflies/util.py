@@ -16,7 +16,15 @@
 
 
 import math
-import twisted.internet
+from typing import Any
+
+from twisted.internet import reactor as _installedReactor
+
+# The global reactor provides many interfaces (IReactorTime, IReactorTCP,
+# IReactorUDP, ...). Type checkers see the twisted.internet.reactor module
+# instead of the installed reactor object, so expose it untyped here and
+# import it from this module.
+reactor: Any = _installedReactor
 
 
 #
@@ -65,7 +73,7 @@ def bytes_to_long(s):
 class TimeoutMixin:
     
     timeout = 30
-    timer = None
+    timer: Any = None
     
     def startTimer(self):        
         if self.timer: raise ValueError("Timer already started")
@@ -74,7 +82,7 @@ class TimeoutMixin:
             self.timer = None
             self.timedOut()
         
-        self.timer = twisted.internet.reactor.callLater(self.timeout, _d)
+        self.timer = reactor.callLater(self.timeout, _d)
 
     def cancelTimer(self):
         self.timer.cancel()
@@ -89,7 +97,7 @@ class TimeoutMixin:
         
 class ObserveableMixin:
     
-    _observers = None
+    _observers: "dict[Any, Any] | None" = None
     
     def registerObserver(self, o, *args, **kwargs):
         if self._observers == None:
@@ -97,10 +105,11 @@ class ObserveableMixin:
         self._observers[o] = (args, kwargs)
 
     def deregisterObserver(self, o):
-        del self._observers[o]
+        if self._observers is not None:
+            del self._observers[o]
         
     def notify(self, *args, **kwargs):
-        for o in list(self._observers):
+        for o in list(self._observers or ()):
             o(*args, **kwargs)
         
 

@@ -21,16 +21,20 @@ from twisted.application.service import Service
 import twisted.internet
 from fireflies.state import Accusation, Note, Member
 import socket
-from math import *
+from math import log
 
 from . import crypto
 import fireflies
 import fireflies.group
 import fireflies.state
+import fireflies.ring
+import fireflies.view
 import random
 import secrets
 
 from .packer import FirefliesPacker, FirefliesUnpacker
+from fireflies.util import reactor
+from twisted.internet.task import LoopingCall
 
 noisy = 0
 MSG_PING = 0x23
@@ -240,6 +244,8 @@ class FailureDetector(Service):
     
     # Do not accuse a member unless it has been pinged this many times.    
     tmin = 3
+
+    protocol: "PingPong | None" = None
         
 
     def __init__(self, group):
@@ -297,12 +303,12 @@ class FailureDetector(Service):
         
         self.protocol = PingPong()
         self.protocol.factory = self
-        address, port = self.parent.getMe().getAddress().split(":")
+        address, port = self.group.getMe().getAddress().split(":")
         port = int(port)
         self.logger.info("Binding fd to udp %s:%d", address, port)
-        self._udpport = twisted.internet.reactor.listenUDP(port, self.protocol, interface=address)
+        self._udpport = reactor.listenUDP(port, self.protocol, interface=address)
 
-        self._task = twisted.internet.task.LoopingCall(self.update)
+        self._task = LoopingCall(self.update)
         
         #interval = self.roundtime / float(self.group.view.getNumberOfRings())
         self._task.start(5, now=False).addErrback(self._failback)
@@ -315,7 +321,7 @@ class FailureDetector(Service):
         
     def stopService(self):
         Service.stopService(self)
-        address, port = self.parent.getMe().getAddress().split(":")
+        address, port = self.group.getMe().getAddress().split(":")
         port = int(port)
         self.logger.info("Stopping fd on udp %s:%d", address, port)
         
@@ -324,7 +330,7 @@ class FailureDetector(Service):
         #self._task = None
 
         for m,t in list(self.monitoring.items()):
-            assert isinstance(t, twisted.internet.task.LoopingCall)
+            assert isinstance(t, LoopingCall)
             assert isinstance(m, Member)
             t.stop()
         self.monitoring = {}
@@ -347,14 +353,14 @@ class FailureDetector(Service):
         for currentPartner, timer in list(self.monitoring.items()):
             if not currentPartner in myPartners:
                 self.logger.info("Stop monitoring %s", currentPartner)
-                assert isinstance(timer, twisted.internet.task.LoopingCall)
+                assert isinstance(timer, LoopingCall)
                 timer.stop()
                 self.monitoring.pop(currentPartner)
         
         for partner in myPartners:
             if not partner in self.monitoring:
                 self.logger.info("Start monitoring %s", partner)
-                timer = twisted.internet.task.LoopingCall(self.doPing, partner)
+                timer = LoopingCall(self.doPing, partner)
                 timer.start(self.roundtime, now=False).addErrback(self.failPinging, partner)
                 self.monitoring[partner] = timer
             else:
@@ -375,9 +381,9 @@ class FailureDetector(Service):
         #Aggressive attack. Generate accusation.        
         if self.group.badness == 2:
 
-            accusation = Accusation(member.identity,
-                                    member.getNote().epoch,
-                                    me.identity)
+            note = member.getNote()
+            assert note is not None, "only live members are monitored"
+            accusation = Accusation(member.identity, note.epoch, me.identity)
             
  
             accusation.sign(self.group.getMyKey())
@@ -397,7 +403,9 @@ class FailureDetector(Service):
                 if self.group.badness == 1:
                     self.logger.warning("passive %s attack", member)
                 else:
-                    accusation = Accusation(member.identity, member.getNote().epoch, me.identity)
+                    note = member.getNote()
+                    assert note is not None, "only live members are monitored"
+                    accusation = Accusation(member.identity, note.epoch, me.identity)
                     accusation.sign(self.group.getMyKey())
                     self.logger.warning("created %s t=%.2f nPing=%d", accusation, policy.threshold(), policy.nPing)
                     self.group.view.addAccusation(accusation)
@@ -411,6 +419,7 @@ class FailureDetector(Service):
 
                 # If we pinged this peer on a lower ring, we dont ping
                 # again on this ring.
+                assert self.protocol is not None, "pinging while stopped"
                 try:
                     self.protocol.ping(member)
                 except KeyboardInterrupt:
@@ -423,7 +432,7 @@ class FailureDetector(Service):
 
 class PingPong(DatagramProtocol):
 
-    factory = None
+    factory: "FailureDetector"
     
     @property
     def logger(self):
@@ -495,9 +504,11 @@ class PingPong(DatagramProtocol):
         p = int(p)
         
         receiver.group.stats.udpW += len(data)
+        assert self.transport is not None
         self.transport.write(data, (h, p))
 
-    def datagramReceived(self, data, addr):
+    def datagramReceived(self, datagram, addr):
+        data = datagram
         (host, port) = addr
         if not self.factory.running: 
             self.logger.warning("Datagram received while stopped")

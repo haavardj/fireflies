@@ -24,6 +24,11 @@ import fireflies.protocols
 from fireflies.packer import FirefliesPacker, FirefliesUnpacker
 from fireflies.state import Note, Accusation, Member
 import hashlib, inspect
+from twisted.internet.task import LoopingCall
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from fireflies.group import Group
 
 
 PARTITION_FACTOR = 3
@@ -78,7 +83,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
     
     def __init__(self):
         fireflies.protocols.FirefliesProtocol.__init__(self)
-        self.curNode = None
+        self.curNode: Any = None
         self.nodes = []        
         self.dataBuff = []
         self.reqBuff = []
@@ -496,11 +501,10 @@ class Gossip(Service):
     updateInterval = 2.0
     TCPTimeout = 360.0
     
-    rings = None
-    group = None
+    rings: ring.RingSet
+    group: "Group"
         
     def __init__(self, group):
-        isinstance(group, fireflies.group.Group)        
         self.group = group
                 
         self.setServiceParent(group)
@@ -519,7 +523,7 @@ class Gossip(Service):
         
         self.sFactory = fireflies.protocols.PeerServerFactory(self)
         self.sFactory.protocol = ServerProtocol
-        self._task = twisted.internet.task.LoopingCall(self.update)
+        self._task = LoopingCall(self.update)
 
     @property
     def logger(self):

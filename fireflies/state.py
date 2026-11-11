@@ -17,12 +17,17 @@
 import functools
 import random
 
+from typing import TYPE_CHECKING
+
 import twisted.internet.address
 
 import fireflies
 import fireflies.util
 from fireflies import crypto
 from fireflies.crypto import shortIdentity
+
+if TYPE_CHECKING:
+    from fireflies.group import Group
 
 
 def isValidMask(mask, nrMonitoringRings):
@@ -195,14 +200,14 @@ class Member(object):
     
     maxAccusationHistory = 100
 
-    group = None
+    group: "Group"
 
     def __init__(self, cert, group):
 
         if not isinstance(cert, crypto.Certificate): raise TypeError(cert)
 
         self._cert = cert
-        self._note = None
+        self._note: "Note | None" = None
         self.group = group
         self.identity = crypto.identityFromCertificate(self._cert)
                 
@@ -250,11 +255,11 @@ class Member(object):
         @return: The member's network address and port number. 
         @rtype: IP:port string
         """
-        return self._cert.get_subject().L
+        return self._cert.address()
     
     @property
     def address(self):
-        host, port = self._cert.get_subject().L.split(":")
+        host, port = self._cert.address().split(":")
         port = int(port) 
         return twisted.internet.address.IPv4Address("TCP", host, port) 
     
@@ -272,7 +277,7 @@ class Member(object):
         if not self._note: return 0
         else: return self._note.epoch
     
-    def getNote(self):
+    def getNote(self) -> "Note | None":
         """
         @return: The member's most current note or None if no note is set.
         @rtype: L{Note}
@@ -319,8 +324,9 @@ class Member(object):
         p1.reverse()
         p1 = [x[1] for x in p1]
         t = (self.group.nrMonitoringRings() -1) // 2
-        assert self.getNote()
-        assert isValidMask(self.getNote().mask, self.group.nrMonitoringRings())
+        note = self.getNote()
+        assert note is not None
+        assert isValidMask(note.mask, self.group.nrMonitoringRings())
              
         mask = [True] * (2*t + 1)
         disabledRings = 0
@@ -331,15 +337,17 @@ class Member(object):
             
             accuser = self.group.getMemberByIdentity(p1.pop(0).accuser)
             
+            # Imported here: fireflies.view imports this module.
+            from fireflies.view import validPredecessor
             for ring in self.group.view.mRings:
-                if fireflies.view.validPredecessor(accuser, self, ring) and mask[ring.name]:                    
+                if validPredecessor(accuser, self, ring) and mask[ring.name]:                    
                     mask[ring.name] = False
                     disabledRings += 1
                     if disabledRings >= t: break
                     
         
         # Pick remaining rings from old mask.
-        for rnr, enabled in enumerate(self._note.mask):
+        for rnr, enabled in enumerate(note.mask):
             if disabledRings >= t: break
             if enabled: continue
             if mask[rnr]:
@@ -392,8 +400,6 @@ class Member(object):
                 return a
         raise KeyError("No such accuser %s" % member)
         
-    def getPublicKey(self):
-        return self._cert.get_pubkey()
 
     def isFailed(self):
         """

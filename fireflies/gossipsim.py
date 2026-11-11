@@ -24,6 +24,12 @@ import fireflies.protocols
 from fireflies.packer import FirefliesPacker, FirefliesUnpacker
 from fireflies.state import Note, Accusation, Member
 import hashlib
+from fireflies.util import reactor
+from twisted.internet.task import LoopingCall
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from fireflies.group import Group
 
 
 PARTITION_FACTOR = 3
@@ -81,7 +87,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
     
     def __init__(self):
         fireflies.protocols.FirefliesProtocol.__init__(self)
-        self.curNode = None
+        self.curNode: Any = None
         self.nodes = []        
         self.dataBuff = []
         self.reqBuff = []
@@ -287,7 +293,7 @@ class ClientProtocol(GossipBase):
             if task == "dataRequest":
                 self.sendCommand("dataRequest")
         else:
-            self.sendData(msg)
+            raise ValueError("Unknown gossip task %r" % (task,))
 
 
         
@@ -311,11 +317,10 @@ class Gossip(Service):
     rate = 30.0
     TCPTimeout = 360.0
     
-    rings = None
-    group = None
+    rings: ring.RingSet
+    group: "Group"
         
     def __init__(self, group):
-        isinstance(group, fireflies.group.Group)        
         self.group = group
         
         self.setServiceParent(group)
@@ -342,14 +347,14 @@ class Gossip(Service):
             for a in m.getAccusations(): self.aSet.add(a)
 
         #register to receive notification on group updates.
-        self.parent.registerEventHandler("member.crash", self.evMemberNew)        
-        self.parent.registerEventHandler("data.accusation", self.evData)
-        self.parent.registerEventHandler("data.note", self.evData)
-        self.parent.registerEventHandler("data.certificate", self.evData)        
+        self.group.registerEventHandler("member.crash", self.evMemberNew)        
+        self.group.registerEventHandler("data.accusation", self.evData)
+        self.group.registerEventHandler("data.note", self.evData)
+        self.group.registerEventHandler("data.certificate", self.evData)        
 
         self.sFactory = fireflies.protocols.PeerServerFactory(self)
         self.sFactory.protocol = ServerProtocol
-        self._task = twisted.internet.task.LoopingCall(self.update)
+        self._task = LoopingCall(self.update)
 
     @property
     def logger(self):
@@ -459,9 +464,9 @@ class Gossip(Service):
                 #pass
                 assert factory in self.active
                 if factory.connectedProtocol and factory.connectedProtocol.master and not factory.connectedProtocol.taskQ.pending:
-                    twisted.internet.reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.cSet)
-                    twisted.internet.reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.nSet)
-                    twisted.internet.reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.aSet)
+                    reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.cSet)
+                    reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.nSet)
+                    reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.aSet)
                                                 
     def _failback(self, reason):
         self.logger.exception(reason)

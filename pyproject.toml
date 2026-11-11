@@ -40,3 +40,14 @@ packages = ["fireflies", "fireflies.cli", "fireflies.setrecon", "fireflies.test"
 "fireflies.setrecon" = ["*.h", "*.i"]
 "fireflies.web.templates" = ["*.html"]
 "fireflies.web.static" = ["*.css", "*.js", "*.md"]
+
+[tool.pyright]
+include = ["fireflies"]
+exclude = ["fireflies/setrecon/setreconbase.py", "**/__pycache__"]
+pythonVersion = "3.10"
+# The daemon runs on Linux (gossip needs the C++ extension).
+pythonPlatform = "Linux"
+typeCheckingMode = "standard"
+# Modules listed here are held to strict mode. Add a module once it is
+# fully annotated.
+strict = ["fireflies/crypto.py"]

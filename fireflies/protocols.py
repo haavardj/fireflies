@@ -4,8 +4,10 @@
 import twisted
 import twisted.internet
 import twisted.internet.address
-import twisted.internet.reactor
+from typing import Any
+
 from twisted.internet import task, defer, protocol
+from twisted.internet.protocol import ReconnectingClientFactory, ServerFactory
 from twisted.internet.task import LoopingCall
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.application import service
@@ -21,12 +23,13 @@ import fireflies.packer
 import fireflies.state
 import fireflies.stats
 from fireflies import crypto
+from fireflies.util import reactor
 
 debug = False
 noiselevel = 0
 
 # A nicer print function for addresses
-twisted.internet.address.IPv4Address.__str__ = lambda x: "%s:%d" % (x.host, x.port)
+twisted.internet.address.IPv4Address.__str__ = lambda x: "%s:%d" % (x.host, x.port)  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class NoCertificate(Exception):
@@ -44,13 +47,13 @@ def connect(member, factory, timeout=30, bindAddress=None):
     handshake, and against the expected member afterwards in
     L{FirefliesProtocol.handshakeCompleted}."""
     address = member.address
-    return twisted.internet.reactor.connectSSL(address.host, address.port, factory,
+    return reactor.connectSSL(address.host, address.port, factory,
                                                member.group.getTLSOptions(),
                                                timeout, bindAddress)
 
 
 def listen(port, factory, contextFactory, backlog=5, interface='',
-           reactor=twisted.internet.reactor):
+           reactor=reactor):
     """Listen for TLS connections.
 
     contextFactory is a Twisted TLS context factory such as the one
@@ -83,13 +86,16 @@ def makeSSLCtx(certificate, key, ca):
                                   requireCertificate=True)
 
     
-class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactory):
+class ReconnectingPeerFactory(ReconnectingClientFactory):
     """If activated, this factory will always try to maintain an active connection to the specified member.
     It will also handle inbound connections so that only a single inbound or outbound connection will be allowed."""
     
-    connectedProtocol = None
+    connectedProtocol: "FirefliesProtocol | None" = None
     continueTrying = 0
-    service = None
+    # The gossip service (gossip.Gossip or gossipsim.Gossip) and its
+    # protocol class.
+    service: Any = None
+    protocol: Any = None
     maxDelay = 10
     maxRetries = 1000000
     
@@ -104,7 +110,6 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
 
     @property
     def group(self):
-        isinstance(self.member.group, fireflies.group.Group)
         return self.member.group
         
     @property
@@ -150,7 +155,7 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
         if self.connectedProtocol and self.connectedProtocol.master:
             self.hangup()
             #self.connectedProtocol.hangup()
-            #twisted.internet.reactor.callLater(0, self.connectedProtocol.hangup)
+            #reactor.callLater(0, self.connectedProtocol.hangup)
             #self.connectedProtocol = None
 
     #
@@ -167,7 +172,8 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
         else:
             self.logger.info("clientConnectionFailed %s", self.member)
 
-    def clientConnectionLost(self, connector, reason):
+    def clientConnectionLost(self, connector, unused_reason):
+        reason = unused_reason
 
         assert self.numPorts        
         
@@ -208,12 +214,13 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
         assert self.isActive()
         assert self.continueTrying
         
-        fireflies.protocols.connect(self.member, self)
+        connect(self.member, self)
               
     def isConnected(self):
         return bool(self.connectedProtocol)
 
     def hangup(self):
+        assert self.connectedProtocol is not None
         self.connectedProtocol.hangup()
         self.connectedProtocol = None
                 
@@ -312,15 +319,18 @@ class ReconnectingPeerFactory(twisted.internet.protocol.ReconnectingClientFactor
     def getMemberByCertificate(self, x509):
         return self.group.getMemberByCertificate(x509)
 
-    def buildProtocol(self, address):
-        p = self.protocol()
+    def buildProtocol(self, addr):
+        assert self.protocol is not None
+        p: Any = self.protocol()
         p.master = True
         p.factory = self
         return p
 
 
-class PeerServerFactory(twisted.internet.protocol.ServerFactory):
-    
+class PeerServerFactory(ServerFactory):
+
+    protocol: Any = None
+
     def __init__(self, service):
         self.service = service
         
@@ -331,8 +341,8 @@ class PeerServerFactory(twisted.internet.protocol.ServerFactory):
     def connectionLost(self, protocol):
         self.logger.debug("connectionLost %s server", protocol)
 
-    def buildProtocol(self, address):
-        p = twisted.internet.protocol.ServerFactory.buildProtocol(self, address)
+    def buildProtocol(self, addr):
+        p: Any = ServerFactory.buildProtocol(self, addr)
         p.master = False        
         return p
 
@@ -374,6 +384,14 @@ class FirefliesProtocol(Int32StringReceiver):
         FirefliesProtocol.protonr += 1
         isinstance(self.factory, ReconnectingPeerFactory)
         
+    def idle(self):
+        """Called when the connection is idle. Subclasses decide what to do."""
+        raise NotImplementedError
+
+    def gossip(self):
+        """Start a gossip round. Implemented by client-side subclasses."""
+        raise NotImplementedError
+
     def doIdle(self):
         assert self.group
         if self.connected and self.factory and self.transport and self.state != self.STATE_TERMINATED:            
@@ -409,15 +427,16 @@ class FirefliesProtocol(Int32StringReceiver):
     def handshakeCompleted(self):
         """Called by Twisted when the TLS handshake is done. The peer's
         certificate chain has been verified against the group CA."""
+        transport: Any = self.transport
         try:
-            peer = self.transport.getPeerCertificate()
+            peer = transport.getPeerCertificate()
             if peer is None:
                 raise NoCertificate("peer did not return certificate")
             self.postConnectionCheck(crypto.Certificate(peer.to_cryptography()),
-                                     self.transport.getPeer())
+                                     transport.getPeer())
         except Exception as why:
             self.logger.warning("post connection check failed %s: %s", self, why)
-            self.transport.abortConnection()
+            transport.abortConnection()
 
     def postConnectionCheck(self, x509, host):
         self.group.view.addCertificate(x509)
@@ -436,7 +455,7 @@ class FirefliesProtocol(Int32StringReceiver):
         
         if self.master:
             self.logger.debug("postconnection check master=1")
-            twisted.internet.reactor.callLater(0, self._sendPartner, self.group.getMe().getNote())
+            reactor.callLater(0, self._sendPartner, self.group.getMe().getNote())
         else:
             self.logger.debug("postconnection check master=0. set timeout")
             self.setTimeout()          
@@ -446,7 +465,7 @@ class FirefliesProtocol(Int32StringReceiver):
         assert self.group
         self.logger.debug("FirefliesProtocol.connectionMade %s master=%s", self, self.master)
 
-    def connectionLost(self, reason):
+    def connectionLost(self, reason: Any = protocol.connectionDone):
         self.state = self.STATE_TERMINATED
         try:
             if self._timer: self.cancelTimeout()
@@ -454,7 +473,8 @@ class FirefliesProtocol(Int32StringReceiver):
             raise
         self.factory.connectionLost(self)
 
-    def dataReceived(self, recd):
+    def dataReceived(self, data):
+        recd = data
         if self.state == self.STATE_TERMINATED:
             self.logger.warning("traffic after hangup.")
             return
@@ -467,7 +487,8 @@ class FirefliesProtocol(Int32StringReceiver):
         self.stats.tcpR += len(recd)      
         return Int32StringReceiver.dataReceived(self, recd)
 
-    def sendString(self, data):
+    def sendString(self, string):
+        data = string
         if self.state == self.STATE_TERMINATED:
             self.logger.warning("traffic after hangup.")
             return        
@@ -484,7 +505,8 @@ class FirefliesProtocol(Int32StringReceiver):
         except Exception as why:
             self.logger.exception("Exception: Unable to send command %s. %s", cmd, why)
             
-    def stringReceived(self, data):
+    def stringReceived(self, string):
+        data = string
         assert self.factory
         assert self.group.running
                 
@@ -523,7 +545,7 @@ class FirefliesProtocol(Int32StringReceiver):
     def setTimeout(self):
         if self._timer and self._timer.active():
             raise Exception("Timer already set.")
-        self._timer = twisted.internet.reactor.callLater(self.connectionTimeout, self.timedout)
+        self._timer = reactor.callLater(self.connectionTimeout, self.timedout)
 
     def cancelTimeout(self):
         assert self._timer and self._timer.active()        
@@ -540,7 +562,7 @@ class FirefliesProtocol(Int32StringReceiver):
         
         if (major, minor, patchlevel) > fireflies.protocol_version:
             self.logger.warning("version <- %s Version error. I have an old version. Exiting.", self)
-            twisted.internet.reactor.callLater(2, twisted.internet.reactor.stop)
+            reactor.callLater(2, reactor.stop)
         elif (major, minor, patchlevel) < fireflies.protocol_version:
             self.logger.warning("version <- %s Version error. Other have an old version.", self)
             
@@ -557,7 +579,7 @@ class FirefliesProtocol(Int32StringReceiver):
         self.cancelTimeout()
         self.logger.info("accepted <- %s", self)
         self.factory.clientConnected(self)
-        twisted.internet.reactor.callLater(0, self.doIdle)
+        reactor.callLater(0, self.doIdle)
         
     def handle_redirect(self, data):
         self.cancelTimeout()
@@ -579,7 +601,7 @@ class FirefliesProtocol(Int32StringReceiver):
     def accept(self):
         self.logger.debug("accepted -> %s", self)
         self.sendCommand("accepted")
-        twisted.internet.reactor.callLater(0, self.doIdle)
+        reactor.callLater(0, self.doIdle)
             
     def handle_partner(self, hisNote):
         

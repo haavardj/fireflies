@@ -105,7 +105,7 @@ class Store:
 
     def filenameCertificate(self, cert):
         if not isinstance(cert, crypto.Certificate): raise ValueError(cert)
-        name = cert.get_subject().L
+        name = cert.address()
         if os.name == "nt":
             # A colon in a Windows file name opens an NTFS data stream.
             name = name.replace(":", "_")

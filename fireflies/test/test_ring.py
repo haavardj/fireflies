@@ -8,8 +8,6 @@ import functools
 import random
 from functools import reduce
 
-def main():
-    unittest.main()
 
 
 @implementer(IIdentifiableObject)
@@ -138,24 +136,23 @@ class RingQueryTest(unittest.TestCase):
         for j in self.ring:
             i = self.ring.pred(j)
             k = self.ring.succ(j)
-                    
-        if len(self.ring) < 3:
-            self.assertFalse(self.ring.isBetween(i, j, k))
-            self.assertFalse(self.ring.isBetween(j, k, i))
-            self.assertFalse(self.ring.isBetween(k, i, j))            
 
-            self.assertFalse(self.ring.isBetween(k, j, i)  )
-            self.assertFalse(self.ring.isBetween(j, i, k)  )
-            self.assertFalse(self.ring.isBetween(i, k, j)  )
-        else:
-            
-            self.assertTrue(self.ring.isBetween(i, j, k))
-            self.assertTrue(self.ring.isBetween(j, k, i))
-            self.assertTrue(self.ring.isBetween(k, i, j))            
-            
-            self.assertFalse(self.ring.isBetween(k, j, i)  )
-            self.assertFalse(self.ring.isBetween(j, i, k)  )
-            self.assertFalse(self.ring.isBetween(i, k, j)  )
+            if len(self.ring) < 3:
+                self.assertFalse(self.ring.isBetween(i, j, k))
+                self.assertFalse(self.ring.isBetween(j, k, i))
+                self.assertFalse(self.ring.isBetween(k, i, j))
+
+                self.assertFalse(self.ring.isBetween(k, j, i))
+                self.assertFalse(self.ring.isBetween(j, i, k))
+                self.assertFalse(self.ring.isBetween(i, k, j))
+            else:
+                self.assertTrue(self.ring.isBetween(i, j, k))
+                self.assertTrue(self.ring.isBetween(j, k, i))
+                self.assertTrue(self.ring.isBetween(k, i, j))
+
+                self.assertFalse(self.ring.isBetween(k, j, i))
+                self.assertFalse(self.ring.isBetween(j, i, k))
+                self.assertFalse(self.ring.isBetween(i, k, j))
         
     def testNothingIsBetweenItemAndItself(self):
         
@@ -309,9 +306,4 @@ class RankTableTest(unittest.TestCase):
 
         r0 = reduce(lambda x, y: x+y, rts)
         for nr, rt0 in enumerate(rts):
-            self.assertEqual(self.rings[0].maxrank, rt0[nr])           
-                            
-    
-    
-if __name__ == "__main__":
-    main()
+            self.assertEqual(self.rings[0].maxrank, rt0[nr])

@@ -31,6 +31,15 @@ python -m twisted.trial fireflies.test.test_ring.NumberedRingQueryTest.testPred 
 
 `test_setrecon` skips itself when the extension is not built, `test_web` when Klein is missing. `test_tls` runs real TLS handshakes over loopback. `test_wire` covers the wire format, group state and persistence for both RSA and EC keys. `test_fd` covers the timeout policy and pong authentication, including forged and replayed pongs. Gossip has no unit tests; check it by running a group in WSL (see README "Running a test group").
 
+Type checking uses pyright (Pylance in VS Code reads the same config, `[tool.pyright]` in `pyproject.toml`): standard mode for the package, strict for modules listed in `strict` (now only `crypto.py`). It overrides a user-level strict setting. Analysis assumes Linux. Keep it at zero errors:
+
+```sh
+pip install pyright
+pyright --pythonpath .venv/Scripts/python.exe    # or .venv/bin/python
+```
+
+Use `from fireflies.util import reactor` instead of `from twisted.internet import reactor`: pyright cannot type the installed reactor and reports its methods as unbound. Annotate a module fully before adding it to `strict`.
+
 ## Running a group
 
 The tools are console scripts declared in `pyproject.toml` (`[project.scripts]`); their code is in [fireflies/cli/](fireflies/cli/), one module per tool with a `main()`. Key passwords: `--password`, `--nopass`, or a terminal prompt.

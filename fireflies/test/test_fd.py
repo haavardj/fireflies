@@ -2,7 +2,7 @@
 
 import random
 
-from twisted.internet import reactor
+from fireflies.util import reactor
 from twisted.trial import unittest
 
 import fireflies

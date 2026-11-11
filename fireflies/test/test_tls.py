@@ -8,18 +8,30 @@ from zope.interface import implementer
 from fireflies import crypto, protocols
 from fireflies.test.helpers import makeCA, makeMember
 
+from typing import TYPE_CHECKING, Any
+
+# The mixins below use TestCase methods; tell the type checker so without
+# making them test cases trial would collect.
+if TYPE_CHECKING:
+    _TestCase = unittest.TestCase
+else:
+    _TestCase = object
+
 
 @implementer(IHandshakeListener)
 class Probe(protocol.Protocol):
     """Reports the peer certificate after the handshake, or the failure."""
 
+    factory: Any
+
     def handshakeCompleted(self):
-        peer = self.transport.getPeerCertificate()
+        transport: Any = self.transport
+        peer = transport.getPeerCertificate()
         if not self.factory.result.called:
             self.factory.result.callback(crypto.Certificate(peer.to_cryptography()))
-        self.transport.loseConnection()
+        transport.loseConnection()
 
-    def connectionLost(self, reason):
+    def connectionLost(self, reason: Any = protocol.connectionDone):
         if not self.factory.result.called:
             self.factory.result.errback(reason)
 
@@ -35,7 +47,7 @@ class ProbeFactory(protocol.ClientFactory):
             self.result.errback(reason)
 
 
-class _TLSTests:
+class _TLSTests(_TestCase):
 
     ecc = False
 

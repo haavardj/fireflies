@@ -2,6 +2,7 @@
 
 import json
 import time
+from typing import Any
 from importlib import resources
 
 from jinja2 import Environment, PackageLoader, select_autoescape
@@ -66,7 +67,7 @@ class WebUI:
     def graphs(self, request):
         return self.render(request, "graphs.html", page="graphs", refresh=None,
                            interval=self.history.interval,
-                           span=self.history.interval * self.history.samples.maxlen)
+                           span=self.history.interval * self.history.size)
 
     @app.route("/api/history")
     def apiHistory(self, request):
@@ -84,7 +85,7 @@ class WebUI:
         return json.dumps({s["name"]: s["value"] for s in model.stats(self.group)}, indent=1)
 
     @app.route("/static/", branch=True)
-    def static(self, request):
+    def static(self, request: Any) -> Any:
         return File(str(resources.files("fireflies.web") / "static"))
 
 
@@ -92,7 +93,7 @@ def listen(group, port, interface="127.0.0.1"):
     """Serve the web UI for group on interface:port. The history sampler
     runs as a child service of group, so it starts and stops with it.
     Returns the listening port; its webui attribute is the WebUI."""
-    from twisted.internet import reactor
+    from fireflies.util import reactor
     from twisted.web.server import Site
 
     ui = WebUI(group)

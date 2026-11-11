@@ -20,13 +20,14 @@ def _ringIterator(ring, start=0):
         x = ring[idx]
         yield x
         
-def __ringTraverse(ring, idx):
+def _ringTraverse(ring, start):
+    """Yield the items after index start, wrapping around, up to but not
+    including the item at start."""
     l = len(ring)
     idx = (start + 1) % l
-    while 1:
+    while idx != start:
         yield ring[idx]
         idx = (idx + 1) % l
-        if idx == start: break
 
         
         
@@ -62,9 +63,10 @@ class Ring(object):
         return _ringIterator(self, 0)
 
     def traverse(self, item):
-        """Iterates the ring starting at item's successor."""
-        idx = self.__keylist.index(self._sortKey(item))        
-        return __ringIterator(self, idx)
+        """Iterate the ring from item's successor around to item's
+        predecessor."""
+        idx = self.__keylist.index(self._sortKey(item))
+        return _ringTraverse(self, idx)
 
     def __len__(self):
         """Return the number of items in the ring."""
@@ -157,7 +159,7 @@ class Ring(object):
     def betweenSucc(self, start, stop):
         """Return all clockwise items between (but not including) start item and stop item."""
         lst = []
-        s = self.succ(item)
+        s = self.succ(start)
         while s:
             if s.identity == stop.identity: break
             lst.append(s)
@@ -167,7 +169,7 @@ class Ring(object):
     def betweenPred(self, start, stop):
         """Return all counter-clockwiste items between (but not including) start and stop."""
         lst = []
-        s = self.pred(item)
+        s = self.pred(start)
         while s:
             if s.identity == stop.identity: break
             lst.append(s)
@@ -185,7 +187,7 @@ class Ring(object):
             if s.identity == start.identity: break
             if stopFunc(s): break
             lst.append(s)
-            s = self.ped(s)
+            s = self.pred(s)
         return lst        
         
     def collectSucc(self, start, stopFunc):
@@ -374,6 +376,7 @@ class RankTable(object):
     INVALID = 0
     
     def __init__(self, item, base, rings):
+        self.item = item
         self.base = base
         self.rings = rings
         self.values = [self.INVALID] * len(self.rings)
@@ -528,18 +531,18 @@ class Relation:
     def __ge__(self, other):
         return self.rank() >= other.rank()
 
-    __hash__ = None
+    __hash__ = None  # pyright: ignore[reportAssignmentType]  # unhashable: equality is by rank
 
 class SuccessorRelation(Relation):
     """Rule determining if two an item is the successor of another item in a ring."""
     
     def isValid(self):
-        return self.ring.succ(item) == self.otherItem
+        return self.ring.succ(self.item) == self.otherItem
                 
 class PredecessorRelation(Relation):
     """Rule determining if two an item is the predecessor of another item in a ring."""
     
     def isValid(self):
-        return self.ring.pred(item) == self.otherItem
+        return self.ring.pred(self.item) == self.otherItem
 
         

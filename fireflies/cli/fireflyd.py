@@ -4,7 +4,8 @@ import warnings
 
 warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 
-from twisted.internet import reactor, task
+from twisted.internet import task
+from fireflies.util import reactor
 import errno, random, sys, os.path, logging, socket, os
 import logging.handlers
 import fireflies
@@ -215,10 +216,10 @@ def main():
             if not groupCert.verify(groupKey): raise ValueError("CA cert and CA key do not match.")
 
             if options.ecc:
-                myKey = fireflies.crypto.makePrivateECKey()
+                myKey = crypto.makePrivateECKey()
             else:            
-                myKey = fireflies.crypto.makePrivateRSAKey()
-            req = fireflies.crypto.makeRequest(myAddress, myKey)
+                myKey = crypto.makePrivateRSAKey()
+            req = crypto.makeRequest(myAddress, myKey)
             myCert = store.newMemberCertificate(req, groupKey)          
             assert myCert.verify(groupKey)
             #print myCert.as_text()

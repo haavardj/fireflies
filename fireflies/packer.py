@@ -18,13 +18,17 @@ from fireflies.util import long_to_bytes, bytes_to_long
 from fireflies import crypto, xdr
 import socket
 import binascii
+from typing import TYPE_CHECKING
 
 # The set reconciliation extension is only needed for the gossip
 # messages. Everything else works without it.
-try:
+if TYPE_CHECKING:
     from fireflies import setrecon
-except ImportError:
-    setrecon = None
+else:
+    try:
+        from fireflies import setrecon
+    except ImportError:
+        setrecon = None
 
 
 SERIAL_LENGTH = identitySize()
@@ -43,7 +47,7 @@ class Broker:
             
     def register(self, uid, lobj):
         if uid in self._uid2lobj:
-            assert obj in self._lobj2uid
+            assert lobj in self._lobj2uid
             raise KeyError(uid, lobj)
         else:
             assert not lobj in self._lobj2uid        

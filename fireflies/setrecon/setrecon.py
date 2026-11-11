@@ -17,6 +17,7 @@ from .setreconbase import *
 from . import setreconbase as _base
 from fireflies.util import long_to_bytes, bytes_to_long
 import hashlib
+from typing import Any
 
 
 #
@@ -44,12 +45,12 @@ def _zz_op(test):
 
 ZZ.__eq__ = _zz_op(lambda c: c == 0)
 ZZ.__ne__ = _zz_op(lambda c: c != 0)
-ZZ.__lt__ = _zz_op(lambda c: c < 0)
-ZZ.__le__ = _zz_op(lambda c: c <= 0)
-ZZ.__gt__ = _zz_op(lambda c: c > 0)
-ZZ.__ge__ = _zz_op(lambda c: c >= 0)
+ZZ.__lt__ = _zz_op(lambda c: c < 0)  # pyright: ignore[reportAttributeAccessIssue]
+ZZ.__le__ = _zz_op(lambda c: c <= 0)  # pyright: ignore[reportAttributeAccessIssue]
+ZZ.__gt__ = _zz_op(lambda c: c > 0)  # pyright: ignore[reportAttributeAccessIssue]
+ZZ.__ge__ = _zz_op(lambda c: c >= 0)  # pyright: ignore[reportAttributeAccessIssue]
 ZZ.__hash__ = lambda self: hash(str(self))
-ZZ.__truediv__ = ZZ.__div__
+ZZ.__truediv__ = ZZ.__div__  # pyright: ignore[reportAttributeAccessIssue]
 
 _zzp_eq = ZZ_p.__eq__
 
@@ -62,10 +63,10 @@ def _zzp_notequal(self, other):
     r = _zzp_equal(self, other)
     return r if r is NotImplemented else not r
 
-ZZ_p.__eq__ = _zzp_equal
+ZZ_p.__eq__ = _zzp_equal  # pyright: ignore[reportAttributeAccessIssue]
 ZZ_p.__ne__ = _zzp_notequal
 ZZ_p.__hash__ = lambda self: hash(str(self))
-ZZ_p.__truediv__ = ZZ_p.__div__
+ZZ_p.__truediv__ = ZZ_p.__div__  # pyright: ignore[reportAttributeAccessIssue]
 
 initialized = False
 bitsize = 0
@@ -147,7 +148,7 @@ class Reconciliation:
         
         
     def update(self, n):
-        c = self.current
+        c: Any = self.current
         
         if isEmptyNode(n) and isEmptyNode(c): return
     
@@ -346,9 +347,6 @@ class ReconSet:
         self._data = {}
         self.p = p
 
-    def create_node(self):
-        return self._recon.create_node()
-    
     def items(self):
         return list(self._data.values())
 
@@ -397,11 +395,11 @@ class ReconSet:
     add = insert
         
     def hash(self):
-        hsh = hashlib.new()
+        hsh = hashlib.sha1()
         n = self.getRootPartition()
         hv = [str(x) for x in n.hash_vector]
         hv.sort()
-        for x in hv: hsh.update(x)
+        for x in hv: hsh.update(x.encode())
         return hsh.digest()
         
     def remove(self, elm):
@@ -458,13 +456,10 @@ def iterChildren(node, p):
     for x in range(p):
         yield node.getChild(x)
 
-def iterZZ(zz):
-    for x in zz_length(zz):
-        yield zz_getItem(zz, x)
      
 def dottySet(s):
     
-    import pydot
+    import pydot  # pyright: ignore[reportMissingImports]  # optional, for debugging
 
     dot = pydot.Dot()
     p = s.getRootPartition()

@@ -1,13 +1,18 @@
 from twisted.trial import unittest
 import random
 
-try:
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
     from fireflies import setrecon
-except ImportError:
-    setrecon = None
+else:
+    try:
+        from fireflies import setrecon
+    except ImportError:
+        setrecon = None
 
 try:
-    import pydot
+    import pydot  # pyright: ignore[reportMissingImports]
 except ImportError:
     pydot = None
 

@@ -2,7 +2,7 @@
 
 import json
 
-from twisted.internet import reactor
+from fireflies.util import reactor
 from twisted.trial import unittest
 from twisted.web.client import Agent, readBody
 
