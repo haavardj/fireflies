@@ -1,2 +1,4 @@
 recursive-include fireflies/setrecon *.h *.i *.cpp
+recursive-include fireflies/web/templates *.html
+recursive-include fireflies/web/static *.css
 include README.md LICENCE fireflies/setrecon/COPYING

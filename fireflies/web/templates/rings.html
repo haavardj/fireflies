@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "_macros.html" import link %}
+{% block title %}Rings{% endblock %}
+{% block content %}
+<p class="muted">Members of each monitoring ring in ring order. Each member monitors its successor, the next row down.</p>
+<div class="rings">
+{% for r in rings %}
+  <table class="ring">
+    <caption>Ring {{ r.nr }}</caption>
+    <tbody>
+    {% for m in r.members %}
+      <tr><td><span class="dot {{ m.status }}" title="{{ m.status }}"></span>{{ link(m) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% endfor %}
+</div>
+{% endblock %}

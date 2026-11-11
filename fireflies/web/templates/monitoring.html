@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status, link %}
+{% block title %}Monitoring{% endblock %}
+{% block content %}
+<h2>Members this member pings</h2>
+{% if data.targets %}
+<table>
+  <thead><tr><th>Member</th><th>Status</th><th class="r">Unanswered pings</th><th class="r">Threshold τ</th><th class="r">Avg. pings per pong</th><th class="r">Outstanding nonces</th></tr></thead>
+  <tbody>
+  {% for t in data.targets %}
+    <tr>
+      <td>{{ link(t.member) }}</td>
+      <td>{{ status(t.member.status) }}</td>
+      <td class="r">{{ t.unanswered }}</td>
+      <td class="r">{{ "%.1f"|format(t.threshold) if t.threshold is not none else "–" }}</td>
+      <td class="r">{{ "%.3f"|format(t.avgLoss) if t.avgLoss is not none else "–" }}</td>
+      <td class="r">{{ t.outstanding }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="muted">Not monitoring anyone.</p>{% endif %}
+
+<h2>Gossip partners</h2>
+{% if data.gossip %}
+<table>
+  <thead><tr><th>Member</th><th>Status</th><th>Chosen partner</th><th>Connection</th><th>State</th></tr></thead>
+  <tbody>
+  {% for g in data.gossip %}
+    <tr>
+      <td>{{ link(g.member) }}</td>
+      <td>{{ status(g.member.status) }}</td>
+      <td>{{ "yes" if g.active else "no" }}</td>
+      <td>{{ {"out": "outbound", "in": "inbound"}.get(g.direction, "–") }}</td>
+      <td>{{ g.state }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="muted">No gossip connections.</p>{% endif %}
+{% endblock %}

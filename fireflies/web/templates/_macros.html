@@ -1,0 +1,7 @@
+{% macro status(s) -%}
+<span class="dot {{ s }}" title="{{ s }}"></span>{{ s }}
+{%- endmacro %}
+
+{% macro link(m) -%}
+<a href="/member/{{ m.identity }}" title="{{ m.identity }}">{% if m.me %}<b>{{ m.address }}</b>{% else %}{{ m.address }}{% endif %}</a>
+{%- endmacro %}

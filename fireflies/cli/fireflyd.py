@@ -92,6 +92,10 @@ def main():
     parser.add_option("--ec", 
                       dest="ecc", default=False, action="store_true",
                       help="Use elliptic curve crypto.")
+    parser.add_option("--web", dest="webPort", type="int", default=None, metavar="PORT",
+                      help="Serve the web UI on PORT. Needs pip install fireflies[web].")
+    parser.add_option("--web-address", dest="webAddress", default="127.0.0.1", metavar="ADDRESS",
+                      help="Bind the web UI to ADDRESS. Defaults to 127.0.0.1.")
 
 
     (options, args) = parser.parse_args()
@@ -369,6 +373,15 @@ def main():
     writeStateTask = task.LoopingCall(doWriteState)
     writeStateTask.start(10*60, False)
   
+
+    if options.webPort:
+        try:
+            from fireflies.web import app as webapp
+        except ImportError as why:
+            print("The web UI needs klein and jinja2: pip install fireflies[web]", why)
+            sys.exit(1)
+        webapp.listen(mgroup, options.webPort, options.webAddress)
+        logging.info("Web UI on http://%s:%d/", options.webAddress, options.webPort)
 
     reactor.callLater(0, mgroup.startService)
 

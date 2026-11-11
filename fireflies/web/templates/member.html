@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status, link %}
+{% block title %}{{ data.member.address }}{% endblock %}
+{% block content %}
+<h1>{{ data.member.address }}</h1>
+<dl class="facts">
+  <dt>Status</dt><dd>{{ status(data.member.status) }}{% if data.rebuttalPending %}, rebuttal timer running{% endif %}</dd>
+  <dt>Identity</dt><dd><code>{{ data.member.identity }}</code></dd>
+  <dt>Name</dt><dd>{{ data.member.name or "–" }}</dd>
+  <dt>Epoch</dt><dd>{{ data.member.epoch if data.member.epoch is not none else "no note" }}</dd>
+  <dt>Ring mask</dt><dd class="mask">{% for bit in data.mask %}<span class="{{ 'on' if bit else 'off' }}" title="ring {{ loop.index0 }}: {{ 'enabled' if bit else 'disabled' }}"></span>{% else %}–{% endfor %}</dd>
+</dl>
+
+<h2>Accusations</h2>
+{% if data.accusations %}
+<table>
+  <thead><tr><th>Accuser</th><th>Status</th><th class="r">Accused epoch</th></tr></thead>
+  <tbody>
+  {% for a in data.accusations %}
+    <tr><td>{{ link(a.accuser) }}</td><td>{{ status(a.accuser.status) }}</td><td class="r">{{ a.epoch }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="muted">None.</p>{% endif %}
+
+<h2>Neighbours on the monitoring rings</h2>
+<table>
+  <thead><tr><th class="r">Ring</th><th>Monitored</th><th>Predecessor (monitor)</th><th>Successor</th></tr></thead>
+  <tbody>
+  {% for r in data.rings %}
+    <tr>
+      <td class="r">{{ r.nr }}</td>
+      <td>{{ "yes" if r.enabled else "disabled" }}</td>
+      <td>{{ status(r.pred.status) }} {{ link(r.pred) }}</td>
+      <td>{{ status(r.succ.status) }} {{ link(r.succ) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<details>
+  <summary>Certificate</summary>
+  <pre>{{ data.certificate }}</pre>
+</details>
+{% endblock %}

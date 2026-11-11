@@ -18,6 +18,9 @@ dependencies = [
     "service-identity>=24",
 ]
 
+[project.optional-dependencies]
+web = ["klein>=24.8", "jinja2>=3.1"]
+
 [project.urls]
 Homepage = "https://github.com/haavardj/fireflies"
 Paper = "https://doi.org/10.1145/2701418"
@@ -30,7 +33,10 @@ ffcasign = "fireflies.cli.ffcasign:main"
 ffcamember = "fireflies.cli.ffcamember:main"
 
 [tool.setuptools]
-packages = ["fireflies", "fireflies.cli", "fireflies.setrecon", "fireflies.test"]
+packages = ["fireflies", "fireflies.cli", "fireflies.setrecon", "fireflies.test",
+            "fireflies.web", "fireflies.web.templates", "fireflies.web.static"]
 
 [tool.setuptools.package-data]
 "fireflies.setrecon" = ["*.h", "*.i"]
+"fireflies.web.templates" = ["*.html"]
+"fireflies.web.static" = ["*.css"]

@@ -90,6 +90,19 @@ Each daemon finds the certificate for its own address, loads the matching key an
 
 `ffcanew` takes `-p` (*p*<sub>corrupt</sub>, default 0.20), `-s` (maximum group size *N*, default 1000) and `-e` (ε, default 0.99), and computes the ring counts from them. `--ec` selects ECDSA P-256 keys instead of RSA-2048.
 
+## Web UI
+
+A member can serve its view as web pages: the members and their status, the monitoring rings, the members it pings with their timeout state, its gossip partners, and its statistics. Install the extra dependencies, then pass `--web` to `fireflyd`:
+
+```sh
+pip install -e ".[web]"
+fireflyd --nopass -a 127.0.0.1 -p 15001 --web 8001 ca
+```
+
+Open <http://127.0.0.1:8001/>. The UI binds to 127.0.0.1 unless you pass `--web-address`. It has no authentication, so do not expose it to untrusted networks. `/api/members` and `/api/stats` return the same data as JSON.
+
+The UI uses [Klein](https://github.com/twisted/klein) and [Jinja2](https://jinja.palletsprojects.com/). Klein runs on the Twisted reactor, so pages read the member's state directly, without threads or locks.
+
 ## Running a real group
 
 In a real deployment, member keys never leave the member:

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Statistics{% endblock %}
+{% block content %}
+<p class="muted">Counters since start, summed over the group and all members. Also as JSON at <a href="/api/stats">/api/stats</a>.</p>
+<table>
+  <thead><tr><th>Counter</th><th class="r">Value</th><th>Meaning</th></tr></thead>
+  <tbody>
+  {% for s in stats %}
+    <tr><td><code>{{ s.name }}</code></td><td class="r">{{ s.shown }}</td><td>{{ s.doc }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
