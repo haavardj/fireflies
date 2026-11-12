@@ -18,7 +18,7 @@ from fireflies.util import long_to_bytes, bytes_to_long
 from fireflies import crypto, xdr
 import socket
 import binascii
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Sequence
 
 # The set reconciliation extension is only needed for the gossip
 # messages. Everything else works without it.
@@ -35,17 +35,15 @@ SERIAL_LENGTH = identitySize()
 HASH_LENGTH = identitySize()
 
 
-_ctxs = {} 
+class Referenceable:
+    def uid(self) -> "str | None": pass
 
-class Referenceable:    
-    def uid(self): pass
-    
 class Broker:
-    def __init__(self):
-        self._uid2lobj = {}
-        self._lobj2uid = {}
-            
-    def register(self, uid, lobj):
+    def __init__(self) -> None:
+        self._uid2lobj: dict[str, object] = {}
+        self._lobj2uid: dict[object, str] = {}
+
+    def register(self, uid: str, lobj: object) -> None:
         if uid in self._uid2lobj:
             assert lobj in self._lobj2uid
             raise KeyError(uid, lobj)
@@ -54,26 +52,26 @@ class Broker:
         self._uid2lobj[uid] = lobj
         self._lobj2uid[lobj] = uid
 
-    def resolve(self, uid):
+    def resolve(self, uid: str) -> object:
         return self._uid2lobj[uid]
-    
-    def rresolve(self, obj):
+
+    def rresolve(self, obj: object) -> str:
         return self._lobj2uid[obj]
-        
-def getBroker(ctx=""):
+
+_ctxs: dict[str, Broker] = {}
+
+def getBroker(ctx: str = "") -> Broker:
     if not ctx in _ctxs:
         _ctxs[ctx] = Broker()
-    b = _ctxs[ctx]
-    isinstance(b, Broker)
-    return b
+    return _ctxs[ctx]
 
-def resolve(uid):
+def resolve(uid: str) -> object:
     return getBroker().resolve(uid)
 
-def rresolve(obj):
-    return getBroker().resolve(obj)
+def rresolve(obj: object) -> str:
+    return getBroker().rresolve(obj)
 
-def register(uid, lobj):
+def register(uid: str, lobj: object) -> None:
     return getBroker().register(uid, lobj)
 
 
@@ -103,12 +101,12 @@ cmd2code = {
     'digest_match': 0x2F
     }
 
-code2cmd = {}
+code2cmd: dict[int, str] = {}
 for k, v in list(cmd2code.items()):
     code2cmd[v] = k
 
 
-def PackMessage(cmd, *args):
+def PackMessage(cmd: str, *args: Any) -> bytes:
 
     p = FirefliesPacker()
     p.pack_fstring(1, bytes([cmd2code[cmd]]))
@@ -209,11 +207,10 @@ def PackMessage(cmd, *args):
 
     return p.get_buffer()
 
-def unpackMessage(data):
-    cmd = "N/A"
+def unpackMessage(data: bytes) -> tuple[str, tuple[Any, ...]]:
     p = FirefliesUnpacker(data)
     cmd = code2cmd[p.unpack_fstring(1)[0]]
-    args = ()
+    args: tuple[Any, ...] = ()
     if cmd == "partner":
         args = (p.unpack_note(),)
 
@@ -221,7 +218,7 @@ def unpackMessage(data):
         args = (p.unpack_cert(), p.unpack_note())
 
     elif cmd == "redirect":
-        lst = []
+        lst: list[tuple[crypto.Certificate, Note]] = []
         while p.unpack_bool():
             lst.append( (p.unpack_cert(), p.unpack_note() ))
         args = (lst,)
@@ -240,8 +237,8 @@ def unpackMessage(data):
 
     elif cmd == "reconcile_next":
         node_type = p.unpack_uint()
-        hash_vector = None
-        extra_hashes = None
+        hash_vector: "setrecon.vec_ZZ_p | None" = None
+        extra_hashes: "setrecon.vec_ZZ_p | None" = None
         setsize = -1
         if node_type > 0:
             hash_vector = p.unpack_vec_ZZ_p()
@@ -277,9 +274,7 @@ def unpackMessage(data):
 
     elif cmd in ["reconcile_data_req"]:
         l = p.unpack_uint()
-        r = []
-        for x in range(l):
-            r.append(setrecon.to_ZZ_p(p.unpack_ZZ()))
+        r = [setrecon.to_ZZ_p(p.unpack_ZZ()) for _ in range(l)]
             
         args = (r,)
 
@@ -301,55 +296,37 @@ def unpackMessage(data):
 
 class FirefliesPacker(xdr.Packer):
 
-    def __init__(self):
+    def __init__(self) -> None:
         xdr.Packer.__init__(self)
 
-    def pack_ZZ(self, zz):
-        assert isinstance(zz, setrecon.ZZ)
+    def pack_ZZ(self, zz: "setrecon.ZZ") -> None:
         s = zz.toBytes()
         self.pack_string(s)
 
-    def pack_vec_ZZ_p(self, vec):
-        assert isinstance(vec, setrecon.vec_ZZ_p)
-        
+    def pack_vec_ZZ_p(self, vec: "setrecon.vec_ZZ_p") -> None:
         l = vec.length()
         self.pack_uint(l)
         for x in range(l):
             zz_p = vec[x]
 
-            # Vector elements might be NULL/None
-            assert zz_p != None
-            #if not zz_p:
-            #    self.pack_fstring(1, chr(0))
-            #else:
             self.pack_ZZ(zz_p.rep())
-        
-    def pack_node(self, node):
-        assert False
-        self.pack_vec_ZZ_p(node.hash_vector)
-        self.pack_vec_ZZ_p(node.extra_hashes)
-        self.pack_ZZ(node.start)
-        self.pack_ZZ(node.stop)
-        self.pack_int(node.node_type)
-        self.pack_int(node.setsize)
-        
-    def pack_identity(self, identity):        
+
+    def pack_identity(self, identity: str) -> None:
         self.pack_fstring(SERIAL_LENGTH, binascii.unhexlify(identity))
         #self.pack_string(identity)
 
-    def pack_address(self, address):
+    def pack_address(self, address: str) -> None:
         ip, port = address.split(":")
-        port = int(port)
         self.pack_fstring(4, socket.inet_aton(ip))
-        self.pack_uint(port)        
+        self.pack_uint(int(port))
 
-    def pack_signature(self, signature):
+    def pack_signature(self, signature: bytes) -> None:
         self.pack_string(signature)
 
-    def pack_short(self, short):
+    def pack_short(self, short: int) -> None:
         self.pack_fstring(1, bytes([short]))
 
-    def pack_mask(self, mask):
+    def pack_mask(self, mask: Sequence[bool]) -> None:
         masklen = len(mask)        
         assert masklen < 256 and masklen >= 0
         self.pack_fstring(1, bytes([masklen]))
@@ -366,11 +343,10 @@ class FirefliesPacker(xdr.Packer):
         s = b"\x00" *(maskbytes - len(s)) + s
         self.pack_fstring(maskbytes,s)
         
-    def pack_cert(self, cert):
-        assert isinstance(cert, crypto.Certificate)
+    def pack_cert(self, cert: crypto.Certificate) -> None:
         self.pack_string(cert.as_der())
         
-    def pack_note(self, note):
+    def pack_note(self, note: Note) -> None:
         """
         Format of packed notes:
           - identity (size, string)  32 
@@ -386,7 +362,7 @@ class FirefliesPacker(xdr.Packer):
         self.pack_signature(note.signature)
         self.pack_uint(note.badness)
 
-    def pack_accusation(self, accusation):
+    def pack_accusation(self, accusation: Accusation) -> None:
         """Format: 
         accused   (string)  32
         epoch  (uint)        4
@@ -399,7 +375,7 @@ class FirefliesPacker(xdr.Packer):
         self.pack_identity(accusation.accuser)
         self.pack_signature(accusation.signature)
         
-    def pack_objectReference(self, obj, ctx=""):
+    def pack_objectReference(self, obj: object, ctx: str = "") -> None:
         broker = getBroker(ctx)
         ref = broker.rresolve(obj)
         self.pack_identity(ref)
@@ -407,10 +383,10 @@ class FirefliesPacker(xdr.Packer):
 
 class FirefliesUnpacker(xdr.Unpacker):
 
-    def __init__(self, data):
+    def __init__(self, data: bytes) -> None:
         xdr.Unpacker.__init__(self, data)
 
-    def unpack_ZZ(self):
+    def unpack_ZZ(self) -> "setrecon.ZZ":
         #l = self.unpack_fstring(1)
         #l = ord(l)
         #if l == 0:
@@ -421,7 +397,7 @@ class FirefliesUnpacker(xdr.Unpacker):
         s = self.unpack_string()
         return setrecon.to_ZZFromBytes(s)
 
-    def unpack_vec_ZZ_p(self):
+    def unpack_vec_ZZ_p(self) -> "setrecon.vec_ZZ_p":
         l = self.unpack_uint()
         vec = setrecon.vec_ZZ_p()
         vec.SetLength(l)
@@ -430,33 +406,22 @@ class FirefliesUnpacker(xdr.Unpacker):
             vec[x] = setrecon.to_ZZ_p(zz)
         return vec
 
-    def unpack_node(self):
-        assert False
-        node = setrecon.node()
-        node.hash_vector = self.unpack_vec_ZZ_p()
-        node.extra_hashes = self.unpack_vec_ZZ_p()
-        node.start = self.unpack_ZZ()
-        node.stop = self.unpack_ZZ()
-        node.node_type = self.unpack_int()
-        node.setsize = self.unpack_int()
-        return node
-
-    def unpack_identity(self):
+    def unpack_identity(self) -> str:
         return binascii.hexlify(self.unpack_fstring(SERIAL_LENGTH)).decode("ascii").upper()
         #return self.unpack_string()
 
-    def unpack_address(self):
+    def unpack_address(self) -> str:
         ip = socket.inet_ntoa(self.unpack_fstring(4))
         port = self.unpack_uint()
         return "%s:%d" % (ip, port)
         
-    def unpack_signature(self):
+    def unpack_signature(self) -> bytes:
         return self.unpack_string()
 
-    def unpack_short(self):
+    def unpack_short(self) -> int:
         return self.unpack_fstring(1)[0]
 
-    def unpack_mask(self):
+    def unpack_mask(self) -> list[bool]:
         masklen = self.unpack_fstring(1)[0]        
         maskbytes = masklen // 8
         if (masklen % 8) != 0:
@@ -468,10 +433,10 @@ class FirefliesUnpacker(xdr.Unpacker):
                 l[x] = True
         return l
                     
-    def unpack_cert(self):
+    def unpack_cert(self) -> crypto.Certificate:
         return crypto.Certificate.fromDER(self.unpack_string())
 
-    def unpack_note(self):
+    def unpack_note(self) -> Note:
         identity = self.unpack_identity()
         epoch = self.unpack_uint()
 
@@ -497,7 +462,7 @@ class FirefliesUnpacker(xdr.Unpacker):
         #c.__dict__.update(d)
         return c
 
-    def unpack_accusation(self):
+    def unpack_accusation(self) -> Accusation:
         accused = self.unpack_identity()
         epoch = self.unpack_uint()
         accuser = self.unpack_identity()
@@ -513,7 +478,7 @@ class FirefliesUnpacker(xdr.Unpacker):
         c.__setstate__(state)        
         return c
 
-    def unpack_objectByReference(self, ctx=""):
+    def unpack_objectByReference(self, ctx: str = "") -> object:
         identity = self.unpack_identity()
         broker = getBroker(ctx)
         return broker.resolve(identity)

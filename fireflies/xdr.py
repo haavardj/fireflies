@@ -15,38 +15,38 @@ class ConversionError(Error):
     pass
 
 
-def _pad(n):
+def _pad(n: int) -> int:
     return (4 - n % 4) % 4
 
 
 class Packer:
     """Pack values into an XDR byte buffer."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.reset()
 
-    def reset(self):
+    def reset(self) -> None:
         self._buf = bytearray()
 
-    def get_buffer(self):
+    def get_buffer(self) -> bytes:
         return bytes(self._buf)
 
-    def pack_uint(self, x):
+    def pack_uint(self, x: int) -> None:
         try:
             self._buf += struct.pack(">I", x)
         except struct.error as e:
             raise ConversionError(e)
 
-    def pack_int(self, x):
+    def pack_int(self, x: int) -> None:
         try:
             self._buf += struct.pack(">i", x)
         except struct.error as e:
             raise ConversionError(e)
 
-    def pack_bool(self, x):
+    def pack_bool(self, x: object) -> None:
         self._buf += b"\x00\x00\x00\x01" if x else b"\x00\x00\x00\x00"
 
-    def pack_fstring(self, n, s):
+    def pack_fstring(self, n: int, s: "bytes | str") -> None:
         if n < 0:
             raise ValueError("fstring size must be nonnegative")
         if isinstance(s, str):
@@ -57,7 +57,7 @@ class Packer:
 
     pack_fopaque = pack_fstring
 
-    def pack_string(self, s):
+    def pack_string(self, s: "bytes | str") -> None:
         if isinstance(s, str):
             s = s.encode("utf-8")
         n = len(s)
@@ -71,27 +71,27 @@ class Packer:
 class Unpacker:
     """Unpack values from an XDR byte buffer."""
 
-    def __init__(self, data):
+    def __init__(self, data: bytes) -> None:
         self.reset(data)
 
-    def reset(self, data):
+    def reset(self, data: bytes) -> None:
         self._buf = bytes(data)
         self._pos = 0
 
-    def get_position(self):
+    def get_position(self) -> int:
         return self._pos
 
-    def set_position(self, position):
+    def set_position(self, position: int) -> None:
         self._pos = position
 
-    def get_buffer(self):
+    def get_buffer(self) -> bytes:
         return self._buf
 
-    def done(self):
+    def done(self) -> None:
         if self._pos < len(self._buf):
             raise Error("unextracted data remains")
 
-    def _take(self, n):
+    def _take(self, n: int) -> bytes:
         i = self._pos
         j = i + n
         if j > len(self._buf):
@@ -99,16 +99,18 @@ class Unpacker:
         self._pos = j
         return self._buf[i:j]
 
-    def unpack_uint(self):
-        return struct.unpack(">I", self._take(4))[0]
+    def unpack_uint(self) -> int:
+        value: int = struct.unpack(">I", self._take(4))[0]
+        return value
 
-    def unpack_int(self):
-        return struct.unpack(">i", self._take(4))[0]
+    def unpack_int(self) -> int:
+        value: int = struct.unpack(">i", self._take(4))[0]
+        return value
 
-    def unpack_bool(self):
+    def unpack_bool(self) -> bool:
         return bool(self.unpack_int())
 
-    def unpack_fstring(self, n):
+    def unpack_fstring(self, n: int) -> bytes:
         if n < 0:
             raise ValueError("fstring size must be nonnegative")
         data = self._take(n)
@@ -117,7 +119,7 @@ class Unpacker:
 
     unpack_fopaque = unpack_fstring
 
-    def unpack_string(self):
+    def unpack_string(self) -> bytes:
         return self.unpack_fstring(self.unpack_uint())
 
     unpack_opaque = unpack_string

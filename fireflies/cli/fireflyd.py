@@ -5,6 +5,7 @@ import warnings
 warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 
 from twisted.internet import task
+from twisted.python.failure import Failure
 from fireflies.util import reactor
 import errno, random, sys, os.path, logging, socket, os
 import logging.handlers
@@ -15,7 +16,7 @@ from fireflies import state, crypto, group, stats, persist
 
 random.seed()
 
-def main():
+def main() -> None:
     groupCert = groupKey = myCert = myKey = myNote = None
     
     from optparse import OptionParser
@@ -254,7 +255,7 @@ def main():
     
     logging.info("Me = %s on %s badness=%d", mgroup.getMe().identity, mgroup.getMe().getAddress(), mgroup.badness)
 
-    def updateNote():
+    def updateNote() -> None:
         logging.info("Updating note after startup.")
         mgroup.badness = byzantine           
         n = mgroup.getMe().nextNote()
@@ -263,8 +264,9 @@ def main():
     
     reactor.callLater(10, updateNote)            
     
-    fd = fireflies.fd.FailureDetector(mgroup)
-    gossip = fireflies.gossip.Gossip(mgroup)
+    # Both add themselves as child services of mgroup.
+    fireflies.fd.FailureDetector(mgroup)
+    fireflies.gossip.Gossip(mgroup)
 
 
     #
@@ -323,7 +325,7 @@ def main():
 
     global netErrOld, netErrNew 
     netErrOld = netErrNew = stats.Stats()
-    def checkUDPError():
+    def checkUDPError() -> None:
         global netErrOld, netErrNew
         netErrNew = fireflies.group.collectStatistic(mgroup)
         diff = netErrNew - netErrOld
@@ -335,9 +337,8 @@ def main():
     global sold, snew
     sold = snew = stats.Stats()
     sold.cputime = os.times()[0] * bogomips
-    t = fireflies.time.time()
         
-    def doCheckpoint():
+    def doCheckpoint() -> None:
         global sold, snew
         snew = fireflies.group.collectStatistic(mgroup)
         snew.cputime = os.times()[0] * bogomips
@@ -347,24 +348,23 @@ def main():
         logging.info("checkpoint %s %d %d" % (str(sdiff), snew.members, snew.fmembers))
         sold = snew 
 
-    def doWriteState():
+    def doWriteState() -> None:
         try:
             store.clear()
             store.saveGroup(mgroup)
             logging.info("writing state.")
-        except Exception as why:
+        except Exception:
             logging.error("Failed saving group.")
 
-    def persistMyOwnNote(name, note, s):
+    def persistMyOwnNote(name: str, note: state.Note, s: bool) -> None:
         assert name == "data.note"
-        if not isinstance(note, state.Note): raise ValueError
         if s == False: return # Note is deleted, so we don't care.
         if note.identity == mgroup.getMe().identity:
             store.saveNote(note)
             
     mgroup.registerEventHandler("data.note", persistMyOwnNote)
 
-    def failback(msg):
+    def failback(msg: Failure) -> None:
         logging.exception(msg)
         
     checkpointTask = task.LoopingCall(doCheckpoint)

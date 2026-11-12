@@ -4,7 +4,7 @@ from twisted.trial import unittest
 
 import fireflies.group
 from fireflies import state
-from fireflies.test.helpers import makeCA, makeMember
+from fireflies.test.helpers import makeCA, makeMember, noteOf
 from fireflies.util import reactor
 
 
@@ -20,7 +20,7 @@ class Rule8Test(unittest.TestCase):
         view = self.observer.view
         for g in groups[1:]:
             view.addCertificate(g.getMe().getCertificate())
-            view.addNote(g.getMe().getNote())
+            view.addNote(noteOf(g.getMe()))
         self.keys = {g.getMe().identity: k for g, (c, k) in zip(groups, creds)}
         self.view = view
         ring = view.mRings.getRings()[0]
@@ -65,7 +65,7 @@ class Rule8Test(unittest.TestCase):
         self.accuse(self.x, self.z)
         self.assertTrue(self.z.isAccused())
 
-        old = self.y.getNote()
+        old = noteOf(self.y)
         rebuttal = state.Note(self.y.identity, old.epoch + 1, list(old.mask))
         rebuttal.sign(self.keys[self.y.identity])
         self.view.addNote(rebuttal)

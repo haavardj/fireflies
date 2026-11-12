@@ -8,7 +8,7 @@ from twisted.web.client import Agent, readBody
 
 import fireflies.group
 from fireflies import fd
-from fireflies.test.helpers import makeCA, makeMember
+from fireflies.test.helpers import makeCA, makeMember, noteOf
 
 try:
     import fireflies.web.app as webapp
@@ -28,7 +28,7 @@ class WebUITest(unittest.TestCase):
             for other in self.groups:
                 if other is not g:
                     g.view.addCertificate(other.getMe().getCertificate())
-                    g.view.addNote(other.getMe().getNote())
+                    g.view.addNote(noteOf(other.getMe()))
         self.group = self.groups[0]
         fd.FailureDetector(self.group)
         self.port = webapp.listen(self.group, 0)

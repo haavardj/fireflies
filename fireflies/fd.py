@@ -15,25 +15,25 @@
 
 """Failure detection protocol using adaptive pinging.""" 
 
-import logging, pickle
-from twisted.internet.protocol import Factory, DatagramProtocol, Protocol, ClientFactory
-from twisted.application.service import Service
-import twisted.internet
-from fireflies.state import Accusation, Note, Member
-import socket
+import logging
 from math import log
+from typing import Any, TypeVar
+
+from twisted.internet.protocol import DatagramProtocol
+from twisted.internet.udp import Port
+from twisted.application.service import Service
+from twisted.python.failure import Failure
+from fireflies.state import Accusation, Member
 
 from . import crypto
 import fireflies
 import fireflies.group
-import fireflies.state
-import fireflies.ring
 import fireflies.view
-import random
+from fireflies.ring import NamedRing
 import secrets
 
 from .packer import FirefliesPacker, FirefliesUnpacker
-from fireflies.util import reactor
+from fireflies.util import reactor, setServiceParent
 from twisted.internet.task import LoopingCall
 
 noisy = 0
@@ -59,7 +59,7 @@ class ExpSmoothedTimeoutPolicy:
     # Assumed loss rate per message before any pong has been seen.
     initialLossRate = 0.001
 
-    def __init__(self, pMistake=0.0001, smoothing=0.999, tMin=3):
+    def __init__(self, pMistake: float = 0.0001, smoothing: float = 0.999, tMin: int = 3) -> None:
         self.pMistake = pMistake
         self.smoothing = smoothing
         self.tMin = tMin
@@ -69,19 +69,19 @@ class ExpSmoothedTimeoutPolicy:
         self.avgLoss = ((1 - pSucc) / pSucc) + 1
         self.nPing = 0
 
-    def threshold(self):
+    def threshold(self) -> float:
         """Number of unanswered pings after which the member has timed out."""
         p = min(1. / self.avgLoss, 1. - self.pMistake**(1. / float(max(self.tMin, 1))))
         assert 0.0 < p < 1.0, "Psuc out of bounds."
         return log(self.pMistake) / log(1. - p)
 
-    def isTimedOut(self):
+    def isTimedOut(self) -> bool:
         return self.nPing > self.threshold()
 
-    def pinged(self):
+    def pinged(self) -> None:
         self.nPing += 1
 
-    def ponged(self):
+    def ponged(self) -> None:
         """Fold the number of pings this pong took into avgLoss."""
         if self.nPing == 0:
             return
@@ -89,19 +89,14 @@ class ExpSmoothedTimeoutPolicy:
         self.avgLoss = (self.smoothing * self.avgLoss) + ((1. - self.smoothing) * self.nPing)
         self.nPing = 0
 
-    def reset(self):
+    def reset(self) -> None:
         """Forget unanswered pings without updating avgLoss (after an accusation)."""
         self.nPing = 0
 
 
-def outboundPartnersOnRing(member, ring):
-    isinstance(member, fireflies.state.Member)
-    isinstance(ring, fireflies.ring.Ring)
-    
+def outboundPartnersOnRing(member: Member, ring: NamedRing[Member]) -> "Member | None":
     succ = ring.succ(member)
     while succ != member:
-        isinstance(succ, Member)
-        
         if succ.isLive():
             if not succ.isEnabledOnRing(ring):
                 return None
@@ -110,10 +105,8 @@ def outboundPartnersOnRing(member, ring):
         succ = ring.succ(succ)       
     return None
 
-def partners(member):
-    isinstance(member, fireflies.state.Member)
-    
-    p = []    
+def partners(member: Member) -> list[Member]:
+    p: list[Member] = []
     for ring in member.group.view.mRings:
         m = outboundPartnersOnRing(member, ring)
         if m and m not in p:
@@ -124,7 +117,7 @@ def partners(member):
 class PingMsg(crypto.Signable):
     msgType = MSG_PING
 
-    def __init__(self, fromSn, toSn):
+    def __init__(self, fromSn: str, toSn: str) -> None:
         self.fromSn = fromSn
         self.toSn = toSn
         # Random nonce. The pong must echo it, so an old pong cannot be
@@ -132,22 +125,24 @@ class PingMsg(crypto.Signable):
         self.noun = secrets.randbits(32)
         self.signature = b""
         
-    def uidstr(self):
+    def uidstr(self) -> str:
         return "ping-%s-%s-%d" % (self.fromSn, self.toSn, self.noun)
 
 class PongMsg(crypto.Signable):
     msgType = MSG_PONG
     
-    def __init__(self, ping):
+    def __init__(self, ping: PingMsg) -> None:
         self.fromSn = ping.toSn
         self.toSn = ping.fromSn
         self.noun = ping.noun
         self.signature = b""
     
-    def uidstr(self):
+    def uidstr(self) -> str:
         return "pong-%s-%s-%d" % (self.fromSn, self.toSn, self.noun)
 
-def _restore(cls, state):
+_M = TypeVar("_M")
+
+def _restore(cls: type[_M], state: dict[str, Any]) -> _M:
     """Create an instance of cls from state without calling __init__
     (replaces Python 2's new.instance)."""
     obj = cls.__new__(cls)
@@ -158,37 +153,34 @@ def _restore(cls, state):
 class FDMsgPacker(FirefliesPacker):
     """Serializer for Ping and Pong messages.""" 
 
-    def pack_PingMsg(self, msg):
+    def pack_PingMsg(self, msg: PingMsg) -> None:
         self.pack_identity(msg.fromSn)
         self.pack_identity(msg.toSn)
         self.pack_uint(msg.noun)
         self.pack_signature(msg.signature)
 
-    def pack_PongMsg(self, msg):
+    def pack_PongMsg(self, msg: PongMsg) -> None:
         self.pack_identity(msg.fromSn)
         self.pack_identity(msg.toSn)
         self.pack_uint(msg.noun)
         self.pack_signature(msg.signature)
 
-    def pack_msgid(self, mid):
+    def pack_msgid(self, mid: int) -> None:
         assert mid >= 0 and mid < 256
         self.pack_fstring(1, bytes([mid]))
 
-    def pack_msg(self, msg):
-        tpe = type(msg)
+    def pack_msg(self, msg: "PingMsg | PongMsg") -> None:
         if isinstance(msg, PingMsg):
             self.pack_msgid(PingMsg.msgType)
             self.pack_PingMsg(msg)
-        elif isinstance(msg, PongMsg):
+        else:
             self.pack_msgid(PongMsg.msgType)
             self.pack_PongMsg(msg)
-        else:
-            raise Exception
 
 class FDMsgUnpacker(FirefliesUnpacker):
     """Un-serializer for Ping and Pong messages."""
     
-    def unpack_PingMsg(self):
+    def unpack_PingMsg(self) -> PingMsg:
         fromSn = self.unpack_identity()
         toSn = self.unpack_identity()
         noun = self.unpack_uint()
@@ -199,7 +191,7 @@ class FDMsgUnpacker(FirefliesUnpacker):
                  'signature': signature}
         return _restore(PingMsg, state)
 
-    def unpack_PongMsg(self):
+    def unpack_PongMsg(self) -> PongMsg:
         fromSn = self.unpack_identity()
         toSn = self.unpack_identity()
         noun = self.unpack_uint()
@@ -210,10 +202,10 @@ class FDMsgUnpacker(FirefliesUnpacker):
                  'signature': signature}
         return _restore(PongMsg, state)
 
-    def unpack_msgid(self):
+    def unpack_msgid(self) -> int:
         return self.unpack_fstring(1)[0]
 
-    def unpack_msg(self):
+    def unpack_msg(self) -> "PingMsg | PongMsg":
         msgType = self.unpack_msgid()
         if msgType == PingMsg.msgType:
             return self.unpack_PingMsg()
@@ -248,38 +240,38 @@ class FailureDetector(Service):
     protocol: "PingPong | None" = None
         
 
-    def __init__(self, group):
+    def __init__(self, group: fireflies.group.Group) -> None:
         self.group = group
-        isinstance(group, fireflies.group.Group)
-        self.setServiceParent(group)
-        self.pinglist = []
-        isinstance(self.parent, fireflies.group.Group)
+        setServiceParent(self, group)
+        self.pinglist: list[Member] = []
+        self.monitoring: dict[Member, LoopingCall] = {}
+        self._udpport: "Port | None" = None
 
         # Per monitored member: timeout policy, and nonces of pings that
         # have not been answered. Kept when monitoring stops so the
         # loss estimate survives ring changes.
-        self.policies = {}
-        self.outstanding = {}
+        self.policies: dict[Member, ExpSmoothedTimeoutPolicy] = {}
+        self.outstanding: dict[Member, dict[int, None]] = {}
 
     @property
-    def logger(self):
+    def logger(self) -> logging.Logger:
         return self.group.logger
 
-    def getPolicy(self, member):
+    def getPolicy(self, member: Member) -> ExpSmoothedTimeoutPolicy:
         policy = self.policies.get(member)
         if policy is None:
             policy = ExpSmoothedTimeoutPolicy(self.pMistake, self.smoothing, self.tmin)
             self.policies[member] = policy
         return policy
 
-    def expectPong(self, member, nonce):
+    def expectPong(self, member: Member, nonce: int) -> None:
         """Record that a ping with nonce was sent to member."""
         pending = self.outstanding.setdefault(member, {})
         pending[nonce] = None
         while len(pending) > MAX_OUTSTANDING:
             del pending[next(iter(pending))]
 
-    def acceptPong(self, member, msg):
+    def acceptPong(self, member: Member, msg: "PongMsg") -> bool:
         """Return True and update the timeout policy if msg is a valid pong
         from member: it echoes the nonce of an unanswered ping and is signed
         by member. Otherwise return False."""
@@ -298,13 +290,13 @@ class FailureDetector(Service):
         self.getPolicy(member).ponged()
         return True
 
-    def startService(self):
+    def startService(self) -> None:
         Service.startService(self)
-        
+
         self.protocol = PingPong()
         self.protocol.factory = self
-        address, port = self.group.getMe().getAddress().split(":")
-        port = int(port)
+        address, portStr = self.group.getMe().getAddress().split(":")
+        port = int(portStr)
         self.logger.info("Binding fd to udp %s:%d", address, port)
         self._udpport = reactor.listenUDP(port, self.protocol, interface=address)
 
@@ -316,22 +308,19 @@ class FailureDetector(Service):
         self.monitoring = {}
 
 
-    def _failback(self, reason):
+    def _failback(self, reason: Failure) -> None:
         self.logger.exception(reason)
         
-    def stopService(self):
+    def stopService(self) -> None:
         Service.stopService(self)
         address, port = self.group.getMe().getAddress().split(":")
-        port = int(port)
-        self.logger.info("Stopping fd on udp %s:%d", address, port)
+        self.logger.info("Stopping fd on udp %s:%d", address, int(port))
         
         #if self._task and self._task.running:
         self._task.stop()
         #self._task = None
 
-        for m,t in list(self.monitoring.items()):
-            assert isinstance(t, LoopingCall)
-            assert isinstance(m, Member)
+        for t in list(self.monitoring.values()):
             t.stop()
         self.monitoring = {}
             
@@ -340,20 +329,17 @@ class FailureDetector(Service):
             self._udpport = None                       
         self.protocol = None
 
-    def failPinging(self, error, member):
+    def failPinging(self, error: Failure, member: Member) -> None:
         self.logger.warning("Pinging failed %s %s", member, error)
         
-    def update(self):
-        
-        assert self._task and self._task.running
-        me = self.group.getMe()
+    def update(self) -> None:
 
+        assert self._task and self._task.running
         myPartners = partners(self.group.getMe())
         
         for currentPartner, timer in list(self.monitoring.items()):
             if not currentPartner in myPartners:
                 self.logger.info("Stop monitoring %s", currentPartner)
-                assert isinstance(timer, LoopingCall)
                 timer.stop()
                 self.monitoring.pop(currentPartner)
         
@@ -367,8 +353,7 @@ class FailureDetector(Service):
                 assert self.monitoring[partner].running
 
 
-    def doPing(self, member):
-        assert isinstance(member, fireflies.state.Member)
+    def doPing(self, member: Member) -> None:
         me = self.group.getMe()
         assert member != me
         if not fireflies.view.canAccuse(me, member):
@@ -435,16 +420,17 @@ class FailureDetector(Service):
 class PingPong(DatagramProtocol):
 
     factory: "FailureDetector"
+    # A udp.Port, or a fake in tests. Twisted leaves it untyped.
+    transport: Any = None
     
     @property
-    def logger(self):
+    def logger(self) -> logging.Logger:
         return self.factory.logger
-        
-    def handle_PingMsg(self, msg):
+
+    def handle_PingMsg(self, msg: PingMsg) -> None:
         view = self.factory.group.view
-        mkey = self.factory.group.getMyKey()
-        
-        toSn, fromSn, noun = msg.toSn, msg.fromSn, msg.noun
+
+        toSn, fromSn = msg.toSn, msg.fromSn
         if not toSn == self.factory.group.getMe().identity:
             self.logger.warning("ping<- %s wrong receiver %s", fromSn, toSn)
             return        
@@ -453,14 +439,13 @@ class PingPong(DatagramProtocol):
             return
 
         sender = view.sn2peer[fromSn]
-        assert isinstance(sender, Member)
         if not msg.verify(sender.getPublicKey()):
             self.logger.warning("ping<- %s Invalid ping", fromSn)
             return
         if noisy: self.logger.debug("ping<- %s", sender)
         self.pong(msg)
                 
-    def handle_PongMsg(self, msg):
+    def handle_PongMsg(self, msg: PongMsg) -> None:
         view = self.factory.group.view
 
         if msg.toSn != self.factory.group.getMe().identity:
@@ -473,8 +458,7 @@ class PingPong(DatagramProtocol):
         else:
             if noisy: self.logger.debug("pong<- %s Unknown peer", msg.fromSn)
 
-    def ping(self, receiver):
-        isinstance(self.factory, FailureDetector)
+    def ping(self, receiver: Member) -> PingMsg:
         me = self.factory.group.getMe()
 
         if noisy: self.logger.debug("ping-> %s", receiver)
@@ -485,10 +469,9 @@ class PingPong(DatagramProtocol):
         self.sendCommand(receiver, msg)
         return msg
 
-    def pong(self, pingMsg):
+    def pong(self, pingMsg: PingMsg) -> None:
         view = self.factory.group.view
         sender = view.sn2peer[pingMsg.fromSn]
-        assert isinstance(sender, Member)
         
         msg = PongMsg(pingMsg)
         msg.sign(self.factory.group.getMyKey())
@@ -497,19 +480,18 @@ class PingPong(DatagramProtocol):
         self.sendCommand(sender, msg)
 
 
-    def sendCommand(self, receiver, msg):
+    def sendCommand(self, receiver: Member, msg: "PingMsg | PongMsg") -> None:
 
-        p = FDMsgPacker()
-        p.pack_msg(msg)
-        data = p.get_buffer()
+        packer = FDMsgPacker()
+        packer.pack_msg(msg)
+        data = packer.get_buffer()
         h, p = receiver.getAddress().split(":")
-        p = int(p)
-        
+
         receiver.group.stats.udpW += len(data)
         assert self.transport is not None
-        self.transport.write(data, (h, p))
+        self.transport.write(data, (h, int(p)))
 
-    def datagramReceived(self, datagram, addr):
+    def datagramReceived(self, datagram: bytes, addr: Any) -> None:
         data = datagram
         (host, port) = addr
         if not self.factory.running: 

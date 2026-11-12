@@ -6,7 +6,7 @@ import fireflies.persist
 from optparse import OptionParser
 
 
-def main():
+def main() -> None:
     parser = OptionParser(usage="""%prog [options] <ca path> <hostname | ->
 
 Create a Fireflies X509 member key and certificate in the given ca path. The <ca path> arguments must contain the path to the CA's certificate repository. 

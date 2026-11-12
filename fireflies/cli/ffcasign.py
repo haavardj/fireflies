@@ -7,7 +7,7 @@ import fireflies.persist
 from optparse import OptionParser
 
 
-def main():
+def main() -> None:
     parser = OptionParser(usage="""%prog [options] <path> <request>
 
 Create a Fireflies X509 certificate from a X509 certificate request.

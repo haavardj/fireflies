@@ -25,7 +25,7 @@ with eventual probabilistic guarantees.
 """
 
 
-protocol_version = (0,3,0)
+protocol_version: tuple[int, int, int] = (0,3,0)
 
 __version__ = "%d.%d.%d" % protocol_version
 version = __version__
@@ -97,7 +97,7 @@ fireflies.stats.addStatistic('accusationsCreatedByzantine', "Accusations created
 fireflies.stats.addStatistic('pongsRejected', "Pongs without an outstanding ping or a valid signature.", 34)
 
 
-defaultConfig = {
+defaultConfig: dict[str, int] = {
 
      # Length of encryption keys.
     'port': 14377,

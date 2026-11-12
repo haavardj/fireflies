@@ -17,7 +17,8 @@
 import functools
 import random
 
-from typing import TYPE_CHECKING
+import logging
+from typing import TYPE_CHECKING, Any, Sequence
 
 import twisted.internet.address
 
@@ -28,9 +29,11 @@ from fireflies.crypto import shortIdentity
 
 if TYPE_CHECKING:
     from fireflies.group import Group
+    from fireflies.ring import NamedRing
+    from fireflies.stats import Stats
 
 
-def isValidMask(mask, nrMonitoringRings):
+def isValidMask(mask: Sequence[bool], nrMonitoringRings: int) -> bool:
     """
     Check the validity of a mask. A mask is valid if it is of lenght t.
     
@@ -47,7 +50,7 @@ def isValidMask(mask, nrMonitoringRings):
     return True
     
 
-def createInitialNote(member):
+def createInitialNote(member: "Member") -> "Note":
     """Create a note with the specified identity, initial epoch of 1,
     and an empty mask.
     
@@ -56,7 +59,6 @@ def createInitialNote(member):
     @rtype: L{Note}
     """
 
-    isinstance(member, Member)
     t = fireflies.util.minmajority(member.group.nrMonitoringRings())
     mask = [False] * t + [True] * (t+1)
     random.shuffle(mask)
@@ -65,9 +67,9 @@ def createInitialNote(member):
 
 class TimeStampMixin:
     
-    timestamp = 0 
-    
-    def touch(self):
+    timestamp: float = 0
+
+    def touch(self) -> None:
         self.timestamp = fireflies.time.time()
              
 
@@ -94,21 +96,21 @@ class Accusation(crypto.Signable, TimeStampMixin):
 
     printShortIDs = True
 
-    def __init__(self, accused, ll, accuser):
+    def __init__(self, accused: str, ll: int, accuser: str) -> None:
         self.accused = accused
         self.epoch = ll
         self.accuser = accuser 
         
         self.touch()
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         return {"accused": self.accused,
                 "epoch": self.epoch,
                 "accuser": self.accuser,
                 "signature": self.signature
                 }
 
-    def __setstate__(self, data):
+    def __setstate__(self, data: dict[str, Any]) -> None:
         for k,v in list(data.items()):
             setattr(self, k, v)
             
@@ -116,24 +118,24 @@ class Accusation(crypto.Signable, TimeStampMixin):
         
     # Accusations compare by fingerprint. Comparing with anything else
     # gives "less than", as __cmp__ returning -1 did in Python 2.
-    def __eq__(self, other):
-        try: return self.get_fingerprint() == other.get_fingerprint()
-        except AttributeError: return False
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, crypto.Signable): return False
+        return self.get_fingerprint() == other.get_fingerprint()
 
-    def __lt__(self, other):
-        try: return self.get_fingerprint() < other.get_fingerprint()
-        except AttributeError: return True
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, crypto.Signable): return True
+        return self.get_fingerprint() < other.get_fingerprint()
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.get_fingerprint())
 
-    def __str__(self):        
+    def __str__(self) -> str:
         if self.printShortIDs:
             return "A:%s-%d,%s" % (self.accused[-4:-1], self.epoch, self.accuser[-4:-1])
         else:
             return "%s" % (self.uidstr())
         
-    def uidstr(self):
+    def uidstr(self) -> str:
         return "A:%s-%d,%s" % (self.accused, self.epoch, self.accuser)
 
         
@@ -153,21 +155,21 @@ class Note(crypto.Signable, TimeStampMixin):
     @type signature: str
     """
 
-    def __init__(self, identity, epoch, mask):        
+    def __init__(self, identity: str, epoch: int, mask: list[bool]) -> None:
         self.identity = identity
         self.epoch = epoch
         self.mask = mask
-        self.badness = 0
+        self.badness: int = 0
         
         self.touch()
 
-    def __repr__(self):        
+    def __repr__(self) -> str:
         return "N:%s-%d" % (self.identity, self.epoch)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.get_fingerprint())
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         return {"identity": self.identity,
                 "epoch": self.epoch,
                 "mask": self.mask,
@@ -175,7 +177,7 @@ class Note(crypto.Signable, TimeStampMixin):
                 "badness": self.badness,
                 }
     
-    def __setstate__(self, data):
+    def __setstate__(self, data: dict[str, Any]) -> None:
         for k,v in list(data.items()):
             setattr(self, k, v)
 
@@ -185,7 +187,7 @@ class Note(crypto.Signable, TimeStampMixin):
     # always returned -1, so notes were only equal to themselves. The
     # default identity-based __eq__ keeps that behaviour.
 
-    def uidstr(self):
+    def uidstr(self) -> str:
         return "N:%s-%d-%s" % (self.identity, self.epoch, str(self.mask))
 
     
@@ -202,9 +204,7 @@ class Member(object):
 
     group: "Group"
 
-    def __init__(self, cert, group):
-
-        if not isinstance(cert, crypto.Certificate): raise TypeError(cert)
+    def __init__(self, cert: crypto.Certificate, group: "Group") -> None:
 
         self._cert = cert
         self._note: "Note | None" = None
@@ -213,11 +213,11 @@ class Member(object):
                 
         self.view = group.view       
   
-        # Valid accusations. 
-        self.vAccusations = set()
+        # Valid accusations.
+        self.vAccusations: set[Accusation] = set()
 
         # History of accusations
-        self.hAccusations = []
+        self.hAccusations: list[Accusation] = []
 
         # Ping counts and loss estimates live in the failure detector
         # (fd.ExpSmoothedTimeoutPolicy).
@@ -225,11 +225,11 @@ class Member(object):
         self._failed = True
 
     @property
-    def logger(self):
+    def logger(self) -> logging.Logger:
         return self.group.logger
     
     @property
-    def stats(self):
+    def stats(self) -> "Stats":
         return self.group.stats
 
 #    def verify(self, obj):
@@ -237,7 +237,7 @@ class Member(object):
 #        return self._cert.verify(obj)
 
 
-    def setFailed(self, status):
+    def setFailed(self, status: bool) -> None:
         """
         Update the failed/liveness status of the member.
         
@@ -250,7 +250,7 @@ class Member(object):
         if not self._failed: assert self._note
         self._failed = status
 
-    def getAddress(self):
+    def getAddress(self) -> str:
         """
         @return: The member's network address and port number. 
         @rtype: IP:port string
@@ -258,18 +258,17 @@ class Member(object):
         return self._cert.address()
     
     @property
-    def address(self):
+    def address(self) -> twisted.internet.address.IPv4Address:
         host, port = self._cert.address().split(":")
-        port = int(port) 
-        return twisted.internet.address.IPv4Address("TCP", host, port) 
+        return twisted.internet.address.IPv4Address("TCP", host, int(port))
     
-    def getCommonName(self):
+    def getCommonName(self) -> "str | None":
         return self._cert.get_subject().CN
     
-    def getPublicKey(self):
+    def getPublicKey(self) -> crypto.PublicKey:
         return self._cert.get_pubkey()
         
-    def getEpoch(self):
+    def getEpoch(self) -> int:
         """
         @return: The member's current epoch number.
         @rtype: int
@@ -284,12 +283,12 @@ class Member(object):
         """
         return self._note
 
-    def isEnabledOnRing(self, ring):   
+    def isEnabledOnRing(self, ring: "NamedRing[Member]") -> bool:
         
         if not self._note: return False
         return bool(self._note.mask[ring.name])
         
-    def nextNote(self):
+    def nextNote(self) -> Note:
         """Compute a new note for the member based on any previous note and previous accusations. 
         The new note has a larger epoch number the the current note.
            
@@ -303,7 +302,7 @@ class Member(object):
         self.group.stats.notesCreated += 1
         return n
     
-    def nextMask(self):
+    def nextMask(self) -> list[bool]:
         """
         Compute a new mask based on the accusatio history of this node.
          
@@ -319,10 +318,8 @@ class Member(object):
         # p1 is a list of the ring numbers we are to disable. p1 is
         # sorted according to which rings are to be disabled first.
         
-        p1 = [(x.timestamp, x) for x in self.hAccusations]
-        p1.sort()
-        p1.reverse()
-        p1 = [x[1] for x in p1]
+        history = sorted(((x.timestamp, x) for x in self.hAccusations), reverse=True)
+        p1 = [x[1] for x in history]
         t = (self.group.nrMonitoringRings() -1) // 2
         note = self.getNote()
         assert note is not None
@@ -357,10 +354,10 @@ class Member(object):
         assert isValidMask(mask, self.group.nrMonitoringRings()), "t=%d disabledRings=%d %d" %(t, disabledRings, len([x for x in mask if x==False]))
         return mask            
     
-    def accusers(self):
-        return [self.group.getMemberByIdentity(x) for x in self.getAccusations()]
+    def accusers(self) -> "list[Member]":
+        return [self.group.getMemberByIdentity(x.accuser) for x in self.getAccusations()]
 
-    def getCertificate(self):
+    def getCertificate(self) -> crypto.Certificate:
         """
         @return: The member's latest member certificate.
         @rtype: L{fireflies.crypto.Certificate}
@@ -368,7 +365,7 @@ class Member(object):
 
         return self._cert
     
-    def getAccusations(self):
+    def getAccusations(self) -> set[Accusation]:
         """
         
         @return: All current valid accusations.        
@@ -377,7 +374,7 @@ class Member(object):
         
         return self.vAccusations
     
-    def getAccusationBy(self, member):
+    def getAccusationBy(self, member: "Member | str") -> Accusation:
         """
         Get accusation for a specific member.
         
@@ -394,14 +391,13 @@ class Member(object):
             identity = member
 
         for a in self.vAccusations:
-            assert isinstance(a, Accusation)
             assert a.accused == self.identity
             if a.accuser == identity:                
                 return a
         raise KeyError("No such accuser %s" % member)
         
 
-    def isFailed(self):
+    def isFailed(self) -> bool:
         """
         @return: True if member is considered failed, otherwise False.
         @rtype: bool
@@ -410,7 +406,7 @@ class Member(object):
         # A member without a note is failed.        
         return self._failed
  
-    def isLive(self):
+    def isLive(self) -> bool:
         """
         @return: True if the member is considered live, otherwise False.
         @rtype: bool
@@ -418,7 +414,7 @@ class Member(object):
         return not self._failed
 
 
-    def isAccused(self):
+    def isAccused(self) -> bool:
         """
         @return: True if the member is accused of having failed, otherwise False.
         @rtype: bool
@@ -426,7 +422,7 @@ class Member(object):
 
         return bool(self.vAccusations)
 
-    def isAccusedBy(self, member):
+    def isAccusedBy(self, member: "Member | str") -> bool:
         """Returns true if member is accused by member.
         
         @param member: member identity to get accusations for
@@ -441,13 +437,12 @@ class Member(object):
             identity = member
 
         for a in self.vAccusations:
-            assert isinstance(a, Accusation)
             assert a.accused == self.identity, "%s - %s" %(a.accused, self.identity)
             if a.accuser == identity: return True
         return False
 
 
-    def setNote(self, note):
+    def setNote(self, note: Note) -> None:
         """
         Update the note of this member.
 
@@ -458,8 +453,6 @@ class Member(object):
           - is is older than the current one, or
           - is not correctly signed.
         """
-        assert  isinstance(note, Note)
-        
         if self.identity != note.identity:
             raise fireflies.ByzantineError("Note do not match certificate.")
 
@@ -476,7 +469,7 @@ class Member(object):
         self._note = note
         self.group.notify("data.note", note, True)
         
-    def setAccusation(self, accusation):
+    def setAccusation(self, accusation: Accusation) -> None:
         """
         Add an accusation for this member.
         
@@ -489,8 +482,6 @@ class Member(object):
           - the accusation is made on a ring that this member has disabled.
         """ 
 
-        if not isinstance(accusation, Accusation): raise TypeError("Parameter %s not an accusation." % accusation)
-        
         if accusation.epoch != self.getEpoch(): raise fireflies.ByzantineError("Note in accusation does not match current note.")
         if accusation.accused != self.identity: raise fireflies.ByzantineError("Accusation is not for this member.")
         
@@ -507,7 +498,7 @@ class Member(object):
         
         self.group.notify("data.accusation", accusation, True)
     
-    def invalidateAccusation(self, accusation):
+    def invalidateAccusation(self, accusation: Accusation) -> None:
         """Invalidate an accusation.
         
         @param accusation: The accusation to make invalid.
@@ -515,26 +506,21 @@ class Member(object):
         @raises e: L{ValueError} if accusation was not valid. 
         """
         
-        if not isinstance(accusation, Accusation): raise TypeError("Parameter %s not an accusation." % accusation)
-
         self.vAccusations.remove(accusation)
         self.group.notify("data.accusation", accusation, False)
 
-    def invalidateAccusationBy(self, member):
+    def invalidateAccusationBy(self, member: "Member | str") -> None:
         """Invalidate accusation on an given ring.
         
         @param rnr: Ring number
         @type rnr: int
-        @raises e: L{ValueError} is there is accusations by member.
+        @raises e: L{KeyError} if there is no accusation by member.
         """
-                
+
         a = self.getAccusationBy(member)
-        if a == None:
-            raise ValueError("No accusations for %s by %s" % (self, member))
-        
         self.invalidateAccusation(a)
         
-    def hasAccusations(self):
+    def hasAccusations(self) -> bool:
         """
         Check for valid accusations.
         
@@ -544,7 +530,7 @@ class Member(object):
     
         return bool(self.vAccusations)
 
-    def clearAccusations(self):
+    def clearAccusations(self) -> None:
         """
         Remove all accusations for this member.
         """
@@ -554,19 +540,19 @@ class Member(object):
         for a in vAccusations:
             self.group.notify("data.accusation", a, False)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return  "P:%s:%s-%d" % (shortIdentity(self.identity), self.getCommonName(), self.getEpoch())
 
     # Members compare and hash by identity. View.sn2peer holds one Member
     # object per identity, so this matches the id()-based hash Python 2 used.
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, Member): return NotImplemented
         return self.identity == other.identity
 
-    def __lt__(self, other):
+    def __lt__(self, other: object) -> bool:
         if not isinstance(other, Member): return NotImplemented
         return self.identity < other.identity
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.identity)
 #  LocalWords:  param

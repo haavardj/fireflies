@@ -15,16 +15,23 @@
 """Fireflies group interface."""
 
 import logging
-import twisted.internet
+from typing import Any, Callable, Hashable
+
+from OpenSSL import SSL
 from twisted.application.service import MultiService
+from twisted.internet import defer, ssl
 from fireflies.state import Accusation, Note, Member, createInitialNote
 from fireflies.view import View
 from fireflies.crypto import identityFromCertificate
+from fireflies.ring import Ring
 import fireflies.stats
 import fireflies.protocols
 from fireflies import crypto
 from fireflies.util import reactor
 
+# An event handler: the function and the extra arguments it was registered with.
+Upcall = tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any]]
+HandlerRef = tuple[Hashable, Upcall]
 
 
 class Group(MultiService):
@@ -33,12 +40,14 @@ class Group(MultiService):
 
     #maxGroupSize = 1000 
     #pByz = 0.20    
-    tRebuttal = 60 #5 #2 * (2.5* 60)
-    badness = 0
-    name = "group"
+    tRebuttal: float = 60 #5 #2 * (2.5* 60)
+    badness: int = 0
+    name: "str | None" = "group"
     wasStarted = False
     
-    def __init__(self, groupCertificate, myKey, myCertificate, myNote=None, logger=logging.getLogger()):
+    def __init__(self, groupCertificate: crypto.Certificate, myKey: crypto.PrivateKey,
+                 myCertificate: crypto.Certificate, myNote: "Note | None" = None,
+                 logger: logging.Logger = logging.getLogger()) -> None:
         """
         A group must be initialized with a group certificate and your member certificate and 
         private key.
@@ -62,20 +71,13 @@ class Group(MultiService):
         self.logger = logger
         
         
-        if not isinstance(groupCertificate, crypto.Certificate): raise ValueError(groupCertificate)
         self._groupCertificate = groupCertificate
-        
-    
         self.name = groupCertificate.get_subject().commonName
-
-        if not isinstance(myKey, crypto.PrivateKey): raise ValueError(myKey)
         self._myKey = myKey
-        
-        if not isinstance(myCertificate, crypto.Certificate): raise ValueError(myCertificate)
 
         self.view = View(self)
 
-        self._eventSinkRegistry = {
+        self._eventSinkRegistry: dict[Hashable, list[Upcall]] = {
             "member.crash": [],
             "member.recover": [],
             "data.note":[],
@@ -86,9 +88,8 @@ class Group(MultiService):
         
         self.view.addCertificate(myCertificate)
         self._me = self.view.getMemberByCertificate(myCertificate)
-        
-        assert isinstance(self._me, Member)
-        if myNote: 
+
+        if myNote:
             self.view.addNote(myNote)
         else:
             myNote = createInitialNote(self._me)
@@ -100,33 +101,33 @@ class Group(MultiService):
             self._myKey,
             self._groupCertificate)
         
-    def getLiveMembers(self):
+    def getLiveMembers(self) -> Ring[Member]:
         """@return: Return an iterable object of all currently live members."""
         return self.view.aRing
 
-    def getFailedMembers(self):
+    def getFailedMembers(self) -> Ring[Member]:
         """@return: Return an iterable object of all currently failed members."""
         return self.view.fRing
 
-    def getAllMembers(self):
+    def getAllMembers(self) -> Ring[Member]:
         """@return: Return an iterable object of of all (live + failed) members."""
         return self.view.pRing
 
-    def getMemberByCertificate(self, cert):
+    def getMemberByCertificate(self, cert: crypto.Certificate) -> Member:
         return self.view.getMemberByIdentity(identityFromCertificate(cert))
 
-    def getMemberByIdentity(self, id):
+    def getMemberByIdentity(self, id: str) -> Member:
         return self.view.sn2peer[id]
 
-    def getMembersByAddress(self, address):
-        return [x for x in self.view.pRing if x.cert.address == address]        
+    def getMembersByAddress(self, address: str) -> list[Member]:
+        return self.view.getMembersByAddress(address)
 
-    def createEventChannel(self, name):
+    def createEventChannel(self, name: Hashable) -> None:
         if name in self._eventSinkRegistry:
             raise KeyError("Name %s exist as eventhandler" %name)
         self._eventSinkRegistry[name] = []
     
-    def registerEventHandler(self, name, func, *args, **kwargs):
+    def registerEventHandler(self, name: Hashable, func: Callable[..., Any], *args: Any, **kwargs: Any) -> HandlerRef:
         """Register a function to receive events (callbacks). Events have
         names. Names are usually strings, but can be any object. A callback
         function is registered to receive events with a spesific name. The
@@ -157,24 +158,24 @@ class Group(MultiService):
         @param args: Argumens that is to be passed back to the function.
         @param kwargs: Keyword arguments that is to be passed back to the function.
         """
-        upcall = (func, args, kwargs)
+        upcall: Upcall = (func, args, kwargs)
         self._eventSinkRegistry[name].append(upcall)        
         return (name, upcall)
         
-    def removeEventHandler(self, hdlr):
+    def removeEventHandler(self, hdlr: HandlerRef) -> None:
         name, upcall = hdlr
         self._eventSinkRegistry[name].remove(upcall)
         
-    def getPublicKey(self):
+    def getPublicKey(self) -> crypto.PublicKey:
         return self.getGroupCertificate().get_pubkey()
         
-    def getEventNames(self):
+    def getEventNames(self) -> list[Hashable]:
         """
         @return: List of all event names.
         """
         return list(self._eventSinkRegistry.keys())
 
-    def notify(self, name, *args, **kwargs):
+    def notify(self, name: Hashable, *args: Any, **kwargs: Any) -> None:
         """Publish an event.
         
         @param name: Event name/type.
@@ -184,7 +185,7 @@ class Group(MultiService):
         try:
             #self.logger.debug("notify %s %s %s", name, args, kwargs)
             for f, a, k in self._eventSinkRegistry[name]:
-                nk = {}
+                nk: dict[str, Any] = {}
                 nk.update(k)
                 nk.update(kwargs)
                 na = args + a
@@ -193,118 +194,115 @@ class Group(MultiService):
             self.logger.error("error: notify %s but no subscribers", name)
             raise
 
-    def evSelfRebuttal(self, name, elm, status):
+    def evSelfRebuttal(self, name: str, elm: Accusation, status: bool) -> None:
         """@todo: Check that the accusation is still valid when receiving this event."""
         assert name == "data.accusation"
-        assert isinstance(elm, Accusation)
-                   
+
         if status == True and elm.accused == self.getMe().identity:
-            currentEpoch = self.getMe().getNote().epoch
+            currentEpoch = self.getMe().getEpoch()
             if elm.epoch < currentEpoch:
-                self.logger.warning("accusation %s old. Current epoch=%d.", self.view.pprint(elm),self.getMe().getNote().epoch)
+                self.logger.warning("accusation %s old. Current epoch=%d.", self.view.pprint(elm), currentEpoch)
             elif elm.epoch == currentEpoch:        
                 self.logger.warning("rebutting false accusation %s", self.view.pprint(elm))
                 self.nextEpoch()            
-                assert elm.epoch < self.getMe().getNote().epoch
+                assert elm.epoch < self.getMe().getEpoch()
             else:
                 self.logger.warning("accusation %s old. Current epoch=%d.", self.view.pprint(elm), currentEpoch)
                 
                         
-    def nextEpoch(self):
+    def nextEpoch(self) -> None:
         n = self.getMe().nextNote()
-        assert isinstance(n, Note)
         n.sign(self.getMyKey())
         self.view.addNote(n)        
             
-    def __len__(self):
+    def __len__(self) -> int:
         """@return: Return the number of all members."""
         return len(self.view.aRing)
 
-    def __contains__(self, identity):
-        """@return: true if the group has a member with the given identity."""
-        return identity in self.view.aRing
+    def __contains__(self, member: object) -> bool:
+        """@return: true if member is a live member of the group."""
+        return member in self.view.aRing
     
-    def size(self):
+    def size(self) -> int:
         """@return: Return the number of all members."""
         return len(self)
 
-    def isSignedByCA(self, itm):
+    def isSignedByCA(self, itm: crypto.Signable) -> bool:
         """
         Check if an object is correctly signed by the group CA.
         @param itm: Object that is to be checked.
         @type itm: Subclass of L{fireflies.crypto.Signable}
         @return: Return true if itm is signed by the group CA.
         """
-        return self._groupCertificate.verify(itm)
+        return itm.verify(self._groupCertificate)
         
-    def getGroupCertificate(self):
+    def getGroupCertificate(self) -> crypto.Certificate:
         """
         @return: Get group certificate.
         @rtype: L{fireflies.crypto.Certificate}
         """
         return self._groupCertificate
 
-    def getView(self):
+    def getView(self) -> View:
         """
         @return: Return the group's view object.
         @rtype: L{fireflies.view.View}"""
         return self.view
 
-    def getMe(self):
+    def getMe(self) -> Member:
         """
         @return: Return your member object.
         @rtype: L{fireflies.state.Member}
         """
         return self._me
     
-    def getMyKey(self):
+    def getMyKey(self) -> crypto.PrivateKey:
         """
         @return: Return your private key.
         @rtype: L{fireflies.crypto.PrivateKey}
         """
         return self._myKey
 
-    def getGroupID(self):
+    def getGroupID(self) -> str:
         """@return: Return the unique group identity."""        
         return self._groupCertificate.identity
 
-    def getGroupName(self):
+    def getGroupName(self) -> "str | None":
         """@return: Return the unique group name."""        
         return self._groupCertificate.get_subject().commonName
     
-    def nrMonitoringRings(self):
+    def nrMonitoringRings(self) -> int:
         return self.getGroupCertificate().nrMonitoringRings()
         
-    def nrGossipingRings(self):
+    def nrGossipingRings(self) -> int:
         return self.getGroupCertificate().nrGossipingRings()
 
-    def startService(self):
+    def startService(self) -> None:
         self.logger.info("join group %s as %s. Badness=%d", self.getGroupName(), self.getMe(), self.badness)
         MultiService.startService(self)        
         self.stats.join += 1
 
-    def stopService(self):
+    def stopService(self) -> defer.DeferredList:
         self.logger.info("leave group %s", self.getGroupName())      
         d = MultiService.stopService(self)
         self.stats.leave += 1
         self.nextEpoch()
         return d
                 
-    def getTLSOptions(self):
+    def getTLSOptions(self) -> ssl.CertificateOptions:
         """@return: TLS options (a Twisted context factory) for this member."""
         return self._sslCtx
 
-    def getContext(self):
+    def getContext(self) -> SSL.Context:
         """Lets the group itself be used as a Twisted context factory."""
         return self._sslCtx.getContext()
 
-import fireflies.stats
-def collectStatistic(group):
+
+def collectStatistic(group: Group) -> fireflies.stats.Stats:
     """Sum the group's counters and any separate per-member counters.
     Members share the group's Stats object, so count each object once."""
-    isinstance(group, Group)
     s0 = fireflies.stats.Stats()
-    seen = set()
+    seen: set[int] = set()
     for s in [group.stats] + [n.stats for n in group.getAllMembers()]:
         if id(s) not in seen:
             seen.add(id(s))

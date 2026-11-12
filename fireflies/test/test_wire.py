@@ -9,7 +9,7 @@ import fireflies
 import fireflies.fd
 import fireflies.group
 from fireflies import crypto, packer, persist, state, xdr
-from fireflies.test.helpers import makeCA, makeMember
+from fireflies.test.helpers import makeCA, makeMember, noteOf
 
 from typing import TYPE_CHECKING, Any
 
@@ -96,7 +96,7 @@ class _GroupStateTests(_GroupTestBase):
                          sorted([self.me, self.other]))
 
     def testInitialNote(self):
-        n = self.me.getNote()
+        n = noteOf(self.me)
         self.assertTrue(n.verify(self.me.getPublicKey()))
         self.assertFalse(n.verify(self.other.getPublicKey()))
         self.assertTrue(state.isValidMask(n.mask, 7))
@@ -122,7 +122,7 @@ class _WireFormatTests(_GroupTestBase):
         return packer.unpackMessage(packer.PackMessage(cmd, *args))
 
     def testNote(self):
-        n = self.me.getNote()
+        n = noteOf(self.me)
         cmd, (n2,) = self.roundTrip("partner", n)
         self.assertEqual(cmd, "partner")
         self.assertEqual(n2.uidstr(), n.uidstr())
@@ -144,7 +144,7 @@ class _WireFormatTests(_GroupTestBase):
     def testRedirect(self):
         cmd, (lst,) = self.roundTrip("redirect", [(self.certs[1], self.me.getNote())])
         self.assertEqual(lst[0][0], self.certs[1])
-        self.assertEqual(lst[0][1].uidstr(), self.me.getNote().uidstr())
+        self.assertEqual(lst[0][1].uidstr(), noteOf(self.me).uidstr())
 
     def testControlMessages(self):
         self.assertEqual(self.roundTrip("version", 0, 3, 0), ("version", (0, 3, 0)))
@@ -216,7 +216,7 @@ class _PersistTests(_GroupTestBase):
         self.store.saveGroup(self.group)
         self.assertEqual(len(self.store.loadMemberCertificates()), 3)
         self.assertEqual(self.store.loadNoteFromCert(self.certs[0]).uidstr(),
-                         self.me.getNote().uidstr())
+                         noteOf(self.me).uidstr())
         self.assertEqual(self.store.loadAccusations(), [a])
 
 

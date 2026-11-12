@@ -6,7 +6,7 @@ from optparse import OptionParser
 import sys
 
 
-def main():
+def main() -> None:
     parser = OptionParser(usage="""%prog [options] <path> <cacert> <address>
 
 Initialize Fireflies member structure. This involves creating a new private

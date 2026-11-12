@@ -17,53 +17,45 @@ as specified by the Fireflies protocol.
 """
 
 
-#from math import *
-import twisted.internet
 import logging
+from typing import TYPE_CHECKING, Iterable, Sequence
+
+from twisted.internet.base import DelayedCall
+
 import fireflies
 from fireflies.state import Note, Accusation, Member, isValidMask
 from fireflies.crypto import identityFromCertificate, shortIdentity
-import fireflies.stats
 from fireflies import ring
 from fireflies import crypto
-from functools import reduce
 from fireflies.util import reactor
+
+if TYPE_CHECKING:
+    from fireflies.group import Group
+
+MemberRing = ring.NamedRing[Member]
 
 LOGDISCARDING=False
 
-def canSkip(member):
+def canSkip(member: Member) -> bool:
     return not member.isLive()
 
-def validPredecessor(accuser, accused, ring):
+def validPredecessor(accuser: Member, accused: Member, ring: "ring.Ring[Member]") -> bool:
     """Return true if 'accuser' is allowed to accuse 'accused' on the given ring. 
     This implies that the accused is the first live predecessor of 'accused' on the given ring.
-    """    
-        
-    if False: 
-        isinstance(accuser, Member)
-        isinstance(accused, Member)
-        isinstance(ring, fireflies.ring.Ring)
-    
+    """
     assert accuser.group == accused.group
-    
+
     pred = ring.pred(accused)
-    if False: isinstance(pred, Member)
     while pred != accuser:    
         if not canSkip(pred): return False
         pred = ring.pred(pred)       
     return True
     
 
-def canAccuseOnRing(accuser, accused, ring):
+def canAccuseOnRing(accuser: Member, accused: Member, ring: MemberRing) -> bool:
     """Return true if 'accuser' is allowed to accuse 'accused' on the given ring. 
     This implies that the accused is the first live predecessor of 'accused' on the given ring.
-    """    
-        
-    if False: 
-        isinstance(accuser, Member)
-        isinstance(accused, Member)
-        isinstance(ring, fireflies.ring.Ring)
-
+    """
     if not accused.isEnabledOnRing(ring): return False
     
     assert accuser.group == accused.group
@@ -74,7 +66,7 @@ def canAccuseOnRing(accuser, accused, ring):
         pred = ring.pred(pred)       
     return True
                 
-def canAccuse(accuser, accused, rings=None):
+def canAccuse(accuser: Member, accused: Member, rings: "Iterable[MemberRing] | None" = None) -> bool:
     """Return true if 'accuser' is allowed to accuse 'accused'."""
     
     assert accuser.group == accused.group
@@ -87,7 +79,7 @@ def canAccuse(accuser, accused, rings=None):
             return True
     return False
 
-class AccusationTable(ring.RankTable):
+class AccusationTable(ring.RankTable[Member]):
     """Extends the RankTable with a validity check. Also, items that
     are not valid accusers of base are given rank 0.
 
@@ -98,26 +90,29 @@ class AccusationTable(ring.RankTable):
     are valid.
     """
 
-    def __init__(self, item, base, rings):
-        ring.RankTable.__init__(self, item, base, rings)
+    def __init__(self, item: "Member | None", base: Member,
+                 rings: "ring.RingSet[Member] | Sequence[MemberRing]") -> None:
+        super().__init__(item, base, rings)
         if item:
             self.computeRanks()
 
     @property
-    def valid(self):
+    def valid(self) -> bool:
         """Return true if item can make accusations for base. This means that the ranktable
         contains at least one entry that is not INVALID."""
         return bool([x for x in self if x != self.INVALID])
     
-    def computeRanks(self):
+    def computeRanks(self) -> None:
+        item = self.item
+        assert item is not None
         for nr, r in enumerate(self.rings):
-            if canAccuseOnRing(self.item, self.base, r):
-                self[nr] = r.rank(self.item, self.base)
+            if canAccuseOnRing(item, self.base, r):
+                self[nr] = r.rank(item, self.base)
             else:
                 self[nr] = self.INVALID
             
                 
-def isBetterAccuserOnRing(new, old, member, ring):
+def isBetterAccuserOnRing(new: Member, old: Member, member: Member, ring: "ring.Ring[Member]") -> bool:
     """Returns true if new is a closer/better accuser than old for member on the given ring."""
 
     return ring.isBetween(old, new, member)
@@ -128,26 +123,26 @@ class View:
     A member's view of a process group.  
     """
     
-    def __init__(self, group):
+    def __init__(self, group: "Group") -> None:
         """
         @param group: The group to wich this view belongs.
         @type group: fireflies.group.Group
         """
 
         self.group = group
-        self.sn2peer = {} # Maps identity nr's to peer objects.
-        
-        self.aRing = ring.Ring() # List of live members. Sorted by their identity number.
-        self.pRing = ring.Ring() # List of all members.
-        self.fRing = ring.Ring() # List of failed members. Sorted by their identity number.
+        self.sn2peer: dict[str, Member] = {} # Maps identity nr's to peer objects.
 
-        self.mRings = ring.RingSet()
+        self.aRing: ring.Ring[Member] = ring.Ring() # List of live members. Sorted by their identity number.
+        self.pRing: ring.Ring[Member] = ring.Ring() # List of all members.
+        self.fRing: ring.Ring[Member] = ring.Ring() # List of failed members. Sorted by their identity number.
+
+        self.mRings: ring.RingSet[Member] = ring.RingSet()
         for x in range(self.group.nrMonitoringRings()):
             self.mRings.insertRing(ring.NameHashedRing(x))
 
-        self._timers = {}
+        self._timers: dict[Member, DelayedCall] = {}
 
-    def _startRebuttalTimer(self, member):
+    def _startRebuttalTimer(self, member: Member) -> None:
         """Start crash timout timer.
         @param member: The member suspected of having failed.
         @type member: fireflies.state.Member
@@ -155,15 +150,13 @@ class View:
         if member in list(self._timers.keys()): raise ValueError("Timer already started.")
         self._timers[member] = reactor.callLater(self.group.tRebuttal, self._toRebuttalTimer, member)
         
-    def _toRebuttalTimer(self, member):
-        assert isinstance(member, Member)
-
+    def _toRebuttalTimer(self, member: Member) -> None:
         assert member.isLive()
         assert member.isAccused()
         self._timers.pop(member)
         self._fail(member)
         
-    def _stopRebuttalTimer(self, member):
+    def _stopRebuttalTimer(self, member: Member) -> None:
         """Stop crash timout timer.
         @param member: The member that is no longer of having failed.
         @type member: fireflies.state.Member
@@ -173,10 +166,10 @@ class View:
         t.cancel()
 
     @property
-    def logger(self):
+    def logger(self) -> logging.Logger:
         return self.group.logger
 
-    def hasActiveTimer(self, member):
+    def hasActiveTimer(self, member: Member) -> bool:
         """Check if a timer is actove for a member.
         @param member: The member
         @type member: fireflies.state.Member
@@ -185,31 +178,32 @@ class View:
         """
         return member in self._timers
     
-    def getLiveMembers(self):
+    def getLiveMembers(self) -> "ring.Ring[Member]":
         """@return: Return an iterable object of all currently live members."""
         return self.aRing
 
-    def getFailedMembers(self):
+    def getFailedMembers(self) -> "ring.Ring[Member]":
         """@return: Return an iterable object of all currently failed members."""
         return self.fRing
 
-    def getAllMembers(self):
+    def getAllMembers(self) -> "ring.Ring[Member]":
         """@return: Return an iterable object of of all (live + failed) members."""
         return self.pRing
 
-    def getMemberByCertificate(self, cert):
+    def getMemberByCertificate(self, cert: crypto.Certificate) -> Member:
         return self.getMemberByIdentity(identityFromCertificate(cert))
 
-    def getMemberByIdentity(self, id):
+    def getMemberByIdentity(self, id: str) -> Member:
         return self.sn2peer[id]
 
-    def getMembersByAddress(self, address):
-        return [x for x in self.pRing if x.cert.address == address]
+    def getMembersByAddress(self, address: str) -> list[Member]:
+        """Return the members whose certificate gives address ("ip:port")."""
+        return [x for x in self.pRing if x.getAddress() == address]
 
-    def rebuttalTime(self):
-        return self.rebuttalTime                 
+    def rebuttalTime(self) -> float:
+        return self.group.tRebuttal
 
-    def _new(self, member):
+    def _new(self, member: Member) -> None:
         """Transition member state from unknown to failed."""
 
         assert member not in self.fRing
@@ -223,7 +217,7 @@ class View:
         self.mRings.insertItem(member)
 
 
-    def _recover(self, member):
+    def _recover(self, member: Member) -> None:
         """Transition member state from failed to live."""
         
         assert member in self.fRing
@@ -241,7 +235,7 @@ class View:
         self.group.stats.revived += 1
 
 
-    def _fail(self, member):
+    def _fail(self, member: Member) -> None:
         """Transition member state from live to failed."""
         
         assert member not in self.fRing
@@ -257,19 +251,17 @@ class View:
         self.group.stats.failed += 1
 
 
-    def addCertificate(self, elm):
+    def addCertificate(self, elm: crypto.Certificate) -> Member:
         """Adds a member certificate to a view.
         
         @param elm: Certificate to be added.
         @type elm: MemberCertificate
         
         @raise e: 
-          - TypeError if elm is not a MemberCertificate object.Exceptions:
-           -ValueError: The certificate already exists.
+          - ValueError: The certificate is not signed by the group CA.
         """
 
         self.group.stats.certsTotal += 1
-        if not isinstance(elm, crypto.Certificate): raise TypeError(type(elm))
 
         if not elm.verify(self.group.getPublicKey()):
             self.group.stats.certsInvalid += 1
@@ -294,12 +286,11 @@ class View:
             self.logger.info("new %s", m)
         return m
 
-    def addNote(self, note):
+    def addNote(self, note: Note) -> None:
         """Add a note.
         @param note: Note to be added.
         @type note: L{fireflies.state.Note}
         @raise e:
-          - TypeError: not is not a Note object.
           - ValueError: 
               - Invalid signature.
               - Unknown member. 
@@ -307,7 +298,6 @@ class View:
         """  
         
         self.group.stats.notesTotal += 1
-        if not isinstance(note, Note): raise TypeError
         
         if not note.identity in self.sn2peer:
             self.group.stats.notesInvalid += 1
@@ -315,8 +305,6 @@ class View:
             raise ValueError("Unknown peer")
         
         member = self.getMemberByIdentity(note.identity)
-    
-        assert isinstance(member, Member)
         old = member.getNote()
         if old: assert old.identity == note.identity
                 
@@ -389,13 +377,12 @@ class View:
                                                                 
 
 
-    def addAccusation(self, accusation): 
+    def addAccusation(self, accusation: Accusation) -> None:
         """Add an accusations.
 
         @param accusation: Accusation to be added.
         @type accusation: L{fireflies.state.Accusation}
         @raise e:
-            - TypeErrror: If accusation is not a Accusation object.
             - ValueError: If accuser or accused is not known. This would
             typical happen if certificates, notes, and accusations are not
             added in the correct order. These error could also indicate
@@ -405,8 +392,7 @@ class View:
               - the accusation is not correctly signed,
               - the accused has disabled the ring, or
               - the accused epoch is larger than in the current held note.
-        """        
-        assert isinstance(accusation, Accusation)
+        """
         self.group.stats.accusationsTotal += 1        
         
         accusedID = accusation.accused
@@ -421,7 +407,6 @@ class View:
             raise ValueError("Unknown Accused")
 
         accused = self.group.getMemberByIdentity(accusedID)
-        assert isinstance(accused, Member)            
 
         # Ditto for the accuser
         if not accuserID in self.sn2peer:
@@ -430,7 +415,6 @@ class View:
             raise ValueError("Unkown Accuser")
         
         accuser = self.group.getMemberByIdentity(accuserID)
-        assert isinstance(accuser, Member)  
         
         if not accusation.verify(accuser.getPublicKey()):
             accuser.stats.accuseByzantine += 1
@@ -500,7 +484,6 @@ class View:
             nrRemoved = 0
             accusers = [self.group.getMemberByIdentity(x.accuser) for x in accused.getAccusations()]
             for a in accusers:
-                assert isinstance(a, Member), "a=%s" % a
                 oldAT = AccusationTable(a, accused, self.mRings)
                 
                 assert newAT != oldAT
@@ -525,8 +508,9 @@ class View:
 
             # Combine remaining AccusationTables to that each entry 
             # list the rank of the accuser on that particular ring.
-            r = AccusationTable(0, accused, self.mRings)
-            r = reduce(lambda x, y: x+y, ats, r)
+            r: ring.RankTable[Member] = AccusationTable(None, accused, self.mRings)
+            for at in ats:
+                r = r + at
             
             if r < newAT:
                 # One item in newAT is larger than r, so this accusation should be kept.
@@ -543,7 +527,7 @@ class View:
         
             
 
-    def checkAccusationValidity(self, member):
+    def checkAccusationValidity(self, member: Member) -> None:
         """Checks if a member or list of members are invalidating any accusation. 
         This check is only valid for non-accused member.
         Calling it with an accused member will trigger a ValueError exception.
@@ -558,10 +542,7 @@ class View:
         # A non-accused member should always be live.
         assert member.isLive()
 
-        if not isinstance(member, list):        
-            check = [member,]
-        else:
-            check = list(member)
+        check = [member]
             
         while check:
             member = check.pop()      
@@ -575,7 +556,7 @@ class View:
             # check succesors after a live one, since no accusations crossing that member
             # should exist.
                         
-            accusedSuccessors = set()            
+            accusedSuccessors: set[Member] = set()
             for r in self.mRings.getRings():
                 x = r.succ(member)
                 
@@ -588,7 +569,6 @@ class View:
             for accused in accusedSuccessors:
                     
                 for a in list(accused.getAccusations()):
-                    isinstance(a, Accusation)
                     accuser = self.getMemberByIdentity(a.accuser)
                     assert accused == self.getMemberByIdentity(a.accused)
                     
@@ -613,7 +593,7 @@ class View:
                             check.append(accused) 
       
 
-    def pprint(self, data):
+    def pprint(self, data: object) -> str:
         if isinstance(data, Note):
             if data.identity in self.sn2peer:                
                 peer = self.sn2peer[data.identity]

@@ -296,12 +296,12 @@ class RankTableTest(unittest.TestCase):
         # maximum rank on that ring. The sum takes the maximum per ring.
         maxrank = self.rings[0].maxrank
 
-        r0 = ring.RankTable(0, base, self.rings)
+        r0 = ring.RankTable(None, base, self.rings)
         for r in rts:
             r0 = r0 + r
         self.assertEqual(list(r0), [maxrank] * len(self.rings))
 
-        r0 = ring.RankTable(0, base, self.rings)
+        r0 = ring.RankTable(None, base, self.rings)
         for r in rts:
             r0 += r
         self.assertEqual(list(r0), [maxrank] * len(self.rings))

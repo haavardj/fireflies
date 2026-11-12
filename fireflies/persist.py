@@ -18,20 +18,23 @@ import glob
 import os
 import pickle
 from os.path import join, exists, isdir
+from typing import TYPE_CHECKING, Any
 
-import fireflies
-import fireflies.state
 from fireflies import crypto
 from fireflies.crypto import identityFromCertificate
+from fireflies.state import Accusation, Note
+
+if TYPE_CHECKING:
+    from fireflies.group import Group
 
 
-def printIdentity(id):
+def printIdentity(id: str) -> str:
     return id
 
 
 class Store:
 
-    def __init__(self, dirRoot):
+    def __init__(self, dirRoot: str) -> None:
         self.dirRoot = dirRoot
         self.dirCert = join(dirRoot, "certs")
         self.dirNote = join(dirRoot, "notes")
@@ -42,7 +45,7 @@ class Store:
         self.fileSerial = join(self.dirRoot, "serial")
         self.ensurePaths()
 
-    def ensurePaths(self):
+    def ensurePaths(self) -> None:
         for path in [self.dirRoot, self.dirCert, self.dirPriv, self.dirNote, self.dirAccu]:
             if not exists(path):
                 os.mkdir(path)
@@ -54,7 +57,7 @@ class Store:
             with open(self.fileSerial, "w") as f:
                 f.write("0")
 
-    def newMemberCertificate(self, req, cakey):
+    def newMemberCertificate(self, req: crypto.CertificateRequest, cakey: crypto.PrivateKey) -> crypto.Certificate:
         with open(self.fileSerial) as f:
             sn = int(f.readline())
         sn += 1
@@ -65,91 +68,86 @@ class Store:
         self.saveMemberCertificate(cert)
         return cert
 
-    def saveCACert(self, caCert):
-        if not isinstance(caCert, crypto.Certificate): raise ValueError(caCert)
+    def saveCACert(self, caCert: crypto.Certificate) -> None:
         caCert.save(self.fileCaCert)
 
-    def loadCACertificate(self):
+    def loadCACertificate(self) -> crypto.Certificate:
         return crypto.Certificate.load(self.fileCaCert)
 
-    def saveCaPrivKey(self, pkey, password=None):
+    def saveCaPrivKey(self, pkey: crypto.PrivateKey, password: crypto.Password = None) -> None:
         pkey.save(self.fileCAPriv, password)
 
-    def hasCACertificate(self):
+    def hasCACertificate(self) -> bool:
         return exists(self.fileCaCert)
 
-    def hasCAKey(self):
+    def hasCAKey(self) -> bool:
         return exists(self.fileCAPriv)
 
-    def loadCAKey(self, password=None):
+    def loadCAKey(self, password: crypto.Password = None) -> crypto.PrivateKey:
         return crypto.PrivateKey.load(self.fileCAPriv, password)
 
-    def hasMemberCertificateWithAddress(self, address):
+    def hasMemberCertificateWithAddress(self, address: str) -> bool:
         try:
             self.loadMemberCertificateByAddress(address)
         except KeyError:
             return False
         return True
 
-    def hasKeyForCertificate(self, cert):
+    def hasKeyForCertificate(self, cert: crypto.Certificate) -> bool:
         return exists(self.filenameKey(cert.get_pubkey()))
 
-    def hasMemberCertificate(self, cert):
+    def hasMemberCertificate(self, cert: crypto.Certificate) -> bool:
         return exists(self.filenameCertificate(cert))
 
-    def hasNote(self, note):
+    def hasNote(self, note: Note) -> bool:
         return exists(self.filenameNote(note))
 
-    def hasAccusation(self, accusation):
+    def hasAccusation(self, accusation: Accusation) -> bool:
         return exists(self.filenameAccusation(accusation))
 
-    def filenameCertificate(self, cert):
-        if not isinstance(cert, crypto.Certificate): raise ValueError(cert)
+    def filenameCertificate(self, cert: crypto.Certificate) -> str:
         name = cert.address()
         if os.name == "nt":
             # A colon in a Windows file name opens an NTFS data stream.
             name = name.replace(":", "_")
         return join(self.dirCert, name + ".pem")
 
-    def filenameAccusation(self, accusation):
-        if not isinstance(accusation, fireflies.state.Accusation): raise ValueError
+    def filenameAccusation(self, accusation: Accusation) -> str:
         d = (printIdentity(accusation.accused),
              printIdentity(accusation.accuser),
              accusation.epoch)
         return join(self.dirAccu, "%s-%s-%d" % d)
 
-    def filenameNote(self, note):
-        if not isinstance(note, fireflies.state.Note): raise ValueError
+    def filenameNote(self, note: Note) -> str:
         return join(self.dirNote, "%s-%d.pem" % (printIdentity(note.identity),
                                                  note.epoch))
 
-    def filenameKey(self, pkey):
-        if not isinstance(pkey, (crypto.PublicKey, crypto.PrivateKey)): raise ValueError(pkey)
+    def filenameKey(self, pkey: "crypto.PublicKey | crypto.PrivateKey") -> str:
         name = crypto.computeSubjectKeyIdentifier(pkey)
         name = crypto.subjectKeyIdentifierToID(name)
         return join(self.dirPriv, name + ".pem")
 
-    def _certFiles(self):
+    def _certFiles(self) -> list[str]:
         return glob.glob(join(self.dirCert, "*"))
 
-    def loadMemberCertificates(self):
+    def loadMemberCertificates(self) -> list[crypto.Certificate]:
         return [crypto.Certificate.load(x) for x in self._certFiles()]
 
-    def loadMemberCertificateByIdentity(self, iid):
+    def loadMemberCertificateByIdentity(self, iid: str) -> crypto.Certificate:
         for f in self._certFiles():
             cert = crypto.Certificate.load(f)
             if identityFromCertificate(cert) == iid:
                 return cert
         raise KeyError("No certificate matching ID=%s found" % iid)
 
-    def loadMemberCertificateByAddress(self, address):
+    def loadMemberCertificateByAddress(self, address: str) -> crypto.Certificate:
         for f in self._certFiles():
             cert = crypto.Certificate.load(f)
             if cert.get_subject().L == address:
                 return cert
         raise KeyError("No certificate matching Address=%s found" % address)
 
-    def loadMemberCertificateByName(self, name):
+    def loadMemberCertificateByName(self, name: str) -> crypto.Certificate:
         for f in self._certFiles():
             cert = crypto.Certificate.load(f)
             if cert.get_subject().CN == name:
@@ -157,64 +155,61 @@ class Store:
         raise KeyError("No certificate matching Name=%s found" % name)
 
     @staticmethod
-    def _unpickle(path):
+    def _unpickle(path: str) -> Any:
         with open(path, "rb") as f:
             return pickle.load(f)
 
     @staticmethod
-    def _pickle(obj, path):
+    def _pickle(obj: object, path: str) -> None:
         with open(path, "wb") as f:
             pickle.dump(obj, f)
 
-    def loadNotes(self):
+    def loadNotes(self) -> list[Note]:
         return [self._unpickle(x) for x in glob.glob(join(self.dirNote, "*"))]
 
-    def loadAccusations(self):
+    def loadAccusations(self) -> list[Accusation]:
         return [self._unpickle(x) for x in glob.glob(join(self.dirAccu, "*"))]
 
-    def saveMemberCertificate(self, cert):
-        if not isinstance(cert, crypto.Certificate): raise ValueError(cert)
+    def saveMemberCertificate(self, cert: crypto.Certificate) -> None:
         cert.save(self.filenameCertificate(cert))
 
-    def saveNote(self, note):
-        if not isinstance(note, fireflies.state.Note): raise ValueError
+    def saveNote(self, note: Note) -> None:
         self._pickle(note, self.filenameNote(note))
 
-    def saveAccusation(self, accusation):
-        if not isinstance(accusation, fireflies.state.Accusation): raise ValueError
+    def saveAccusation(self, accusation: Accusation) -> None:
         self._pickle(accusation, self.filenameAccusation(accusation))
 
-    def savePrivateKey(self, pkey, password=None):
+    def savePrivateKey(self, pkey: crypto.PrivateKey, password: crypto.Password = None) -> None:
         pkey.save(self.filenameKey(pkey), password)
 
-    def loadPrivateKeyForCert(self, cert, password=None):
+    def loadPrivateKeyForCert(self, cert: crypto.Certificate, password: crypto.Password = None) -> crypto.PrivateKey:
         name = self.filenameKey(cert.get_pubkey())
         if not exists(name):
             raise KeyError("No private key for certificate: %s" % name)
         return crypto.PrivateKey.load(name, password)
 
-    def loadNoteFromCert(self, cert):
+    def loadNoteFromCert(self, cert: crypto.Certificate) -> Note:
         identity = identityFromCertificate(cert)
         for f in glob.glob(join(self.dirNote, "*")):
             note = self._unpickle(f)
-            if not isinstance(note, fireflies.state.Note): raise ValueError
+            if not isinstance(note, Note): raise ValueError
             if note.identity == identity:
                 return note
         raise KeyError("No matching note found.")
 
-    def clearAccusations(self):
+    def clearAccusations(self) -> None:
         for f in glob.glob(join(self.dirAccu, "*")):
             os.remove(f)
 
-    def clearNotes(self):
+    def clearNotes(self) -> None:
         for f in glob.glob(join(self.dirNote, "*")):
             os.remove(f)
 
-    def clearCertificates(self):
+    def clearCertificates(self) -> None:
         for f in self._certFiles():
             os.remove(f)
 
-    def saveGroup(self, group):
+    def saveGroup(self, group: "Group") -> None:
         for member in group.getView().getAllMembers():
             self.saveMemberCertificate(member.getCertificate())
             n = member.getNote()
@@ -223,7 +218,7 @@ class Store:
             for acc in member.getAccusations():
                 self.saveAccusation(acc)
 
-    def clear(self):
+    def clear(self) -> None:
         self.clearAccusations()
         self.clearNotes()
         self.clearCertificates()

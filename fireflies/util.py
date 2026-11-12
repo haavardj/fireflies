@@ -16,8 +16,9 @@
 
 
 import math
-from typing import Any
+from typing import Any, Callable
 
+from twisted.application.service import MultiService, Service
 from twisted.internet import reactor as _installedReactor
 
 # The global reactor provides many interfaces (IReactorTime, IReactorTCP,
@@ -27,11 +28,16 @@ from twisted.internet import reactor as _installedReactor
 reactor: Any = _installedReactor
 
 
+def setServiceParent(service: Service, parent: MultiService) -> None:
+    """service.setServiceParent(parent), which Twisted leaves unannotated."""
+    service.setServiceParent(parent)  # pyright: ignore[reportUnknownMemberType]
+
+
 #
 # Binomial distribution. Log-space, so large n does not overflow.
 #
 
-def binomialP(k, n, p):
+def binomialP(k: int, n: int, p: float) -> float:
     """Probability of exactly k successes in n trials with success probability p."""
     if p == 0.0:
         return 1.0 if k == 0 else 0.0
@@ -43,17 +49,17 @@ def binomialP(k, n, p):
 binomialp = binomialP
 
 
-def binomialc(k, n, p):
+def binomialc(k: int, n: int, p: float) -> float:
     """Probability of at most k successes in n trials."""
     return sum(binomialP(i, n, p) for i in range(k + 1))
 
 
-def binomial_list(n, p):
+def binomial_list(n: int, p: float) -> list[float]:
     """Probabilities of 0..n successes in n trials."""
     return [binomialP(k, n, p) for k in range(n + 1)]
 
 
-def long_to_bytes(n, blocksize=0):
+def long_to_bytes(n: int, blocksize: int = 0) -> bytes:
     """Convert a non-negative integer to a big-endian byte string.
 
     If blocksize is greater than zero, pad the front with zero bytes so
@@ -65,7 +71,7 @@ def long_to_bytes(n, blocksize=0):
         s = (blocksize - len(s) % blocksize) * b"\x00" + s
     return s
 
-def bytes_to_long(s):
+def bytes_to_long(s: bytes) -> int:
     """Convert a big-endian byte string to an integer. Inverse of long_to_bytes()."""
     return int.from_bytes(s, "big")
 
@@ -75,40 +81,40 @@ class TimeoutMixin:
     timeout = 30
     timer: Any = None
     
-    def startTimer(self):        
+    def startTimer(self) -> None:
         if self.timer: raise ValueError("Timer already started")
 
-        def _d():
+        def _d() -> None:
             self.timer = None
             self.timedOut()
         
         self.timer = reactor.callLater(self.timeout, _d)
 
-    def cancelTimer(self):
+    def cancelTimer(self) -> None:
         self.timer.cancel()
         self.timer = None
 
-    def hasTimer(self):
+    def hasTimer(self) -> bool:
         if self.timer: assert self.timer.active()
         return bool(self.timer)
     
-    def timedOut(self): pass
+    def timedOut(self) -> None: pass
         
         
 class ObserveableMixin:
     
-    _observers: "dict[Any, Any] | None" = None
+    _observers: "dict[Callable[..., Any], tuple[tuple[Any, ...], dict[str, Any]]] | None" = None
     
-    def registerObserver(self, o, *args, **kwargs):
-        if self._observers == None:
+    def registerObserver(self, o: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
+        if self._observers is None:
             self._observers = {}
         self._observers[o] = (args, kwargs)
 
-    def deregisterObserver(self, o):
+    def deregisterObserver(self, o: Callable[..., Any]) -> None:
         if self._observers is not None:
             del self._observers[o]
         
-    def notify(self, *args, **kwargs):
+    def notify(self, *args: Any, **kwargs: Any) -> None:
         """Call each observer with the arguments given to notify, followed
         by those given when it registered."""
         for o, (oArgs, oKwargs) in list((self._observers or {}).items()):
@@ -118,7 +124,9 @@ class ObserveableMixin:
 class TimestampMixin:
     """Provides time-stamping functionality to an object."""
     
-    def getTimestamp(self):
+    _timestamp: float
+
+    def getTimestamp(self) -> float:
         """Returns the time-stamp, or 0 if no time-stamp is set."""
         try:
             return self._timestamp
@@ -126,7 +134,7 @@ class TimestampMixin:
             pass
         return 0
 
-    def setTimestamp(self):
+    def setTimestamp(self) -> None:
         """Set time-stamp according to the time returned by
         fireflies.time.time."""
         import fireflies
@@ -135,36 +143,36 @@ class TimestampMixin:
 
 binomCDF = binomialc
 
-from math import log, sqrt
+from math import log
 
 
-def YmirCalc(pcorr, N, eps=0.5, c = 0.5):
+def YmirCalc(pcorr: float, N: float, eps: float = 0.5, c: float = 0.5) -> float:
     t1 = log(N / c)
     t2 = (2*pcorr + eps) / (2 * eps**2)   
     return t1 * t2 - 1/2
 
-def hdjCalc1(pcorr, N, c=1.0):
+def hdjCalc1(pcorr: float, N: float, c: float = 1.0) -> float:
     t1 = log(N / c)    
     t2 = (4*pcorr + 2) / (2*pcorr-1)**2
     return t1 * t2
 
-def hdjCalc2(pcorr, N, c=1.0):
+def hdjCalc2(pcorr: float, N: float, c: float = 1.0) -> float:
     t1 = log(N / c)    
     t2 = (2.0) / ((1-2*pcorr)**2)
     return t1 * t2
 
-def proofv4(pcorr, N, c=1.0):
+def proofv4(pcorr: float, N: float, c: float = 1.0) -> float:
     t1 = log(1.0 - (c / N))
     t2 = 2.0 / log(2.0-2*pcorr) + 2*pcorr - 1
     return t1 * t2
 
     
-def minmajority(num):
+def minmajority(num: int) -> int:
     # Should always be odd
     assert num % 2 == 1    
     return (num - 1) // 2
     
-def numMembershipRings(pByz, N, epsilon=0.99, maxSize=1000):
+def numMembershipRings(pByz: float, N: int, epsilon: float = 0.99, maxSize: int = 1000) -> int:
     """Compute the minimum k=2t+1 such that the probability of more than t out of
     2t+1 monitors are correct with probability epsilon given the uniform
     probability pByz that a monitor is Byzantine.
@@ -174,7 +182,7 @@ def numMembershipRings(pByz, N, epsilon=0.99, maxSize=1000):
     """    
     return 2*numHalfMembershipRings(pByz, N, epsilon, maxSize) + 1
 
-def numHalfMembershipRings(pByz, N, epsilon=0.99, maxSize=1000):
+def numHalfMembershipRings(pByz: float, N: int, epsilon: float = 0.99, maxSize: int = 1000) -> int:
     """Compute the minimum t such that the probability of more than t out of
     2t+1 monitors are correct with probability epsilon given the uniform
     probability pByz that a monitor is Byzantine.
@@ -189,7 +197,7 @@ def numHalfMembershipRings(pByz, N, epsilon=0.99, maxSize=1000):
 
     raise ValueError("Cannot compute number if rings from pByz=%f" % pByz)
 
-def numGossipRings(pByz, N, epsilon=0.99):
+def numGossipRings(pByz: float, N: int, epsilon: float = 0.99) -> int:
     
     n = (1.0 - pByz) * N
     return math.ceil( (N / (2*n)) * (log(-n / log(epsilon)) + 1))

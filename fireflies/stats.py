@@ -68,7 +68,7 @@ cputime:
 """
 
 
-def printStats(stats):
+def printStats(stats: "Stats") -> str:
     
     return """
 Connections:
@@ -125,66 +125,68 @@ Membership:
             )                    
 
 
-statistics = {}
+statistics: dict[str, tuple[str, int]] = {}
 
-def addStatistic(name, doc="", pos=-1):
+def addStatistic(name: str, doc: str = "", pos: int = -1) -> None:
     if name in statistics: 
         raise ValueError("Statistic %s exists." % (name,))    
     statistics[name] = (doc, pos)
 
-def listStatistics():
+def listStatistics() -> list[str]:
     return sorted(statistics, key=lambda k: statistics[k][1])
 
-def labels():
+def labels() -> str:
     d = listStatistics()
     return ("%s " * len(d) ) % tuple(d)
 
 class Stats:
-        
-    def __init__(self):
+    """Counters, one attribute per registered statistic."""
+
+    _data: dict[str, float]
+
+    def __init__(self) -> None:
         self.clear()
 
-    def clear(self):
-        d = {}
+    def clear(self) -> None:
+        d: dict[str, float] = {}
         for k in list(statistics.keys()):
             d[k] = 0
         self.__dict__['_data'] = d
         
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> float:
         try:
             return self.__dict__["_data"][name]
         except KeyError:
             raise AttributeError("Invalid attribute %s" % name)
         
-    def __setattr__(self, name, value):
+    def __setattr__(self, name: str, value: float) -> None:
         if name not in self._data:
             raise AttributeError("Invalid attribute %s" % name)
         self.__dict__["_data"][name] = value
 
-    def __add__(self, other):
+    def __add__(self, other: "Stats") -> "Stats":
         s = Stats()
         for k in list(statistics.keys()):
             setattr(s, k, getattr(self, k) + getattr(other, k))
         return s
 
-    def __sub__(self, other):
+    def __sub__(self, other: "Stats") -> "Stats":
         s = Stats()
         for k in list(statistics.keys()):
             setattr(s, k, getattr(self, k) - getattr(other, k))
         return s
 
-    def __truediv__(self, other):
+    def __truediv__(self, other: "Stats | float") -> "Stats":
         s = Stats()
         if isinstance(other, Stats):
             for k in list(statistics.keys()):
                 setattr(s, k, getattr(self, k) / getattr(other, k))
-        elif type(other) == int or type(other) == float:
+        else:
             for k in list(statistics.keys()):
                 setattr(s, k, float(getattr(self, k)) / float(other))
-        else: raise AttributeError
         return s
 
-    def __str__(self):
+    def __str__(self) -> str:
         d = [self._data[x] for x in listStatistics()]
         return ("%d " * len(d) ) % tuple(d)
 

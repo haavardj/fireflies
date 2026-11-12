@@ -8,7 +8,7 @@ import fireflies.util
 from optparse import OptionParser
 
 
-def main():
+def main() -> None:
     parser = OptionParser(usage="""%prog [options] <path>
 
 Initialize a Fireflies Certificate Authority (CA). This includes creating the

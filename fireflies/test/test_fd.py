@@ -9,7 +9,7 @@ import fireflies
 import fireflies.group
 import fireflies.view
 from fireflies import fd
-from fireflies.test.helpers import makeCA, makeMember
+from fireflies.test.helpers import makeCA, makeMember, noteOf
 
 
 class ExpSmoothedTimeoutPolicyTest(unittest.TestCase):
@@ -106,7 +106,7 @@ class PongAuthenticationTest(unittest.TestCase):
                     g.view.addCertificate(other.getMe().getCertificate())
             for other in self.groups:
                 if other is not g:
-                    g.view.addNote(other.getMe().getNote())
+                    g.view.addNote(noteOf(other.getMe()))
         self.fds = []
         for g in self.groups:
             d = fd.FailureDetector(g)

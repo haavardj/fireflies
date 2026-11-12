@@ -37,7 +37,7 @@ packages = ["fireflies", "fireflies.cli", "fireflies.setrecon", "fireflies.test"
             "fireflies.web", "fireflies.web.templates", "fireflies.web.static"]
 
 [tool.setuptools.package-data]
-"fireflies.setrecon" = ["*.h", "*.i"]
+"fireflies.setrecon" = ["*.h", "*.i", "*.pyi"]
 "fireflies.web.templates" = ["*.html"]
 "fireflies.web.static" = ["*.css", "*.js", "*.md"]
 
@@ -48,6 +48,6 @@ pythonVersion = "3.10"
 # The daemon runs on Linux (gossip needs the C++ extension).
 pythonPlatform = "Linux"
 typeCheckingMode = "standard"
-# Modules listed here are held to strict mode. Add a module once it is
-# fully annotated.
-strict = ["fireflies/crypto.py"]
+# The package is held to strict mode; the tests to standard mode.
+# setreconbase.pyi types the SWIG module; update it with setreconbase.i.
+strict = ["fireflies/*.py", "fireflies/cli", "fireflies/setrecon", "fireflies/web"]

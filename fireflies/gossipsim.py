@@ -13,23 +13,25 @@
 ######################################################################
 
 import logging, fireflies
-from twisted.internet.protocol import Factory, Protocol, ClientFactory, ServerFactory
-from twisted.protocols.basic import Int32StringReceiver
-import twisted.internet
-from twisted.internet import defer
+from twisted.internet import defer, tcp
 from twisted.application.service import Service
+from twisted.python.failure import Failure
 
-from fireflies import setrecon, ring
+from fireflies import crypto, setrecon, ring
 import fireflies.protocols
-from fireflies.packer import FirefliesPacker, FirefliesUnpacker
+from fireflies.protocols import ReconnectingPeerFactory
+from fireflies.setrecon import ReconSet, ZZ_p, node
 from fireflies.state import Note, Accusation, Member
 import hashlib
-from fireflies.util import reactor
+from fireflies.util import reactor, setServiceParent
 from twisted.internet.task import LoopingCall
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from fireflies.group import Group
+
+AnySet = ReconSet[Any]
+AppendFunc = Callable[[Any], object]
 
 
 PARTITION_FACTOR = 3
@@ -44,28 +46,23 @@ NODE_STATUS_TERMINAL = 1
 NODE_STATUS_NONTERMINAL = 2
 
 
-class NoteSet(setrecon.ReconSet):
-       
-    def elmToZZp(self, elm):        
-        if not hasattr(elm, "__zz_value_x"):
-            elm.__zz_value_x = setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))        
-        return elm.__zz_value_x
-            
-class AccusationSet(setrecon.ReconSet):
+# The old versions cached the value in elm.__zz_value_x but tested for it
+# with hasattr under the unmangled name, so the cache never hit.
 
-    def elmToZZp(self, elm):
-        #if not isinstance(elm, Accusation): raise ValueError
-        #return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))
-        if not hasattr(elm, "__zz_value_x"):
-            elm.__zz_value_x = setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))        
-        return elm.__zz_value_x
-        
-class X509Set(setrecon.ReconSet):
+class NoteSet(ReconSet[Note]):
 
-    def elmToZZp(self, elm):
-        if not hasattr(elm, "__zz_value_x"):
-            elm.__zz_value_x = setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.digest()))
-        return elm.__zz_value_x
+    def elmToZZp(self, elm: Note) -> ZZ_p:
+        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))
+
+class AccusationSet(ReconSet[Accusation]):
+
+    def elmToZZp(self, elm: Accusation) -> ZZ_p:
+        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.get_fingerprint()))
+
+class X509Set(ReconSet[crypto.Certificate]):
+
+    def elmToZZp(self, elm: crypto.Certificate) -> ZZ_p:
+        return setrecon.to_ZZ_p(setrecon.to_ZZFromBytes(elm.digest()))
 
 
 
@@ -78,25 +75,33 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
     STATE_TERMINATED = "term"
     MAX_LENGTH = 100000000
 
-    other = None
     state = STATE_CONNECTING
     master = False
-    factory = None
-    _timer = None
-    
-    
-    def __init__(self):
+
+    # The set being reconciled, set by reconcile() or handle_reconcile().
+    dataset: AnySet
+    setName: str
+    appendfunc: AppendFunc
+    _d: "defer.Deferred[None] | None" = None
+
+    def __init__(self) -> None:
         fireflies.protocols.FirefliesProtocol.__init__(self)
-        self.curNode: Any = None
-        self.nodes = []        
-        self.dataBuff = []
-        self.reqBuff = []
-        self.outBuff = []
-        
-    def idle(self):
+        self.curNode: "node | None" = None
+        self.nodes: "list[node | None]" = []
+        self.dataBuff: list[Any] = []
+        self.reqBuff: list[ZZ_p] = []
+        self.outBuff: list[Any] = []
+
+    def idle(self) -> None:
         pass
 
-    def handle_reconcile_data(self, data):
+    @property
+    def gossipService(self) -> "Gossip":
+        service = self.service
+        assert isinstance(service, Gossip)
+        return service
+
+    def handle_reconcile_data(self, data: list[Any]) -> None:
         """Data from client.
         """
         assert self.nodes == []
@@ -104,16 +109,14 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
         self.logger.debug("reconcile_data <- %s %d", self, len(data))
         self.dataBuff.extend(data)
 
-    def handle_reconcile_data_req(self, hashes):
+    def handle_reconcile_data_req(self, hashes: list[ZZ_p]) -> None:
         self.cancelTimeout()         
         assert self.state == self.STATE_GOSSIPING
-        assert self.nodes == [], "%s %s %s" % (self.factory.peer, self, self.nodes)
+        assert self.nodes == [], "%s %s %s" % (self.factory, self, self.nodes)
         
         self.logger.debug("reconcile_data_req <- %s %d", self, len(hashes))
         
         assert hashes == []
-
-        badness = self.factory.service.group.badness
 
         #Passive attack
         if self.setName == "aSet" and self.group.badness == 1:
@@ -136,13 +139,13 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
 
         self.setTimeout()
 
-    def handle_reconcile_done(self):
+    def handle_reconcile_done(self) -> None:
         """Reconciliation is done."""
 
         assert not self.nodes
         self.cancelTimeout()
         self.logger.debug("reconcile_done <-%s ", self)
-        assert self.state == self.STATE_GOSSIPING, "%s %s, invalid state %s" %(self.factory.peer, self, self.state)
+        assert self.state == self.STATE_GOSSIPING, "%s %s, invalid state %s" %(self.factory, self, self.state)
         assert self.nodes == []
         self.logger.debug("reconcile_done->%s", self)
         
@@ -161,6 +164,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
                 self.logger.warning("reconcile_done error in data %s %s", itm, why) 
                 
         if self.master:
+            assert self._d is not None
             self._d.callback(None)
             self.idle()
 
@@ -168,7 +172,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
     #
     # Reconcile stuff
     #    
-    def reconcile(self, name, dataset, appendfunc):
+    def reconcile(self, name: str, dataset: AnySet, appendfunc: AppendFunc) -> "defer.Deferred[None] | None":
 
         if (not self.connected) or self.state != self.STATE_IDLE: 
             self.logger.info("scheduled reconsile ignored. Connection is terminated %s", self)
@@ -201,13 +205,14 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
         self.setTimeout()
         return self._d
 
-    def handle_digest_match(self, match):
+    def handle_digest_match(self, match: bool) -> None:
         assert self.state == self.STATE_GOSSIPING
         self.cancelTimeout()
         self.logger.debug("digest_match<-%s %s", self, bool(match))
         if match:
-            assert self.nodes == self.reqBuff == self.dataBuff == self.outBuff == []
+            assert self.nodes == [] and self.reqBuff == [] and self.dataBuff == [] and self.outBuff == []
             self.state = self.STATE_IDLE
+            assert self._d is not None
             self._d.callback(None)
             self.idle()
         else:
@@ -216,7 +221,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
     #
     # Main protocol steps
     #
-    def handle_reconcile(self, name, digest):
+    def handle_reconcile(self, name: str, digest: bytes) -> None:
         """
         Protocol start. Name specifies the set to be reconciled.
         """
@@ -228,7 +233,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
         assert self.dataBuff == []
         assert self.reqBuff == []
         assert self.outBuff == []
-        self.dataset, self.appendfunc = self.service.getSet(name)
+        self.dataset, self.appendfunc = self.gossipService.getSet(name)
         self.setName = name
                 
         n = self.dataset.getRootPartition()
@@ -248,7 +253,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
             self.sendCommand("digest_match", False)
             self.reconcile_next()
     
-    def reconcile_next(self):
+    def reconcile_next(self) -> None:
         assert self.state == self.STATE_GOSSIPING, "state is %s should be %s" % (self.state, self.STATE_GOSSIPING)
         self.logger.debug("reconcile_next %s nodes=%d", self, len(self.nodes))
         
@@ -265,30 +270,31 @@ class ServerProtocol(GossipBase):
 class ClientProtocol(GossipBase):
     master = True
 
-    def __init__(self):
+    def __init__(self) -> None:
         
         self._timer = None
         self._d = None
         self.master = True
-        self.taskQ = defer.DeferredQueue()                         
+        self.taskQ: "defer.DeferredQueue[AnySet | str]" = defer.DeferredQueue()
         GossipBase.__init__(self)  
 
-    def idle(self):
+    def idle(self) -> None:
         d = self.taskQ.get()            
         d.addCallback(self.cb_nextTask)
         
-    def cb_nextTask(self, task):
+    def cb_nextTask(self, task: "AnySet | str") -> None:
 
         if not self.connected or self.state == self.STATE_TERMINATED: 
             self.logger.info("scheduled task ignored as connection is terminated %s", self)
             return
         
+        view = self.group.view
         if isinstance(task, NoteSet):
-            self.reconcile("nSet", task, self.factory.service.group.view.addNote)
+            self.reconcile("nSet", task, view.addNote)
         elif isinstance(task, AccusationSet):
-            self.reconcile("aSet", task, self.factory.service.group.view.addAccusation)
+            self.reconcile("aSet", task, view.addAccusation)
         elif isinstance(task, X509Set):
-            self.reconcile("cSet", task, self.factory.service.group.view.addCertificate)
+            self.reconcile("cSet", task, view.addCertificate)
         elif isinstance(task, str):
             if task == "dataRequest":
                 self.sendCommand("dataRequest")
@@ -299,7 +305,7 @@ class ClientProtocol(GossipBase):
         
             
             
-def isEmptyNode(node):
+def isEmptyNode(node: "node | None") -> bool:
     if node:
         if node.intree:
             if node.ref_count() < 2: node.printNode(0)
@@ -308,7 +314,7 @@ def isEmptyNode(node):
             if node.ref_count() == 0: node.printNode(0)
             assert node.ref_count() > 0, "refcount is %d shoud be >0. intree=%s" %(node.ref_count(), node.intree)
             
-    return bool(   (node == None) or (node.setsize==0) or (node.intree == False))
+    return node is None or node.setsize == 0 or not node.intree
 
 
 class Gossip(Service):
@@ -317,13 +323,14 @@ class Gossip(Service):
     rate = 30.0
     TCPTimeout = 360.0
     
-    rings: ring.RingSet
+    rings: ring.RingSet[Member]
     group: "Group"
-        
-    def __init__(self, group):
+    _port: tcp.Port
+
+    def __init__(self, group: "Group") -> None:
         self.group = group
-        
-        self.setServiceParent(group)
+
+        setServiceParent(self, group)
         self.rings = ring.RingSet()
         for x in range(self.group.nrGossipingRings()):
             self.rings.insertRing(ring.NameHashedRing(x))
@@ -332,9 +339,9 @@ class Gossip(Service):
         self.nSet = NoteSet(PARTITION_FACTOR, RECON_EXTRA)
         self.aSet = AccusationSet(PARTITION_FACTOR, RECON_EXTRA)
 
-        self.connectedAsServer = set()
-        self.active = set()
-        self.neighborPool = {}
+        self.connectedAsServer: set[ReconnectingPeerFactory] = set()
+        self.active: set[ReconnectingPeerFactory] = set()
+        self.neighborPool: dict[Member, ReconnectingPeerFactory] = {}
         
         # Register all member in the gossip mesh
         for m in self.group.getAllMembers():
@@ -343,7 +350,8 @@ class Gossip(Service):
         # Add all certificates, notes, and accusations to our data sets.
         for m in self.group.getAllMembers():
             self.cSet.insert(m.getCertificate())
-            if m.getNote(): self.nSet.insert(m.getNote())
+            note = m.getNote()
+            if note: self.nSet.insert(note)
             for a in m.getAccusations(): self.aSet.add(a)
 
         #register to receive notification on group updates.
@@ -353,14 +361,15 @@ class Gossip(Service):
         self.group.registerEventHandler("data.certificate", self.evData)        
 
         self.sFactory = fireflies.protocols.PeerServerFactory(self)
-        self.sFactory.protocol = ServerProtocol
+        self.sFactory.peerProtocol = ServerProtocol
         self._task = LoopingCall(self.update)
 
     @property
-    def logger(self):
+    def logger(self) -> logging.Logger:
         return self.group.logger
 
-    def evData(self, name, itm, status):
+    def evData(self, name: str, itm: Any, status: bool) -> None:
+        sset: AnySet
         if name == "data.accusation": sset = self.aSet
         elif name == "data.note": sset = self.nSet
         elif name == "data.certificate": sset = self.cSet
@@ -374,21 +383,18 @@ class Gossip(Service):
         else:
             sset.remove(itm)
 
-    def evMemberNew(self, name, member, status):
+    def evMemberNew(self, name: str, member: Member, status: int) -> None:
         if status == fireflies.EV_CRASH_NEW:
             self.rings.insertItem(member)
-            factory = fireflies.protocols.ReconnectingPeerFactory(member)
-            factory.protocol = ClientProtocol
+            factory = ReconnectingPeerFactory(member)
+            factory.peerProtocol = ClientProtocol
             factory.service = self
             self.neighborPool[member] = factory
     
-    def getPeerFactoryFromProtocol(self, protocol):
-        return self.neighborPool[protocol.other]
-
-    def getMemberFactory(self, member):
+    def getMemberFactory(self, member: Member) -> ReconnectingPeerFactory:
         return self.neighborPool[member]
 
-    def startService(self):
+    def startService(self) -> None:
         assert not self.running
         Service.startService(self)
 
@@ -401,7 +407,7 @@ class Gossip(Service):
         interval = self.rate # / float(len(self.rings.getRings()))
         self._task.start(interval, now=False)
         
-    def stopService(self):
+    def stopService(self) -> None:
         assert self.running
         address = self.group.getMe().address
         self.logger.info("Stop gossiping on tcp %s:%d", address.host, address.port)
@@ -420,7 +426,7 @@ class Gossip(Service):
                     factory.connectedProtocol.hangup()                   
             factory.doStop()               
              
-        for member, factory in list(self.neighborPool.items()):
+        for factory in list(self.neighborPool.values()):
             if factory.isActive():
                 factory.deactivate()
                 self.active.remove(factory)
@@ -429,11 +435,10 @@ class Gossip(Service):
         self.sFactory.doStop()
 
         
-    def update(self):
-        outbound = self.rings.succ(self.group.getMe(), lambda x: x.isLive())
-        outbound = [x for x in outbound if x != self.group.getMe()]
-        inbound = self.rings.pred(self.group.getMe(), lambda x: x.isLive())
-        inbound = [x for x in inbound if x != self.group.getMe()]
+    def update(self) -> None:
+        me = self.group.getMe()
+        outbound = [x for x in self.rings.succ(me, lambda x: x.isLive())
+                    if x is not None and x != me]
 
         # Deactivate outbound connections
         toDeactivate = [x for x in self.active if not x.member in outbound]
@@ -463,37 +468,42 @@ class Gossip(Service):
             else:
                 #pass
                 assert factory in self.active
-                if factory.connectedProtocol and factory.connectedProtocol.master and not factory.connectedProtocol.taskQ.pending:
-                    reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.cSet)
-                    reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.nSet)
-                    reactor.callLater(nr * interval, factory.connectedProtocol.taskQ.put, self.aSet)
+                proto = factory.connectedProtocol
+                if isinstance(proto, ClientProtocol) and not proto.taskQ.pending:
+                    reactor.callLater(nr * interval, proto.taskQ.put, self.cSet)
+                    reactor.callLater(nr * interval, proto.taskQ.put, self.nSet)
+                    reactor.callLater(nr * interval, proto.taskQ.put, self.aSet)
                                                 
-    def _failback(self, reason):
+    def _failback(self, reason: Failure) -> None:
         self.logger.exception(reason)
 
-    def peerConnected(self, factory):
+    def peerConnected(self, factory: ReconnectingPeerFactory) -> None:
         """Called when a new connection is accepted."""
 
-        assert factory.connectedProtocol
+        proto = factory.connectedProtocol
+        assert proto
 
-        if factory.connectedProtocol.master:
+        if proto.master:
             if not factory in self.active:
-                self.logger.error("error: connect as master, but not active %s", factory.connectedProtocol)
-                factory.connectedProtocol.hangup()
+                self.logger.error("error: connect as master, but not active %s", proto)
+                proto.hangup()
                 return
             assert factory.isActive()
-            factory.connectedProtocol.taskQ.put(self.cSet)
-            factory.connectedProtocol.taskQ.put(self.nSet)
-            factory.connectedProtocol.taskQ.put(self.aSet)
+            assert isinstance(proto, ClientProtocol)
+            proto.taskQ.put(self.cSet)
+            proto.taskQ.put(self.nSet)
+            proto.taskQ.put(self.aSet)
         else:
             self.connectedAsServer.add(factory)
 
-    def peerDisconnected(self, factory):
+    def peerDisconnected(self, factory: ReconnectingPeerFactory) -> None:
         if factory in self.connectedAsServer:
             self.connectedAsServer.remove(factory)
 
     
-    def getSet(self, name):
+    def getSet(self, name: str) -> tuple[AnySet, AppendFunc]:
+        s: AnySet
+        f: AppendFunc
         if name == "cSet":
             s = self.cSet
             f = self.group.view.addCertificate

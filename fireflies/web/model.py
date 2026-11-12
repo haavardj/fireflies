@@ -6,16 +6,22 @@ dicts and lists, so templates never touch live protocol objects.
 
 import collections
 import time
+from typing import Any, cast
 
 from twisted.application.service import Service
 from twisted.internet.task import LoopingCall
 
 import fireflies
 import fireflies.stats
-from fireflies.group import collectStatistic
+from fireflies.fd import FailureDetector
+from fireflies.group import Group, collectStatistic
+from fireflies.state import Member
+
+# A JSON-ready record for the templates and the /api pages.
+Record = dict[str, Any]
 
 
-def status(member):
+def status(member: Member) -> str:
     """Return "failed", "accused" or "live"."""
     if member.isFailed():
         return "failed"
@@ -24,11 +30,11 @@ def status(member):
     return "live"
 
 
-def short(identity, n=8):
+def short(identity: str, n: int = 8) -> str:
     return identity[:n]
 
 
-def memberRow(member, me):
+def memberRow(member: Member, me: Member) -> Record:
     note = member.getNote()
     return {
         "identity": member.identity,
@@ -42,7 +48,7 @@ def memberRow(member, me):
     }
 
 
-def counts(group):
+def counts(group: Group) -> dict[str, int]:
     out = {"all": 0, "live": 0, "accused": 0, "failed": 0}
     for m in group.view.getAllMembers():
         out["all"] += 1
@@ -50,7 +56,7 @@ def counts(group):
     return out
 
 
-def overview(group, started):
+def overview(group: Group, started: float) -> Record:
     me = group.getMe()
     view = group.view
     members = sorted(view.getAllMembers(), key=lambda m: m.getAddress())
@@ -68,7 +74,7 @@ def overview(group, started):
     }
 
 
-def member(group, identity):
+def member(group: Group, identity: str) -> "Record | None":
     """Return details of one member, or None if it is unknown."""
     view = group.view
     try:
@@ -77,7 +83,7 @@ def member(group, identity):
         return None
     me = group.getMe()
     note = m.getNote()
-    accusations = []
+    accusations: list[Record] = []
     for a in m.getAccusations():
         try:
             accuser = memberRow(view.getMemberByIdentity(a.accuser), me)
@@ -85,7 +91,7 @@ def member(group, identity):
             accuser = {"identity": a.accuser, "short": short(a.accuser), "address": "?", "status": "unknown"}
         accusations.append({"accuser": accuser, "epoch": a.epoch, "ring": getattr(a, "ring", None)})
 
-    rings = []
+    rings: list[Record] = []
     for r in view.mRings:
         if len(r) < 2 or m not in r:
             continue
@@ -105,24 +111,24 @@ def member(group, identity):
     }
 
 
-def rings(group):
+def rings(group: Group) -> list[Record]:
     """Monitoring rings in ring order."""
     me = group.getMe()
-    out = []
+    out: list[Record] = []
     for r in group.view.mRings:
         out.append({"nr": r.name, "members": [memberRow(m, me) for m in r]})
     return out
 
 
-def monitoring(group):
+def monitoring(group: Group) -> dict[str, list[Record]]:
     """Members this member pings, with their timeout policy, and its
     gossip connections."""
     me = group.getMe()
-    out = {"targets": [], "gossip": []}
+    out: dict[str, list[Record]] = {"targets": [], "gossip": []}
 
     fd = _service(group, "fd")
-    if fd is not None:
-        for m in sorted(getattr(fd, "monitoring", {}), key=lambda m: m.getAddress()):
+    if isinstance(fd, FailureDetector):
+        for m in sorted(fd.monitoring, key=lambda m: m.getAddress()):
             policy = fd.policies.get(m)
             out["targets"].append({
                 "member": memberRow(m, me),
@@ -132,9 +138,12 @@ def monitoring(group):
                 "outstanding": len(fd.outstanding.get(m, ())),
             })
 
+    # A gossip.Gossip or gossipsim.Gossip. Importing either needs the set
+    # reconciliation extension, so this is not checked with isinstance.
     gossip = _service(group, "gossip")
     if gossip is not None:
-        for m, factory in sorted(gossip.neighborPool.items(), key=lambda i: i[0].getAddress()):
+        pool: dict[Member, Any] = gossip.neighborPool
+        for m, factory in sorted(pool.items(), key=lambda i: i[0].getAddress()):
             proto = factory.connectedProtocol
             if not (factory.isActive() or proto):
                 continue
@@ -147,9 +156,9 @@ def monitoring(group):
     return out
 
 
-def stats(group):
+def stats(group: Group) -> list[Record]:
     s = collectStatistic(group)
-    out = []
+    out: list[Record] = []
     for name in fireflies.stats.listStatistics():
         doc = fireflies.stats.statistics[name][0]
         value = getattr(s, name)
@@ -158,9 +167,9 @@ def stats(group):
     return out
 
 
-def _service(group, name):
+def _service(group: Group, name: str) -> Any:
     try:
-        return group.getServiceNamed(name)
+        return cast(Any, group.getServiceNamed(name))  # pyright: ignore[reportUnknownMemberType]  # untyped in Twisted
     except KeyError:
         return None
 
@@ -183,24 +192,24 @@ class History(Service):
     }
     PER_MINUTE = {"received", "rejected"}
 
-    def __init__(self, group, interval=10, size=360):
+    def __init__(self, group: Group, interval: float = 10, size: int = 360) -> None:
         self.group = group
         self.interval = interval
         self.size = size
-        self.samples = collections.deque(maxlen=size)
-        self._task = None
+        self.samples: collections.deque[Record] = collections.deque(maxlen=size)
+        self._task: "LoopingCall | None" = None
 
-    def startService(self):
+    def startService(self) -> None:
         Service.startService(self)
         self._task = LoopingCall(self.sample)
         self._task.start(self.interval, now=True)
 
-    def stopService(self):
+    def stopService(self) -> None:
         Service.stopService(self)
         if self._task and self._task.running:
             self._task.stop()
 
-    def sample(self, now=None):
+    def sample(self, now: "float | None" = None) -> None:
         s = collectStatistic(self.group)
         names = {name for chart in self.RATES.values() for _, name in chart}
         self.samples.append({
@@ -209,11 +218,11 @@ class History(Service):
             "stats": {name: getattr(s, name) for name in names},
         })
 
-    def series(self):
+    def series(self) -> Record:
         """Return the samples as chart series. Rates need two samples,
         so the first sample only serves as the starting point."""
-        out = {"interval": self.interval, "t": [],
-               "members": {k: [] for k in ("live", "accused", "failed")}}
+        out: Record = {"interval": self.interval, "t": [],
+                       "members": {k: [] for k in ("live", "accused", "failed")}}
         for chart, series in self.RATES.items():
             out[chart] = {label: [] for label, _ in series}
         samples = list(self.samples)
