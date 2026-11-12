@@ -1,5 +1,7 @@
 """TLS between members over loopback, using the options from makeSSLCtx."""
 
+from typing import TYPE_CHECKING, Any
+
 from twisted.internet import defer, protocol, reactor
 from twisted.internet.interfaces import IHandshakeListener
 from twisted.trial import unittest
@@ -7,8 +9,6 @@ from zope.interface import implementer
 
 from fireflies import crypto, protocols
 from fireflies.test.helpers import makeCA, makeMember
-
-from typing import TYPE_CHECKING, Any
 
 # The mixins below use TestCase methods; tell the type checker so without
 # making them test cases trial would collect.

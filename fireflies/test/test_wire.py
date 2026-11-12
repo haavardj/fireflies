@@ -2,6 +2,7 @@
 
 import shutil
 import tempfile
+from typing import TYPE_CHECKING, Any
 
 from twisted.trial import unittest
 
@@ -10,8 +11,6 @@ import fireflies.fd
 import fireflies.group
 from fireflies import crypto, packer, persist, state, xdr
 from fireflies.test.helpers import makeCA, makeMember, noteOf
-
-from typing import TYPE_CHECKING, Any
 
 # The mixins below use TestCase methods; tell the type checker so without
 # making them test cases trial would collect.

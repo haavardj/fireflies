@@ -2,13 +2,13 @@
 
 import json
 
-from fireflies.util import reactor
 from twisted.trial import unittest
 from twisted.web.client import Agent, readBody
 
 import fireflies.group
 from fireflies import fd
 from fireflies.test.helpers import makeCA, makeMember, noteOf
+from fireflies.util import reactor
 
 try:
     import fireflies.web.app as webapp

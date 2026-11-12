@@ -2,7 +2,6 @@
 
 import random
 
-from fireflies.util import reactor
 from twisted.trial import unittest
 
 import fireflies
@@ -10,6 +9,7 @@ import fireflies.group
 import fireflies.view
 from fireflies import fd
 from fireflies.test.helpers import makeCA, makeMember, noteOf
+from fireflies.util import reactor
 
 
 class ExpSmoothedTimeoutPolicyTest(unittest.TestCase):
@@ -25,9 +25,9 @@ class ExpSmoothedTimeoutPolicyTest(unittest.TestCase):
         m.smoothing = 0.994
         for y in [0, 1, 2, 3, 4, 10, 100]:
             m.avgLoss = float(y) + 1
-            for x in range(100):
+            for _x in range(100):
                 m.pinged()
-                for j in range(y): m.pinged()
+                for _j in range(y): m.pinged()
                 m.ponged()
             self.assertAlmostEqual(m.avgLoss, y + 1.0, 4)
 
@@ -36,15 +36,15 @@ class ExpSmoothedTimeoutPolicyTest(unittest.TestCase):
         m.smoothing = 0.990
         for y in [0, 1, 2, 3, 4, 10, 100]:
             m.avgLoss = y + 1 * (1 + random.random())
-            for x in range(1000):
+            for _x in range(1000):
                 m.pinged()
-                for j in range(y): m.pinged()
+                for _j in range(y): m.pinged()
                 m.ponged()
             self.assertAlmostEqual(m.avgLoss, y + 1.0, 4)
 
     def testTimedOut(self):
         m = fd.ExpSmoothedTimeoutPolicy()
-        for x in range(100):
+        for _x in range(100):
             m.pinged()
         self.assertTrue(m.isTimedOut())
         m.ponged()
@@ -52,7 +52,7 @@ class ExpSmoothedTimeoutPolicyTest(unittest.TestCase):
 
     def testThresholdAtLeastTMin(self):
         m = fd.ExpSmoothedTimeoutPolicy(tMin=3)
-        for x in range(3):
+        for _x in range(3):
             self.assertFalse(m.isTimedOut())
             m.pinged()
 
@@ -65,7 +65,7 @@ class ExpSmoothedTimeoutPolicyTest(unittest.TestCase):
     def testResetKeepsEstimate(self):
         m = fd.ExpSmoothedTimeoutPolicy()
         before = m.avgLoss
-        for x in range(5): m.pinged()
+        for _x in range(5): m.pinged()
         m.reset()
         self.assertEqual((m.nPing, m.avgLoss), (0, before))
 
@@ -128,7 +128,7 @@ class PongAuthenticationTest(unittest.TestCase):
     def deliver(self, src, dst):
         """Deliver everything src has sent to dst."""
         sent, src.protocol.transport.sent = src.protocol.transport.sent, []
-        for data, addr in sent:
+        for data, _addr in sent:
             dst.protocol.datagramReceived(data, ("127.0.0.1", 1))
         return [d for d, a in sent]
 
@@ -194,7 +194,7 @@ class PongAuthenticationTest(unittest.TestCase):
         self.assertEqual(self.policy().nPing, 0)
 
     def testOutstandingNoncesBounded(self):
-        for x in range(fd.MAX_OUTSTANDING + 10):
+        for _x in range(fd.MAX_OUTSTANDING + 10):
             self.pingB()
         self.assertEqual(len(self.fdA.outstanding[self.bAtA]), fd.MAX_OUTSTANDING)
 
@@ -209,12 +209,12 @@ class PongAuthenticationTest(unittest.TestCase):
         """Run doPing on a member A may accuse. After each ping, answer(ping)
         returns a datagram to give A, or None."""
         target = self._monitoredByA()
-        for x in range(rounds):
+        for _x in range(rounds):
             self.fdA.doPing(target)
             sent, self.fdA.protocol.transport.sent = self.fdA.protocol.transport.sent, []
             if self.A.stats.accusationsCreated:
                 return target
-            for data, addr in sent:
+            for data, _addr in sent:
                 reply = answer(target, unpack(data))
                 if reply is not None:
                     self.fdA.protocol.datagramReceived(reply, ("127.0.0.1", 1))
@@ -237,7 +237,7 @@ class PongAuthenticationTest(unittest.TestCase):
         self.assertTrue(self.A.stats.pongsRejected > 0)
 
     def testReplayedPongsDoNotPreventAccusation(self):
-        target = self._monitoredByA()
+        self._monitoredByA()  # skips the test if A may accuse neither
         keyOf = {self.bAtA: self.keys[1], self.cAtA: self.keys[2]}
         recorded = []
         def answer(target, ping):

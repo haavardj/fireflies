@@ -1,10 +1,12 @@
 """Command-line tool ffcasign."""
 
-import os.path, sys
+import os.path
+import sys
+from optparse import OptionParser
+
 import fireflies
 import fireflies.crypto
 import fireflies.persist
-from optparse import OptionParser
 
 
 def main() -> None:

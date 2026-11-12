@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 ######################################################################
 ## Filename:      stats.py
 ## Description:   Fireflies runtime statistic.
@@ -157,8 +156,8 @@ class Stats:
         try:
             return self.__dict__["_data"][name]
         except KeyError:
-            raise AttributeError("Invalid attribute %s" % name)
-        
+            raise AttributeError("Invalid attribute %s" % name) from None
+
     def __setattr__(self, name: str, value: float) -> None:
         if name not in self._data:
             raise AttributeError("Invalid attribute %s" % name)

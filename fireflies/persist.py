@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 ######################################################################
 ## Filename:      persist.py
 ## Description:   Fireflies persistence.
@@ -17,7 +16,7 @@ given. Notes and accusations are pickled."""
 import glob
 import os
 import pickle
-from os.path import join, exists, isdir
+from os.path import exists, isdir, join
 from typing import TYPE_CHECKING, Any
 
 from fireflies import crypto

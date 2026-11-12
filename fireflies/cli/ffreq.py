@@ -1,9 +1,10 @@
 """Command-line tool ffreq."""
 
+import sys
+from optparse import OptionParser
+
 import fireflies.crypto
 import fireflies.persist
-from optparse import OptionParser
-import sys
 
 
 def main() -> None:

@@ -12,21 +12,22 @@
 ##
 ######################################################################
 
-import logging
 import hashlib
-from typing import TYPE_CHECKING, Any, Callable
+import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
-from twisted.internet import defer, tcp
 from twisted.application.service import Service
+from twisted.internet import defer, tcp
 from twisted.internet.task import LoopingCall
 from twisted.python.failure import Failure
 
 import fireflies
-from fireflies import crypto, setrecon, ring
 import fireflies.protocols
+from fireflies import crypto, ring, setrecon
 from fireflies.protocols import ReconnectingPeerFactory
 from fireflies.setrecon import ReconSet, ZZ_p, node, vec_ZZ_p
-from fireflies.state import Note, Accusation, Member
+from fireflies.state import Accusation, Member, Note
 from fireflies.util import setServiceParent
 
 if TYPE_CHECKING:
@@ -96,8 +97,8 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
 
     def __init__(self) -> None:
         fireflies.protocols.FirefliesProtocol.__init__(self)
-        self.curNode: "node | None" = None
-        self.nodes: "list[node | None]" = []
+        self.curNode: node | None = None
+        self.nodes: list[node | None] = []
         self.dataBuff: list[Any] = []
         self.reqBuff: list[ZZ_p] = []
         self.outBuff: list[ZZ_p] = []
@@ -258,7 +259,7 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
 
                 if status == 0:
                     if LOGSETRECON: self.logger.debug("reconcile %s reconcile failed valids", self)
-                    c: "list[node | None]" = []
+                    c: list[node | None] = []
                     for x in range(self.set.p):
                         n = myNode.getChild(x) if myNode.hasChild(x) else None
                         if n is not None:
@@ -535,7 +536,7 @@ class Gossip(Service):
         self.connectedAsServer: set[ReconnectingPeerFactory] = set()
         self.active: set[ReconnectingPeerFactory] = set()
         self.neighborPool: dict[Member, ReconnectingPeerFactory] = {}
-        self.eventHandlers: list["HandlerRef"] = []
+        self.eventHandlers: list[HandlerRef] = []
 
         self.sFactory = fireflies.protocols.PeerServerFactory(self)
         self.sFactory.peerProtocol = ServerProtocol

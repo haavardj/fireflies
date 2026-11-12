@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 ######################################################################
 ## Filename:      ring.py
 ## Description:   Ring classes.
@@ -13,8 +12,17 @@
 ##                
 ######################################################################
 
-import bisect, hashlib
-from typing import Any, Callable, Generic, Iterator, Protocol, Sequence, TypeVar, cast, overload
+import bisect
+import hashlib
+from collections.abc import Callable, Iterator, Sequence
+from typing import (
+    Any,
+    Generic,
+    Protocol,
+    TypeVar,
+    cast,
+    overload,
+)
 
 
 class Identifiable(Protocol):
@@ -110,7 +118,7 @@ class Ring(Generic[T]):
         try:
             return self.__keylist.index(key)
         except ValueError:
-            raise ValueError("Item %s not in ring" % str(item))
+            raise ValueError("Item %s not in ring" % str(item)) from None
         
     def insert(self, item: T) -> int:
         """Insert item into the ring. 
@@ -134,7 +142,7 @@ class Ring(Generic[T]):
         try:
             del self[self.index(item)]
         except ValueError:
-            raise ValueError("Item %s not in ring" % str(item))
+            raise ValueError("Item %s not in ring" % str(item)) from None
         
     def __delitem__(self, idx: int) -> None:
         key = self.__keylist[idx]

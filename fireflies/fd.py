@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 ######################################################################
 ## Filename:      fd.py
 ## Description:   Fireflies failure detection protocol.
@@ -16,25 +15,25 @@
 """Failure detection protocol using adaptive pinging.""" 
 
 import logging
+import secrets
 from math import log
 from typing import Any, TypeVar
 
-from twisted.internet.protocol import DatagramProtocol
-from twisted.internet.udp import Port
 from twisted.application.service import Service
+from twisted.internet.protocol import DatagramProtocol
+from twisted.internet.task import LoopingCall
+from twisted.internet.udp import Port
 from twisted.python.failure import Failure
-from fireflies.state import Accusation, Member
 
-from . import crypto
 import fireflies
 import fireflies.group
 import fireflies.view
 from fireflies.ring import NamedRing
-import secrets
-
-from .packer import FirefliesPacker, FirefliesUnpacker
+from fireflies.state import Accusation, Member
 from fireflies.util import reactor, setServiceParent
-from twisted.internet.task import LoopingCall
+
+from . import crypto
+from .packer import FirefliesPacker, FirefliesUnpacker
 
 noisy = 0
 MSG_PING = 0x23
@@ -245,7 +244,7 @@ class FailureDetector(Service):
         setServiceParent(self, group)
         self.pinglist: list[Member] = []
         self.monitoring: dict[Member, LoopingCall] = {}
-        self._udpport: "Port | None" = None
+        self._udpport: Port | None = None
 
         # Per monitored member: timeout policy, and nonces of pings that
         # have not been answered. Kept when monitoring stops so the

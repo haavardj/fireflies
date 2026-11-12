@@ -1,18 +1,18 @@
 #import unittest
-from fireflies import ring
-
-from twisted.trial import unittest
-from zope.interface import implementer
-from fireflies.interfaces import IIdentifiableObject
 import functools
 import random
 from functools import reduce
 
+from twisted.trial import unittest
+from zope.interface import implementer
+
+from fireflies import ring
+from fireflies.interfaces import IIdentifiableObject
 
 
 @implementer(IIdentifiableObject)
 @functools.total_ordering
-class RingObject(object):
+class RingObject:
 
     def __init__(self, sn):
         self.sn = sn
@@ -81,7 +81,7 @@ class RingQueryTest(unittest.TestCase):
     def testSucc(self):                
         start = current = random.choice(self.ring)
         current = self.ring.succ(current)
-        for x in range(len(self.objs)-1):
+        for _x in range(len(self.objs)-1):
             self.assertEqual(self.ring.pred(self.ring.succ(current)), current)
             self.assertNotEqual(start, current)
             current = self.ring.succ(current)            
@@ -90,7 +90,7 @@ class RingQueryTest(unittest.TestCase):
     def testPred(self):
         start = current = random.choice(self.ring)
         current = self.ring.pred(current)
-        for x in range(len(self.objs)-1):
+        for _x in range(len(self.objs)-1):
             self.assertEqual(self.ring.succ(self.ring.pred(current)), current)
             self.assertNotEqual(start, current)
             current = self.ring.pred(current)            

@@ -2,7 +2,8 @@
 #import fireflies.group, fireflies.members
 
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Protocol
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any, Protocol
 
 import twisted.internet.address
 from OpenSSL import crypto as ossl

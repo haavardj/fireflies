@@ -15,19 +15,21 @@
 """Fireflies group interface."""
 
 import logging
-from typing import Any, Callable, Hashable
+from collections.abc import Callable, Hashable
+from typing import Any
 
 from OpenSSL import SSL
 from twisted.application.service import MultiService
 from twisted.internet import defer, ssl
-from fireflies.state import Accusation, Note, Member, createInitialNote
-from fireflies.view import View
+
+import fireflies.protocols
+import fireflies.stats
+from fireflies import crypto
 from fireflies.crypto import identityFromCertificate
 from fireflies.ring import Ring
-import fireflies.stats
-import fireflies.protocols
-from fireflies import crypto
+from fireflies.state import Accusation, Member, Note, createInitialNote
 from fireflies.util import reactor
+from fireflies.view import View
 
 # An event handler: the function and the extra arguments it was registered with.
 Upcall = tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any]]
@@ -47,7 +49,7 @@ class Group(MultiService):
     
     def __init__(self, groupCertificate: crypto.Certificate, myKey: crypto.PrivateKey,
                  myCertificate: crypto.Certificate, myNote: "Note | None" = None,
-                 logger: logging.Logger = logging.getLogger()) -> None:
+                 logger: logging.Logger | None = None) -> None:
         """
         A group must be initialized with a group certificate and your member certificate and 
         private key.
@@ -68,7 +70,7 @@ class Group(MultiService):
 
         MultiService.__init__(self)
         self.stats = fireflies.stats.Stats()
-        self.logger = logger
+        self.logger = logger or logging.getLogger()
         
         
         self._groupCertificate = groupCertificate

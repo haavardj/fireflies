@@ -1,9 +1,13 @@
 """Command-line tool ffcamember."""
 
-import fireflies, os.path, sys, socket
+import os.path
+import socket
+import sys
+from optparse import OptionParser
+
+import fireflies
 import fireflies.crypto
 import fireflies.persist
-from optparse import OptionParser
 
 
 def main() -> None:

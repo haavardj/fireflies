@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 ######################################################################
 ## Filename:      setrecon.py
 ## Description:   High-Level set-recon library.
@@ -13,13 +12,25 @@
 ##                
 ######################################################################
 
-from .setreconbase import *
-from .setreconbase import ZZ, ZZ_p, difference_set, node, reconciled_set, to_ZZ, to_ZZ_p, vec_ZZ_p
-from . import setreconbase as _base
-from fireflies.util import bytes_to_long
 import hashlib
 import importlib
-from typing import Any, Callable, Generic, Iterable, Iterator, TypeVar
+from collections.abc import Callable, Iterable, Iterator
+from typing import Any, Generic, TypeVar
+
+from fireflies.util import bytes_to_long
+
+from . import setreconbase as _base
+from .setreconbase import *
+from .setreconbase import (
+    ZZ,
+    ZZ_p,
+    difference_set,
+    node,
+    reconciled_set,
+    to_ZZ,
+    to_ZZ_p,
+    vec_ZZ_p,
+)
 
 E = TypeVar("E")
 
@@ -125,8 +136,8 @@ class Reconciliation(Generic[E]):
         self.rset = rset
         r = rset.getRootPartition()
         if r: r.ref()
-        self.nodes: "list[node | None]" = [r]
-        self.current: "node | None" = None
+        self.nodes: list[node | None] = [r]
+        self.current: node | None = None
 
         self.meMissing: set[ZZ_p] = set()
         self.otherMissing: set[E] = set()
@@ -191,7 +202,7 @@ class Reconciliation(Generic[E]):
                                           c.valids)
               
         if status == 0:
-            t: "list[node | None]" = []
+            t: list[node | None] = []
             for x in range(self.rset.p):
                 i = c.getChild(x)
                 if i: i.ref()                    
@@ -224,13 +235,13 @@ def diffs(setA: "ReconSet[E]", setB: "ReconSet[E]") -> tuple[set[E], set[E]]:
     rootB = setB.getRootPartition()
     rootA.ref()
     rootB.ref()
-    nodeAs: "list[node | None]" = [rootA]
-    nodeBs: "list[node | None]" = [rootB]
+    nodeAs: list[node | None] = [rootA]
+    nodeBs: list[node | None] = [rootB]
     aMissing: set[ZZ_p] = set()
     bMissing: set[ZZ_p] = set()
 
-    nodeA: "node | None" = None
-    nodeB: "node | None" = None
+    nodeA: node | None = None
+    nodeB: node | None = None
     round = -1
     
     while nodeAs:
@@ -302,7 +313,7 @@ def diffs(setA: "ReconSet[E]", setB: "ReconSet[E]") -> tuple[set[E], set[E]]:
         if status == 0:
             # Setrecon failed. Do children
             for x in range(setA.p):
-                t: "list[node | None]" = []
+                t: list[node | None] = []
                 n = nodeA.getChild(x) if nodeA.hasChild(x) else None
                 if n is not None:
                     n.ref()

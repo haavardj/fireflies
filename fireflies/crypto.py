@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 ######################################################################
 ## Filename:      crypto.py
 ## Description:   Fireflies crypto functions.
@@ -22,7 +21,8 @@ from __future__ import annotations
 
 import datetime
 import hashlib
-from typing import Callable, Union
+from collections.abc import Callable
+from typing import Union
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
@@ -47,10 +47,10 @@ ECCURVE = ec.SECP256R1
 _HASH = hashes.SHA256
 
 # Data that can be signed or hashed. Strings are encoded as UTF-8.
-Data = Union[str, bytes, bytearray, memoryview]
+Data = str | bytes | bytearray | memoryview
 
 # A password, or a callable that returns one when it is needed.
-Password = Union[str, bytes, None, Callable[[], Union[str, bytes, None]]]
+Password = str | bytes | Callable[[], str | bytes | None] | None
 
 # Anything a public key can be taken from.
 KeySource = Union["PublicKey", "PrivateKey", "Certificate"]
@@ -133,7 +133,7 @@ class PrivateKey:
             # The key is encrypted.
             pw = _password(password)
             if pw is None:
-                raise ValueError("Private key is encrypted; a password is needed.")
+                raise ValueError("Private key is encrypted; a password is needed.") from None
             return cls(serialization.load_pem_private_key(raw, pw))
 
     @classmethod
@@ -603,7 +603,7 @@ def identityFromCertificate(cert: Certificate) -> str:
     try:
         ext = cert.x509.extensions.get_extension_for_class(x509.SubjectKeyIdentifier)
     except x509.ExtensionNotFound:
-        raise LookupError("No subjectKeyIdentifier in %s" % cert.as_text())
+        raise LookupError("No subjectKeyIdentifier in %s" % cert.as_text()) from None
     return ext.value.digest.hex().upper()
 
 

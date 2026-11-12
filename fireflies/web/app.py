@@ -2,8 +2,9 @@
 
 import json
 import time
-from typing import Any, Callable, TypeVar, cast
+from collections.abc import Callable
 from importlib import resources
+from typing import Any, TypeVar, cast
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 from klein import Klein
@@ -110,8 +111,9 @@ def listen(group: Group, port: int, interface: str = "127.0.0.1") -> Any:
     """Serve the web UI for group on interface:port. The history sampler
     runs as a child service of group, so it starts and stops with it.
     Returns the listening port; its webui attribute is the WebUI."""
-    from fireflies.util import reactor
     from twisted.web.server import Site
+
+    from fireflies.util import reactor
 
     ui = WebUI(group)
     setServiceParent(ui.history, group)

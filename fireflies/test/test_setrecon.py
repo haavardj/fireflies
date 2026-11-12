@@ -1,7 +1,7 @@
-from twisted.trial import unittest
 import random
-
 from typing import TYPE_CHECKING
+
+from twisted.trial import unittest
 
 if TYPE_CHECKING:
     from fireflies import setrecon
@@ -60,8 +60,8 @@ class SequentialTest(unittest.TestCase):
         self.assertEqual(bMissing, self.diffA)#, "\n%s\n%s" %( bDiff-self.diffB , self.diffB - bDiff) )
         
         if pydot is not None:
-            d = setrecon.dottySet(self.setA)
-            d = setrecon.dottySet(self.setB)
+            setrecon.dottySet(self.setA)
+            setrecon.dottySet(self.setB)
 
     def testSetMembership(self):
 
@@ -102,13 +102,13 @@ class RandomSetTest(SequentialTest):
         self.setA = setrecon.ReconSet(3, 5)
         self.setB = setrecon.ReconSet(3, 5)        
         
-        for x in range(self.commonSize): 
+        for _x in range(self.commonSize): 
             v = random.randint(30, 2**bitsize)
             self.common.add(v)
             self.setA.add(v)
             self.setB.add(v)
             
-        for x in range(self.diffASize): 
+        for _x in range(self.diffASize): 
             while 1:
                 v = random.randint(30, 2**bitsize)
                 if v in self.common: continue
@@ -116,7 +116,7 @@ class RandomSetTest(SequentialTest):
                 self.setA.add(v)
                 break
 
-        for x in range(self.diffBSize): 
+        for _x in range(self.diffBSize): 
             while 1:
                 v = random.randint(30, 2**bitsize)
                 if v in self.common: continue

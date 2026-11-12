@@ -197,7 +197,7 @@ class History(Service):
         self.interval = interval
         self.size = size
         self.samples: collections.deque[Record] = collections.deque(maxlen=size)
-        self._task: "LoopingCall | None" = None
+        self._task: LoopingCall | None = None
 
     def startService(self) -> None:
         Service.startService(self)
@@ -226,7 +226,7 @@ class History(Service):
         for chart, series in self.RATES.items():
             out[chart] = {label: [] for label, _ in series}
         samples = list(self.samples)
-        for prev, cur in zip(samples, samples[1:]):
+        for prev, cur in zip(samples, samples[1:], strict=False):
             dt = cur["t"] - prev["t"]
             if dt <= 0:
                 continue

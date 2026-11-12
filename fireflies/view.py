@@ -18,15 +18,15 @@ as specified by the Fireflies protocol.
 
 
 import logging
-from typing import TYPE_CHECKING, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING
 
 from twisted.internet.base import DelayedCall
 
 import fireflies
-from fireflies.state import Note, Accusation, Member, isValidMask
+from fireflies import crypto, ring
 from fireflies.crypto import identityFromCertificate, shortIdentity
-from fireflies import ring
-from fireflies import crypto
+from fireflies.state import Accusation, Member, Note, isValidMask
 from fireflies.util import reactor
 
 if TYPE_CHECKING:

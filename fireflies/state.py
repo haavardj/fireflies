@@ -15,10 +15,10 @@
 """This module provides classes that are used to represent the state of members in a group."""
 
 import functools
-import random
-
 import logging
-from typing import TYPE_CHECKING, Any, Sequence
+import random
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 import twisted.internet.address
 
@@ -193,7 +193,7 @@ class Note(crypto.Signable, TimeStampMixin):
     
 
 @functools.total_ordering
-class Member(object):
+class Member:
     """Encapsulates known state of a group member.
 
     @ivar group: The group in which this member is a member of.
@@ -207,7 +207,7 @@ class Member(object):
     def __init__(self, cert: crypto.Certificate, group: "Group") -> None:
 
         self._cert = cert
-        self._note: "Note | None" = None
+        self._note: Note | None = None
         self.group = group
         self.identity = crypto.identityFromCertificate(self._cert)
                 

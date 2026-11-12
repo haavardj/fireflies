@@ -35,13 +35,13 @@ class Packer:
         try:
             self._buf += struct.pack(">I", x)
         except struct.error as e:
-            raise ConversionError(e)
+            raise ConversionError(e) from e
 
     def pack_int(self, x: int) -> None:
         try:
             self._buf += struct.pack(">i", x)
         except struct.error as e:
-            raise ConversionError(e)
+            raise ConversionError(e) from e
 
     def pack_bool(self, x: object) -> None:
         self._buf += b"\x00\x00\x00\x01" if x else b"\x00\x00\x00\x00"

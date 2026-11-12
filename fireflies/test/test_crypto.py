@@ -1,7 +1,8 @@
+
 from twisted.trial import unittest
-import fireflies
+
 from fireflies import crypto
-import binascii
+
 
 def noGeygens(): pass
 
@@ -67,7 +68,7 @@ class CertificateTest(unittest.TestCase):
         pkey = self.mCert.get_pubkey()        
         id3 = crypto.subjectKeyIdentifierToID(crypto.computeSubjectKeyIdentifier(pkey))
         id4 = crypto.identityFromCertificate(self.mCert)
-        self.assertTrue(id2 == id1)
+        self.assertTrue(id4 == id3)
         
         self.assertFalse(id1 == id3)
         

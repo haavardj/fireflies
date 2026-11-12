@@ -3,7 +3,8 @@
 #
 # Licence: MIT (see the LICENCE file at the top of the repository).
 
-from typing import Any, Iterator, overload
+from collections.abc import Iterator
+from typing import Any, overload
 
 class node:
     hash_vector: vec_ZZ_p

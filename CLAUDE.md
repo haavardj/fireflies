@@ -34,9 +34,17 @@ python -m twisted.trial fireflies.test.test_ring.NumberedRingQueryTest.testPred 
 Type checking uses pyright (Pylance in VS Code reads the same config, `[tool.pyright]` in `pyproject.toml`): strict mode for the package, standard mode for `fireflies/test`. It overrides a user-level strict setting. Analysis assumes Linux. Keep it at zero errors:
 
 ```sh
-pip install pyright
+pip install -e ".[dev]"                          # ruff and pyright
 pyright --pythonpath .venv/Scripts/python.exe    # or .venv/bin/python
 ```
+
+Lint with ruff (`[tool.ruff]` in `pyproject.toml`: pyflakes, bugbear, pyupgrade and isort-style import order). Keep it clean; `--fix` sorts imports and removes unused ones:
+
+```sh
+python -m ruff check --fix fireflies
+```
+
+Keep `%`-formatting (UP031/UP032 are off) and camelCase names: Fireflies overrides Twisted's camelCase methods. A Stop hook in `.claude/settings.json` runs ruff, pyright and the tests when Python files have uncommitted changes.
 
 Use `from fireflies.util import reactor` instead of `from twisted.internet import reactor`: pyright cannot type the installed reactor and reports its methods as unbound.
 

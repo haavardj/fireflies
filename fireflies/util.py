@@ -16,7 +16,8 @@
 
 
 import math
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from twisted.application.service import MultiService, Service
 from twisted.internet import reactor as _installedReactor

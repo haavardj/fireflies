@@ -12,20 +12,23 @@
 ##                
 ######################################################################
 
-import logging, fireflies
-from twisted.internet import defer, tcp
+import hashlib
+import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
 from twisted.application.service import Service
+from twisted.internet import defer, tcp
+from twisted.internet.task import LoopingCall
 from twisted.python.failure import Failure
 
-from fireflies import crypto, setrecon, ring
+import fireflies
 import fireflies.protocols
+from fireflies import crypto, ring, setrecon
 from fireflies.protocols import ReconnectingPeerFactory
 from fireflies.setrecon import ReconSet, ZZ_p, node
-from fireflies.state import Note, Accusation, Member
-import hashlib
+from fireflies.state import Accusation, Member, Note
 from fireflies.util import reactor, setServiceParent
-from twisted.internet.task import LoopingCall
-from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from fireflies.group import Group
@@ -86,8 +89,8 @@ class GossipBase(fireflies.protocols.FirefliesProtocol):
 
     def __init__(self) -> None:
         fireflies.protocols.FirefliesProtocol.__init__(self)
-        self.curNode: "node | None" = None
-        self.nodes: "list[node | None]" = []
+        self.curNode: node | None = None
+        self.nodes: list[node | None] = []
         self.dataBuff: list[Any] = []
         self.reqBuff: list[ZZ_p] = []
         self.outBuff: list[Any] = []
@@ -275,7 +278,7 @@ class ClientProtocol(GossipBase):
         self._timer = None
         self._d = None
         self.master = True
-        self.taskQ: "defer.DeferredQueue[AnySet | str]" = defer.DeferredQueue()
+        self.taskQ: defer.DeferredQueue[AnySet | str] = defer.DeferredQueue()
         GossipBase.__init__(self)  
 
     def idle(self) -> None:
@@ -454,7 +457,7 @@ class Gossip(Service):
         # Activate new connections
         
         nrpeers = len(outbound)
-        interval = self.rate / float((nrpeers or 1))
+        interval = self.rate / float(nrpeers or 1)
         
         for nr, him in enumerate(outbound):
 

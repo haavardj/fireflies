@@ -1,11 +1,13 @@
 """Command-line tool ffcanew."""
 
-import os.path, sys
+import os.path
+import sys
+from optparse import OptionParser
+
 import fireflies
 import fireflies.crypto
 import fireflies.persist
 import fireflies.util
-from optparse import OptionParser
 
 
 def main() -> None:

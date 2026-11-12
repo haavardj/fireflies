@@ -4,15 +4,24 @@ import warnings
 
 warnings.filterwarnings(action="ignore", category=DeprecationWarning)
 
+import errno
+import logging
+import logging.handlers
+import os
+import os.path
+import random
+import socket
+import sys
+
 from twisted.internet import task
 from twisted.python.failure import Failure
-from fireflies.util import reactor
-import errno, random, sys, os.path, logging, socket, os
-import logging.handlers
-import fireflies
-import fireflies.fd, fireflies.gossip, fireflies.group
-from fireflies import state, crypto, group, stats, persist
 
+import fireflies
+import fireflies.fd
+import fireflies.gossip
+import fireflies.group
+from fireflies import crypto, group, persist, state, stats
+from fireflies.util import reactor
 
 random.seed()
 

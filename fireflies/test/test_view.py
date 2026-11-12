@@ -21,7 +21,7 @@ class Rule8Test(unittest.TestCase):
         for g in groups[1:]:
             view.addCertificate(g.getMe().getCertificate())
             view.addNote(noteOf(g.getMe()))
-        self.keys = {g.getMe().identity: k for g, (c, k) in zip(groups, creds)}
+        self.keys = {g.getMe().identity: k for g, (c, k) in zip(groups, creds, strict=True)}
         self.view = view
         ring = view.mRings.getRings()[0]
         me = view.getMemberByIdentity(self.observer.getMe().identity)

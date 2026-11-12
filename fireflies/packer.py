@@ -12,13 +12,15 @@
 ##                
 ######################################################################
 
-from fireflies.state import Note, Accusation
-from fireflies.crypto import identitySize
-from fireflies.util import long_to_bytes, bytes_to_long
-from fireflies import crypto, xdr
-import socket
 import binascii
-from typing import TYPE_CHECKING, Any, Sequence
+import socket
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
+
+from fireflies import crypto, xdr
+from fireflies.crypto import identitySize
+from fireflies.state import Accusation, Note
+from fireflies.util import bytes_to_long, long_to_bytes
 
 # The set reconciliation extension is only needed for the gossip
 # messages. Everything else works without it.
@@ -237,8 +239,8 @@ def unpackMessage(data: bytes) -> tuple[str, tuple[Any, ...]]:
 
     elif cmd == "reconcile_next":
         node_type = p.unpack_uint()
-        hash_vector: "setrecon.vec_ZZ_p | None" = None
-        extra_hashes: "setrecon.vec_ZZ_p | None" = None
+        hash_vector: setrecon.vec_ZZ_p | None = None
+        extra_hashes: setrecon.vec_ZZ_p | None = None
         setsize = -1
         if node_type > 0:
             hash_vector = p.unpack_vec_ZZ_p()
