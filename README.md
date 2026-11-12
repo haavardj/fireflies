@@ -1,4 +1,4 @@
-# Fireflies
+# <picture><source media="(prefers-color-scheme: dark)" srcset="docs/logo/fireflies-logo-dark.svg"><img src="docs/logo/fireflies-logo-light.svg" alt="Fireflies" width="366" height="120"></picture>
 
 Fireflies is a membership and gossip service for peer-to-peer overlay networks, written in Python on Twisted. Each member keeps a view of the entire membership and gossips with a small set of neighbours. The protocol tolerates Byzantine members: corrupt members cannot incorrectly modify the views of correct members.
 
